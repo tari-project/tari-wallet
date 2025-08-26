@@ -1,13 +1,16 @@
+use crate::HexUtils;
 use crate::{
     key_manager::TransactionKeyManager, util::key_id::make_key_id_export_safe, SerializationError,
     StoredOutput, WalletError, WalletResult,
 };
 use borsh::BorshDeserialize;
 use std::str::FromStr;
+use tari_common_types::types::BulletRangeProof;
 use tari_common_types::types::{ComAndPubSignature, CompressedCommitment, CompressedPublicKey};
 use tari_crypto::ristretto::RistrettoSecretKey;
 use tari_script::ExecutionStack;
 use tari_script::TariScript;
+use tari_transaction_components::transaction_components::TransactionOutputVersion;
 use tari_transaction_components::{
     key_manager::TariKeyId,
     tari_amount::MicroMinotari,
@@ -67,8 +70,20 @@ impl OutputConverter {
             "TODO: commitment_mask_key_id: {}, export_safe_script_key_id: {}",
             commitment_mask_key_id, export_safe_script_key_id
         );
+        let rangeproof = o
+            .rangeproof
+            .map(|p| {
+                let hex = String::from_utf8(p)
+                    .map_err(|e| WalletError::ConversionError(e.to_string()))?;
+                let binary = HexUtils::from_hex(&hex)
+                    .map_err(|e| WalletError::ConversionError(e.to_string()))?;
+                BulletRangeProof::from_vec(&binary)
+                    .map_err(|e| WalletError::ConversionError(e.to_string()))
+            })
+            .transpose()?;
 
-        let wallet_output = WalletOutput::new_current_version(
+        let wallet_output = WalletOutput::new_with_rangeproof(
+            TransactionOutputVersion::get_current_version(),
             MicroMinotari(o.value),
             commitment_mask_key_id,
             features,
@@ -81,10 +96,9 @@ impl OutputConverter {
             covenant,
             encrypted_data,
             minimum_value_promise,
+            rangeproof,
             payment_id,
-            &self.transaction_key_manager.as_interface(),
-        )
-        .await?;
+        );
         Ok(wallet_output)
     }
 }
