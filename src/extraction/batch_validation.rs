@@ -265,6 +265,7 @@ mod tests {
             Covenant::default(),
             encrypted_data,
             MicroMinotari::from(0),
+            tari_transaction_components::transaction_components::OutputFeatures::default(),
         )
     }
 

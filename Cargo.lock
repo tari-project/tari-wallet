@@ -1749,6 +1749,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "tari_common",
  "tari_common_types",
  "tari_crypto",
  "tari_script",

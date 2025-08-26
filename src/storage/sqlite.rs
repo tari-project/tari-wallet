@@ -188,7 +188,7 @@ impl SqliteStorage {
                 -- Payment information
                 encrypted_data BLOB NOT NULL,
                 minimum_value_promise BIGINT NOT NULL,
-                payment_id TEXT NOT NULL,
+                payment_id BLOB NOT NULL,
 
                 -- Range proof
                 rangeproof BLOB,
@@ -1357,7 +1357,7 @@ impl WalletStorage for SqliteStorage {
                         output_clone.mined_height.map(|h| h as i64),
                         output_clone.block_hash,
                         output_clone.spent_in_tx_id.map(|id| id as i64),
-                         output_id as i64,
+                        output_id as i64,
                     ],
                 )?;
 
@@ -1376,7 +1376,7 @@ impl WalletStorage for SqliteStorage {
                     metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                     metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
                     status, mined_height, block_hash, spent_in_tx_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                     params![
                         output_clone.wallet_id as i64,
@@ -1405,7 +1405,7 @@ impl WalletStorage for SqliteStorage {
                         output_clone.status as i64,
                         output_clone.mined_height.map(|h| h as i64),
                         output_clone.block_hash,
-                            output_clone.spent_in_tx_id.map(|id| id as i64),
+                        output_clone.spent_in_tx_id.map(|id| id as i64),
                      ],
                 )?;
 
@@ -1481,7 +1481,7 @@ impl WalletStorage for SqliteStorage {
                          metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                          metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
                          status, mined_height, block_hash, spent_in_tx_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(wallet_id, commitment) DO UPDATE SET
                             status = EXCLUDED.status,
                             mined_height = COALESCE(EXCLUDED.mined_height, mined_height),

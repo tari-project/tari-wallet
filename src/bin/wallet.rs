@@ -6,6 +6,7 @@ use std::path::PathBuf;
 #[cfg(feature = "storage")]
 use clap::{Parser, Subcommand};
 
+use lightweight_wallet_libs::outgoing_tx_builder::OutgoingTxBuilder;
 #[cfg(feature = "storage")]
 use lightweight_wallet_libs::wallet::Wallet;
 #[cfg(feature = "storage")]
@@ -30,6 +31,7 @@ use lightweight_wallet_libs::{
     TransactionBroadcaster, WalletError,
 };
 
+use tari_common::configuration::Network;
 #[cfg(feature = "storage")]
 use tari_transaction_components::{
     tari_amount::MicroMinotari, transaction_components::memo_field::MemoField,
@@ -153,6 +155,34 @@ enum Commands {
         /// Output file name
         #[arg(long)]
         output_file: PathBuf,
+    },
+
+    /// Submit a transaction
+    SubmitTransaction {
+        /// Database file path
+        #[arg(long, default_value = "./wallet.db")]
+        database: String,
+
+        /// Wallet name (if not provided, will prompt for selection)
+        #[arg(long)]
+        wallet_name: Option<String>,
+
+        /// Transaction amount
+        #[arg(long)]
+        amount: u64,
+
+        /// Recipient address (in base58 format)
+        #[arg(long)]
+        recipient_address: String,
+
+        /// Base URL for the Tari base node GRPC endpoint
+        #[arg(
+            short,
+            long,
+            default_value = "http://127.0.0.1:18142",
+            help = "Base URL for Tari base node GRPC"
+        )]
+        base_url: String,
     },
 
     BroadcastSignedTransaction {
@@ -285,6 +315,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 output_file,
             )
             .await?;
+        }
+        Commands::SubmitTransaction {
+            database,
+            wallet_name,
+            amount,
+            recipient_address,
+            base_url,
+        } => {
+            handle_submit_transaction(database, wallet_name, amount, recipient_address, base_url)
+                .await?;
         }
         Commands::BroadcastSignedTransaction {
             input_file,
@@ -1157,6 +1197,47 @@ async fn handle_prepare_for_signing(
         "✅ Prepared transaction data saved to: {}",
         output_file.display()
     );
+    Ok(())
+}
+
+async fn handle_submit_transaction(
+    database_path: String,
+    wallet_name: Option<String>,
+    amount: u64,
+    recipient_address: String,
+    base_url: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::Arc;
+    use tari_common_types::tari_address::TariAddress;
+
+    let storage = if database_path == ":memory:" {
+        SqliteStorage::new_in_memory().await?
+    } else {
+        SqliteStorage::new(&database_path).await?
+    };
+
+    storage.initialize().await?;
+    let wallet = select_wallet(&storage, wallet_name).await?;
+
+    let fee_per_gram = MicroMinotari(5);
+    let payment_id = MemoField::default();
+    let dest_address = TariAddress::from_base58(&recipient_address)?;
+
+    let builder = OutgoingTxBuilder::build(Arc::new(storage), wallet.id.unwrap()).await?;
+    let result = builder
+        .build_tx(
+            Network::Esmeralda,
+            dest_address,
+            MicroMinotari(amount),
+            fee_per_gram,
+            payment_id,
+        )
+        .await?;
+
+    let mut client = GrpcBlockchainScanner::new(base_url).await?;
+    let result = client.submit_transaction(result.transaction).await?;
+
+    println!("✅ Transaction submitted with result: {}.", result);
     Ok(())
 }
 

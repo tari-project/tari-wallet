@@ -24,6 +24,7 @@ thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing
 
 # === Tari Ecosystem Dependencies ===
+tari_common  = { git = "https://github.com/SWvheerden/tari/", rev = "3161c5f6e154ca963d6afe7132c2a85859ffa246" }
 tari_common_types  = { git = "https://github.com/SWvheerden/tari/", rev = "3161c5f6e154ca963d6afe7132c2a85859ffa246" }
 tari_crypto = { version = "0.22.1", features = ["borsh"] }
 tari_utilities = { version = "0.8", features = ["std"] }

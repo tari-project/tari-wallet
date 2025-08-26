@@ -8,39 +8,38 @@ use crate::{
             PrepareOneSidedTransactionForSigningResult,
         },
     },
-    prepare::input_selector::{InputSelector, UtxoSelection},
+    prepare::{
+        input_selector::{InputSelector, UtxoSelection},
+        output_converter::OutputConverter,
+    },
     util::key_id::make_key_id_export_safe,
-    SerializationError, StoredOutput, Wallet, WalletError, WalletResult, WalletStorage,
+    Wallet, WalletError, WalletResult, WalletStorage,
 };
-use borsh::BorshDeserialize;
 use tari_common_types::{
     key_branches::TransactionKeyManagerBranch,
     tari_address::{TariAddress, TariAddressFeatures},
     transaction::TxId,
-    types::{ComAndPubSignature, CompressedCommitment, CompressedPublicKey},
     wallet_types::WalletType,
 };
-use tari_crypto::ristretto::RistrettoSecretKey;
-use tari_script::{script, ExecutionStack, TariScript};
+use tari_script::{script, ExecutionStack};
 use tari_transaction_components::{
     key_manager::{TariKeyId, TransactionKeyManagerInterface},
     tari_amount::MicroMinotari,
     transaction_components::{
         covenants::Covenant,
         memo_field::{MemoField, TxType},
-        EncryptedData, OutputFeatures, TransactionOutput, TransactionOutputVersion, WalletOutput,
+        OutputFeatures, TransactionOutput, TransactionOutputVersion, WalletOutput,
     },
 };
 
-use std::str::FromStr;
 use std::sync::Arc;
-use tari_utilities::ByteArray;
 
 pub struct OneSidedTransaction {
     database: Arc<dyn WalletStorage>,
     wallet_id: u32,
     wallet: Wallet,
     transaction_key_manager: TransactionKeyManager,
+    output_converter: OutputConverter,
 }
 
 impl OneSidedTransaction {
@@ -49,12 +48,14 @@ impl OneSidedTransaction {
         wallet_id: u32,
         wallet: Wallet,
         transaction_key_manager: TransactionKeyManager,
+        output_converter: OutputConverter,
     ) -> Self {
         Self {
             database,
             wallet_id,
             wallet,
             transaction_key_manager,
+            output_converter,
         }
     }
 
@@ -79,11 +80,14 @@ impl OneSidedTransaction {
         )
         .await?;
 
+        let output_converter = OutputConverter::new(transaction_key_manager.clone());
+
         Ok(Self::new(
-            database, // Use the original Arc for Self::new
+            database,
             wallet_id,
             wallet,
             transaction_key_manager,
+            output_converter,
         ))
     }
 
@@ -236,7 +240,10 @@ impl OneSidedTransaction {
     ) -> WalletResult<Vec<MarshalOutputPair>> {
         let mut result = vec![];
         for utxo in &unspent_outputs.utxos {
-            let wallet_output = self.wallet_output_from_stored_output(utxo.clone()).await?;
+            let wallet_output = self
+                .output_converter
+                .convert_to_wallet_output(utxo.clone())
+                .await?;
             let input = self.build_marshal_output_pair(wallet_output, None).await?;
             result.push(input);
         }
@@ -302,71 +309,6 @@ impl OneSidedTransaction {
             tx_id,
             info,
         })
-    }
-
-    async fn wallet_output_from_stored_output(
-        &self,
-        o: StoredOutput,
-    ) -> WalletResult<WalletOutput> {
-        let commitment_mask_key_id = TariKeyId::from_str(&o.commitment_mask_key)?;
-        let features = serde_json::from_str(&o.features_json)
-            .map_err(|err| WalletError::ConversionError(err.to_string()))?;
-        let input_data = ExecutionStack::from_bytes(&o.input_data)?;
-        let export_safe_script_key_id = make_key_id_export_safe(
-            &self.transaction_key_manager,
-            &TariKeyId::from_str(&o.script_key)?,
-        )
-        .await?;
-        let sender_offset_public_key =
-            CompressedPublicKey::from_canonical_bytes(&o.sender_offset_public_key)
-                .map_err(|err| WalletError::ConversionError(err.to_string()))?;
-        let metadata_signature = ComAndPubSignature::new(
-            CompressedCommitment::from_canonical_bytes(&o.metadata_signature_ephemeral_commitment)
-                .map_err(|err| WalletError::ConversionError(err.to_string()))?,
-            CompressedPublicKey::from_canonical_bytes(&o.metadata_signature_ephemeral_pubkey)
-                .map_err(|err| WalletError::ConversionError(err.to_string()))?,
-            RistrettoSecretKey::from_canonical_bytes(&o.metadata_signature_u_a)
-                .map_err(|err| WalletError::ConversionError(err.to_string()))?,
-            RistrettoSecretKey::from_canonical_bytes(&o.metadata_signature_u_x)
-                .map_err(|err| WalletError::ConversionError(err.to_string()))?,
-            RistrettoSecretKey::from_canonical_bytes(&o.metadata_signature_u_y)
-                .map_err(|err| WalletError::ConversionError(err.to_string()))?,
-        );
-        let script_lock_height = o.script_lock_height;
-        let mut covenant = o.covenant.as_bytes();
-        let covenant = BorshDeserialize::deserialize(&mut covenant)
-            .map_err(|e| SerializationError::BorshDeserializationError(e.to_string()))?;
-        let encrypted_data = EncryptedData::from_bytes(&o.encrypted_data)
-            .map_err(|e| WalletError::ConversionError(e.to_string()))?;
-        let minimum_value_promise = MicroMinotari(o.minimum_value_promise);
-        let payment_id = MemoField::from_bytes(&o.payment_id);
-
-        let script_bytes = &hex::decode(o.script).map_err(SerializationError::from)?;
-        let script = TariScript::from_bytes(script_bytes)?;
-
-        println!(
-            "TODO: commitment_mask_key_id: {}, export_safe_script_key_id: {}",
-            commitment_mask_key_id, export_safe_script_key_id
-        );
-
-        let wallet_output = WalletOutput::new_current_version(
-            MicroMinotari(o.value),
-            commitment_mask_key_id,
-            features,
-            script,
-            input_data,
-            export_safe_script_key_id.clone(),
-            sender_offset_public_key,
-            metadata_signature,
-            script_lock_height,
-            covenant,
-            encrypted_data,
-            minimum_value_promise,
-            payment_id,
-            &self.transaction_key_manager.as_interface(),
-        )
-        .await?;
-        Ok(wallet_output)
     }
 
     fn get_payment_id(
