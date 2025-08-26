@@ -2,14 +2,17 @@ use std::sync::Arc;
 
 use crate::{
     key_manager::TransactionKeyManager,
-    prepare::{input_selector::InputSelector, output_converter::OutputConverter},
+    prepare::{
+        input_selector::{InputSelector, UtxoSelection},
+        output_converter::OutputConverter,
+    },
     WalletError, WalletResult, WalletStorage,
 };
 use tari_common::configuration::Network;
 use tari_common_types::{
     key_branches::TransactionKeyManagerBranch, tari_address::TariAddress, wallet_types::WalletType,
 };
-use tari_script::TariScript;
+use tari_script::push_pubkey_script;
 use tari_transaction_components::{
     consensus::ConsensusConstantsBuilder,
     key_manager::TransactionKeyManagerInterface,
@@ -83,9 +86,18 @@ impl OutgoingTxBuilder {
             .unwrap();
 
         let output_builder_key_manager = self.transaction_key_manager.clone().as_interface();
+
+        let script_spending_key = output_builder_key_manager
+            .stealth_address_script_spending_key(
+                &commitment_mask_key.key_id,
+                dest_address.public_spend_key(),
+            )
+            .await?;
+        let script = push_pubkey_script(&script_spending_key);
+
         let recipient_output = WalletOutputBuilder::new(amount, commitment_mask_key.key_id)
             .with_features(OutputFeatures::default())
-            .with_script(TariScript::default()) // TOOD: MUST use proper script!
+            .with_script(script)
             .encrypt_data_for_recovery(&output_builder_key_manager, None, payment_id.clone())
             .await?
             .with_input_data(Default::default())
@@ -129,6 +141,14 @@ impl OutgoingTxBuilder {
             .await
             .map_err(|err| TransactionError::BuilderError(err.to_string()))?;
 
+        self.lock_outputs(&unspent_outputs).await?;
+
         Ok(finalized)
+    }
+
+    async fn lock_outputs(&self, unspent_outputs: &UtxoSelection) -> WalletResult<()> {
+        let output_ids: Vec<u32> = unspent_outputs.utxos.iter().filter_map(|o| o.id).collect();
+        self.database.mark_outputs_locked(&output_ids).await?;
+        Ok(())
     }
 }
