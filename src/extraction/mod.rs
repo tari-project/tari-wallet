@@ -291,6 +291,7 @@ mod tests {
             Covenant { bytes: hex::decode("00").unwrap() },
             EncryptedData::from_bytes(&hex::decode("98f34a17916ab249465707ab8db18aaf7dbb4c5e59cddb5645ad9944b0e305b507906b223deb7e63393584de5e95875baaef68058db95ce3b4d1ea907cdb4d9d27968b1f7fb77587b3474e9f3dc2cc3cab3e5c9cbd9dbbd288ee40ff51dad61ccbfefd5a49e71d190ab8f308a9053eed10221d643e04d5ce9b7acdae480a81e3f51f23c7b0eaa35c17ead27b71be030b405b0e5f0eea65ff48589782721c65abdd6a1b73ad9b6677f2fccd154c6fb93403dac15aef5ef63e77").unwrap()).expect("Invalid encrypted data"),
             MicroMinotari::new(0),
+            tari_transaction_components::transaction_components::OutputFeatures::default(),
         );
 
         // Payment output 109 - Different payment output
@@ -309,6 +310,7 @@ mod tests {
             Covenant { bytes: hex::decode("00").unwrap() },
             EncryptedData::from_bytes(&hex::decode("15d7071e52f772e7e3009aeb34181f6e06fd5d94452222cffe689ce973b95fe703810854bbc0852fc2b6ac0c09c7863eaf1fbd9ad795eb6f2ca9e67aac2fb3fda08766d91c2ccaa1d11847854e61d453bbe6296877fedd54998600ff603c2d88780c2d09fd03593b4aaeaaf7876e7fe5ab116d7ff191e8e5c5049dde7e8207aa9e375c27eacb880c27118d0680b7125cf389303d9095b88c7b95e9e2b4d602ac2e").unwrap()).expect("Invalid encrypted data"),
             MicroMinotari::new(0),
+            tari_transaction_components::transaction_components::OutputFeatures::default(),
         );
 
         // Test extraction with wallet keys
@@ -503,6 +505,7 @@ mod tests {
             },
             EncryptedData::from_bytes(&[0u8; 80]).expect("Valid encrypted data"),
             MicroMinotari::new(1000),
+            tari_transaction_components::transaction_components::OutputFeatures::default(),
         )
     }
 
@@ -633,6 +636,7 @@ mod tests {
             Covenant { bytes: vec![0] }, // covenant
             encrypted_data,
             MicroMinotari::new(0), // minimum_value_promise
+            tari_transaction_components::transaction_components::OutputFeatures::default(),
         );
 
         println!("Testing extraction on specific output 98 from block 34926...");
@@ -775,6 +779,7 @@ mod tests {
                 Covenant { bytes: vec![0] },
                 encrypted_data,
                 MicroMinotari::new(0),
+                tari_transaction_components::transaction_components::OutputFeatures::default(),
             );
 
             // Test extraction

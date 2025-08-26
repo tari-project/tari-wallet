@@ -175,6 +175,7 @@ fn create_test_output(
         covenant,
         encrypted_data,
         micro_value, // minimum_value_promise
+        tari_transaction_components::transaction_components::OutputFeatures::default(),
     ))
 }
 

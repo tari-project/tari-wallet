@@ -202,6 +202,7 @@ impl DatasetGenerator {
             Covenant::default(),
             encrypted_data,
             micro_value, // minimum_value_promise
+            tari_transaction_components::transaction_components::OutputFeatures::default(),
         )
     }
 }
