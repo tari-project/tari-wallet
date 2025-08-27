@@ -6,23 +6,23 @@ use blake2::Blake2b;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::{
     aead::{AeadCore, AeadInPlace, OsRng},
-    KeyInit, Tag, XChaCha20Poly1305, XNonce,
+    KeyInit,
+    Tag,
+    XChaCha20Poly1305,
+    XNonce,
 };
+// Use official tari_crypto library directly
+use curve25519_dalek::scalar::Scalar;
 use digest::{consts::U32, generic_array::GenericArray, FixedOutput};
 use hex::ToHex;
 use serde::{Deserialize, Serialize};
-use zeroize::{Zeroize, Zeroizing};
-
-// Use official tari_crypto library directly
-use curve25519_dalek::scalar::Scalar;
 use tari_crypto::hashing::DomainSeparatedHasher;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     data_structures::{
         payment_id::PaymentId,
-        types::{
-            CompressedCommitment, CompressedPublicKey, EncryptedDataKey, MicroMinotari, PrivateKey,
-        },
+        types::{CompressedCommitment, CompressedPublicKey, EncryptedDataKey, MicroMinotari, PrivateKey},
     },
     errors::{DataStructureError, EncryptionError, WalletError},
     hex_utils::{HexEncodable, HexError, HexValidatable},
@@ -68,18 +68,7 @@ const DISPLAY_CUTOFF: usize = 16;
 const ENCRYPTED_DATA_AAD: &[u8] = b"TARI_AAD_VALUE_AND_MASK_EXTEND_NONCE_VARIANT";
 
 /// Encrypted data structure for storing encrypted value, mask, and payment ID
-#[derive(
-    Debug,
-    Clone,
-    Deserialize,
-    Serialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Zeroize,
-)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Zeroize)]
 pub struct EncryptedData {
     #[serde(with = "hex_serde")]
     data: Vec<u8>,
@@ -120,8 +109,7 @@ impl EncryptedData {
         let mut data = vec![0; STATIC_ENCRYPTED_DATA_SIZE_TOTAL + payment_id.get_size()];
         data[..SIZE_TAG].clone_from_slice(&tag);
         data[SIZE_TAG..SIZE_TAG + SIZE_NONCE].clone_from_slice(&nonce);
-        data[SIZE_TAG + SIZE_NONCE
-            ..SIZE_TAG + SIZE_NONCE + SIZE_VALUE + SIZE_MASK + payment_id.get_size()]
+        data[SIZE_TAG + SIZE_NONCE..SIZE_TAG + SIZE_NONCE + SIZE_VALUE + SIZE_MASK + payment_id.get_size()]
             .clone_from_slice(bytes.as_slice());
 
         Ok(Self { data })
@@ -148,12 +136,7 @@ impl EncryptedData {
         let nonce = XNonce::from_slice(&data[SIZE_TAG..SIZE_TAG + SIZE_NONCE]);
 
         // Create buffer for ciphertext (remaining bytes after tag and nonce)
-        let mut bytes = Zeroizing::new(vec![
-            0;
-            data.len()
-                .saturating_sub(SIZE_TAG)
-                .saturating_sub(SIZE_NONCE)
-        ]);
+        let mut bytes = Zeroizing::new(vec![0; data.len().saturating_sub(SIZE_TAG).saturating_sub(SIZE_NONCE)]);
         bytes.clone_from_slice(&data[SIZE_TAG + SIZE_NONCE..]);
 
         // Set up the AEAD - exactly like REFERENCE_tari
@@ -163,9 +146,7 @@ impl EncryptedData {
         // Decrypt in place - exactly like REFERENCE_tari
         cipher
             .decrypt_in_place_detached(nonce, ENCRYPTED_DATA_AAD, bytes.as_mut_slice(), tag)
-            .map_err(|e| {
-                EncryptedDataError::DecryptionFailed(format!("AEAD decryption failed: {e:?}"))
-            })?;
+            .map_err(|e| EncryptedDataError::DecryptionFailed(format!("AEAD decryption failed: {e:?}")))?;
 
         // Decode the value and mask - exactly like REFERENCE_tari
         if bytes.len() < SIZE_VALUE + SIZE_MASK {
@@ -188,20 +169,12 @@ impl EncryptedData {
     /// Parse encrypted data from a byte slice
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, WalletError> {
         if bytes.len() < STATIC_ENCRYPTED_DATA_SIZE_TOTAL {
-            return Err(DataStructureError::data_too_small(
-                STATIC_ENCRYPTED_DATA_SIZE_TOTAL,
-                bytes.len(),
-            )
-            .into());
+            return Err(DataStructureError::data_too_small(STATIC_ENCRYPTED_DATA_SIZE_TOTAL, bytes.len()).into());
         }
         if bytes.len() > MAX_ENCRYPTED_DATA_SIZE {
-            return Err(
-                DataStructureError::data_too_large(MAX_ENCRYPTED_DATA_SIZE, bytes.len()).into(),
-            );
+            return Err(DataStructureError::data_too_large(MAX_ENCRYPTED_DATA_SIZE, bytes.len()).into());
         }
-        Ok(Self {
-            data: bytes.to_vec(),
-        })
+        Ok(Self { data: bytes.to_vec() })
     }
 
     /// Get a byte vector with the encrypted data contents
@@ -224,8 +197,7 @@ impl EncryptedData {
                 format!(
                     "Some({}..{})",
                     &encrypted_data_hex[0..DISPLAY_CUTOFF],
-                    &encrypted_data_hex
-                        [encrypted_data_hex.len() - DISPLAY_CUTOFF..encrypted_data_hex.len()]
+                    &encrypted_data_hex[encrypted_data_hex.len() - DISPLAY_CUTOFF..encrypted_data_hex.len()]
                 )
             } else {
                 format!("Some({encrypted_data_hex})")
@@ -235,9 +207,7 @@ impl EncryptedData {
 
     /// Get the payment ID size from the encrypted data
     pub fn get_payment_id_size(&self) -> usize {
-        self.data
-            .len()
-            .saturating_sub(STATIC_ENCRYPTED_DATA_SIZE_TOTAL)
+        self.data.len().saturating_sub(STATIC_ENCRYPTED_DATA_SIZE_TOTAL)
     }
 
     /// Try to decrypt output using both mechanisms (change outputs and received outputs)
@@ -251,20 +221,15 @@ impl EncryptedData {
         encrypted_data: &EncryptedData,
     ) -> Option<(String, MicroMinotari, PrivateKey, PaymentId)> {
         // Try change output decryption first (mechanism 1)
-        if let Ok((value, mask, payment_id)) =
-            Self::decrypt_data(view_key, commitment, encrypted_data)
-        {
+        if let Ok((value, mask, payment_id)) = Self::decrypt_data(view_key, commitment, encrypted_data) {
             return Some(("change_output".to_string(), value, mask, payment_id));
         }
 
         // Try received output decryption (mechanism 2)
         if !sender_offset_public_key.as_bytes().iter().all(|&b| b == 0) {
-            if let Ok((value, mask, payment_id)) = Self::decrypt_one_sided_data(
-                view_key,
-                commitment,
-                sender_offset_public_key,
-                encrypted_data,
-            ) {
+            if let Ok((value, mask, payment_id)) =
+                Self::decrypt_one_sided_data(view_key, commitment, sender_offset_public_key, encrypted_data)
+            {
                 return Some(("received_output".to_string(), value, mask, payment_id));
             }
         }
@@ -281,16 +246,12 @@ impl EncryptedData {
         encrypted_data: &EncryptedData,
     ) -> Result<(MicroMinotari, PrivateKey, PaymentId), EncryptedDataError> {
         // Step 1: Perform Diffie-Hellman to get shared secret
-        let shared_secret =
-            diffie_hellman_shared_secret(view_private_key, sender_offset_public_key).map_err(
-                |e| EncryptedDataError::DecryptionFailed(format!("Diffie-Hellman failed: {e}")),
-            )?;
+        let shared_secret = diffie_hellman_shared_secret(view_private_key, sender_offset_public_key)
+            .map_err(|e| EncryptedDataError::DecryptionFailed(format!("Diffie-Hellman failed: {e}")))?;
 
         // Step 2: Derive encryption key from shared secret using domain separation
-        let encryption_key =
-            shared_secret_to_output_encryption_key(&shared_secret).map_err(|e| {
-                EncryptedDataError::DecryptionFailed(format!("Key derivation failed: {e}"))
-            })?;
+        let encryption_key = shared_secret_to_output_encryption_key(&shared_secret)
+            .map_err(|e| EncryptedDataError::DecryptionFailed(format!("Key derivation failed: {e}")))?;
 
         // Step 3: Use normal decrypt_data with the derived encryption key
         Self::decrypt_data(&encryption_key, commitment, encrypted_data)
@@ -346,29 +307,22 @@ impl HexValidatable for EncryptedData {}
 
 /// Key derivation function for AEAD using official tari_crypto library
 /// This exactly matches REFERENCE_tari implementation - using finalize_into directly
-pub fn kdf_aead(
-    encryption_key: &PrivateKey,
-    commitment: &CompressedCommitment,
-) -> EncryptedDataKey {
+pub fn kdf_aead(encryption_key: &PrivateKey, commitment: &CompressedCommitment) -> EncryptedDataKey {
     // Create AEAD key exactly like REFERENCE_tari
     let mut aead_key = EncryptedDataKey::from(crate::data_structures::types::SafeArray::default());
 
     // Use official tari_crypto domain-separated hasher with finalize_into - exact REFERENCE match
-    DomainSeparatedHasher::<Blake2b<U32>, TransactionSecureNonceKdfDomain>::new_with_label(
-        "encrypted_value_and_mask",
-    )
-    .chain(encryption_key.as_bytes())
-    .chain(commitment.as_bytes())
-    .finalize_into(GenericArray::from_mut_slice(aead_key.reveal_mut()));
+    DomainSeparatedHasher::<Blake2b<U32>, TransactionSecureNonceKdfDomain>::new_with_label("encrypted_value_and_mask")
+        .chain(encryption_key.as_bytes())
+        .chain(commitment.as_bytes())
+        .finalize_into(GenericArray::from_mut_slice(aead_key.reveal_mut()));
 
     aead_key
 }
 
 /// Generate an output encryption key from a Diffie-Hellman shared secret
 /// This exactly matches REFERENCE_tari implementation from one_sided.rs
-pub fn shared_secret_to_output_encryption_key(
-    shared_secret: &[u8; 32],
-) -> Result<PrivateKey, String> {
+pub fn shared_secret_to_output_encryption_key(shared_secret: &[u8; 32]) -> Result<PrivateKey, String> {
     use digest::consts::U64;
 
     let hash = DomainSeparatedHasher::<Blake2b<U64>, WalletOutputEncryptionKeysDomain>::new()
@@ -415,17 +369,13 @@ mod hex_serde {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     pub fn serialize<S>(value: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    where S: Serializer {
         let hex_string = hex::encode(value);
         hex_string.serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    where D: Deserializer<'de> {
         let hex_string = String::deserialize(deserializer)?;
         hex::decode(&hex_string).map_err(serde::de::Error::custom)
     }
@@ -433,13 +383,14 @@ mod hex_serde {
 
 #[cfg(test)]
 mod test {
+    use primitive_types::U256;
+    use tari_utilities::ByteArray;
+
     use super::*;
     use crate::key_management::{
         key_derivation,
         seed_phrase::{mnemonic_to_bytes, CipherSeed},
     };
-    use primitive_types::U256;
-    use tari_utilities::ByteArray;
 
     #[test]
     fn test_encrypt_decrypt_basic() {
@@ -449,14 +400,8 @@ mod test {
         let mask = PrivateKey::new([3u8; 32]);
         let payment_id = PaymentId::Empty;
 
-        let encrypted = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            payment_id.clone(),
-        )
-        .unwrap();
+        let encrypted =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
 
         let (decrypted_value, decrypted_mask, decrypted_payment_id) =
             EncryptedData::decrypt_data(&encryption_key, &commitment, &encrypted).unwrap();
@@ -474,14 +419,8 @@ mod test {
         let mask = PrivateKey::new([3u8; 32]);
         let payment_id = PaymentId::U256(U256::from(12345));
 
-        let encrypted = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            payment_id.clone(),
-        )
-        .unwrap();
+        let encrypted =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
 
         let (decrypted_value, decrypted_mask, decrypted_payment_id) =
             EncryptedData::decrypt_data(&encryption_key, &commitment, &encrypted).unwrap();
@@ -499,9 +438,7 @@ mod test {
         let mask = PrivateKey::new([3u8; 32]);
         let payment_id = PaymentId::Empty;
 
-        let encrypted =
-            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id)
-                .unwrap();
+        let encrypted = EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
 
         let hex_string = encrypted.to_hex();
         let from_hex = EncryptedData::from_hex(&hex_string).unwrap();
@@ -518,9 +455,7 @@ mod test {
         let mask = PrivateKey::new([3u8; 32]);
         let payment_id = PaymentId::Empty;
 
-        let encrypted =
-            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id)
-                .unwrap();
+        let encrypted = EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
 
         let result = EncryptedData::decrypt_data(&wrong_key, &commitment, &encrypted);
         assert!(result.is_err());
@@ -530,11 +465,12 @@ mod test {
     #[test]
     fn test_known_entropy_derivation() {
         // Known receiving wallet seed phrase from our test case
-        let seed = "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart vicious cinnamon eternal invest shoulder green file";
+        let seed = "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue \
+                    smart vicious cinnamon eternal invest shoulder green file";
 
         let encrypted_bytes = mnemonic_to_bytes(seed).expect("Should convert mnemonic");
-        let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)
-            .expect("Should decrypt cipher seed");
+        let cipher_seed =
+            CipherSeed::from_enciphered_bytes(&encrypted_bytes, None).expect("Should decrypt cipher seed");
         let entropy = cipher_seed.entropy();
 
         // This should match our expected entropy (critical bug fix validation)
@@ -546,18 +482,11 @@ mod test {
     #[test]
     fn test_known_view_key_derivation() {
         // Test view key derivation from known entropy
-        let entropy =
-            hex::decode("ed0e6db9582bf0aa5384f8c92b7088c1").expect("Should decode entropy");
+        let entropy = hex::decode("ed0e6db9582bf0aa5384f8c92b7088c1").expect("Should decode entropy");
         let entropy_array: [u8; 16] = entropy.try_into().expect("Should convert to array");
-        let view_key_raw =
-            key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)
-                .expect("Should derive view key");
-        let view_key = PrivateKey::new(
-            view_key_raw
-                .as_bytes()
-                .try_into()
-                .expect("Should convert to array"),
-        );
+        let view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)
+            .expect("Should derive view key");
+        let view_key = PrivateKey::new(view_key_raw.as_bytes().try_into().expect("Should convert to array"));
 
         // This should match our expected view key
         let expected_view_key = "9d84cc4795b509dadae90bd68b42f7d630a6a3d56281c0b5dd1c0ed36390e70a";
@@ -584,24 +513,26 @@ mod test {
     /// Test decryption of real blockchain data - THE CORE GOAL
     #[test]
     fn test_real_transaction_decryption() {
-        use crate::data_structures::types::CompressedCommitment;
-        use crate::key_management::{
-            key_derivation,
-            seed_phrase::{mnemonic_to_bytes, CipherSeed},
+        use crate::{
+            data_structures::types::CompressedCommitment,
+            key_management::{
+                key_derivation,
+                seed_phrase::{mnemonic_to_bytes, CipherSeed},
+            },
         };
 
         println!("\n=== TESTING REAL BLOCKCHAIN DATA DECRYPTION ===");
 
         // Both seed phrases from the conversation
         let seeds = [
-            "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart vicious cinnamon eternal invest shoulder green file"
+            "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart \
+             vicious cinnamon eternal invest shoulder green file",
         ];
 
         // Known transaction from block 34926, output 97
         // - Expected: "Payment ID: TEST-ABC" and value "2.000000 T"
         let commitment_hex = "c2b7f140038f3dfd7ff3da4d4dc2aa375703402e11f4d279e1caff3ff612986a";
-        let sender_offset_public_key_hex =
-            "40e4692906f5501da3dfc4c4283c3bdb2f2bea3597a5b82aae8c32ff44091453";
+        let sender_offset_public_key_hex = "40e4692906f5501da3dfc4c4283c3bdb2f2bea3597a5b82aae8c32ff44091453";
 
         // Some sample encrypted data to test with (this would be from GRPC)
         let encrypted_data_samples = [
@@ -615,24 +546,14 @@ mod test {
 
             // Derive entropy and view key
             let encrypted_bytes = mnemonic_to_bytes(seed).expect("Should convert mnemonic");
-            let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)
-                .expect("Should decrypt cipher seed");
+            let cipher_seed =
+                CipherSeed::from_enciphered_bytes(&encrypted_bytes, None).expect("Should decrypt cipher seed");
             let entropy = cipher_seed.entropy();
 
-            let entropy_array: [u8; 16] =
-                entropy.try_into().expect("Should convert entropy to array");
-            let view_key_raw = key_derivation::derive_private_key_from_entropy(
-                &entropy_array,
-                "data encryption",
-                0,
-            )
-            .expect("Should derive view key");
-            let view_key = PrivateKey::new(
-                view_key_raw
-                    .as_bytes()
-                    .try_into()
-                    .expect("Should convert to array"),
-            );
+            let entropy_array: [u8; 16] = entropy.try_into().expect("Should convert entropy to array");
+            let view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)
+                .expect("Should derive view key");
+            let view_key = PrivateKey::new(view_key_raw.as_bytes().try_into().expect("Should convert to array"));
 
             let entropy_hex = hex::encode(entropy);
             let view_key_hex = hex::encode(view_key.as_bytes());
@@ -641,11 +562,8 @@ mod test {
 
             // Test regular decryption with commitment
             let commitment_bytes = hex::decode(commitment_hex).expect("Should decode commitment");
-            let commitment = CompressedCommitment::new(
-                commitment_bytes
-                    .try_into()
-                    .expect("Should convert to commitment"),
-            );
+            let commitment =
+                CompressedCommitment::new(commitment_bytes.try_into().expect("Should convert to commitment"));
 
             for (j, encrypted_hex) in encrypted_data_samples.iter().enumerate() {
                 if let Ok(encrypted_data) = EncryptedData::from_hex(encrypted_hex) {
@@ -669,24 +587,19 @@ mod test {
 
                     // Try one-sided payment decryption
                     if let Ok(sender_offset_bytes) = hex::decode(sender_offset_public_key_hex) {
-                        let sender_offset_pk = CompressedPublicKey::new(
-                            sender_offset_bytes.try_into().expect("Should convert"),
-                        );
-                        if let Ok((value, _mask, payment_id)) =
-                            EncryptedData::decrypt_one_sided_data(
-                                &view_key,
-                                &commitment,
-                                &sender_offset_pk,
-                                &encrypted_data,
-                            )
-                        {
+                        let sender_offset_pk =
+                            CompressedPublicKey::new(sender_offset_bytes.try_into().expect("Should convert"));
+                        if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
+                            &view_key,
+                            &commitment,
+                            &sender_offset_pk,
+                            &encrypted_data,
+                        ) {
                             println!("    ✅ ONE-SIDED DECRYPTION SUCCESS!");
                             let value_u64 = value.as_u64();
                             println!("    Value: {value_u64} μT");
                             println!("    Payment ID: {payment_id:?}");
-                            if hex::encode(value.as_u64().to_le_bytes())
-                                .contains("1e84800000000000")
-                            {
+                            if hex::encode(value.as_u64().to_le_bytes()).contains("1e84800000000000") {
                                 println!("    🎯 FOUND 2.000000 T VALUE!");
                             }
                         } else {
@@ -706,11 +619,13 @@ mod test {
     #[tokio::test]
     #[cfg(feature = "grpc")]
     async fn test_decrypt_real_block_34926_output_97() {
-        use crate::key_management::{
-            key_derivation,
-            seed_phrase::{mnemonic_to_bytes, CipherSeed},
+        use crate::{
+            key_management::{
+                key_derivation,
+                seed_phrase::{mnemonic_to_bytes, CipherSeed},
+            },
+            scanning::{BlockchainScanner, GrpcScannerBuilder},
         };
-        use crate::scanning::{BlockchainScanner, GrpcScannerBuilder};
 
         println!("\n🎯 === ULTIMATE DECRYPTION TEST - BLOCK 34926 OUTPUT 97 ===");
 
@@ -729,7 +644,7 @@ mod test {
                 println!("❌ Could not connect to Tari node: {e}");
                 println!("Please ensure tari_base_node is running on 127.0.0.1:18142");
                 return; // Skip test if node not available
-            }
+            },
         };
 
         println!("✅ Connected to Tari node successfully");
@@ -747,7 +662,7 @@ mod test {
             None => {
                 println!("❌ Block {block_height} not found");
                 return;
-            }
+            },
         };
 
         let outputs = &block_info.outputs;
@@ -772,14 +687,8 @@ mod test {
             return;
         }
 
-        println!(
-            "🔒 Encrypted data length: {} bytes",
-            encrypted_data_bytes.len()
-        );
-        println!(
-            "🔒 Encrypted data hex: {}",
-            hex::encode(encrypted_data_bytes)
-        );
+        println!("🔒 Encrypted data length: {} bytes", encrypted_data_bytes.len());
+        println!("🔒 Encrypted data hex: {}", hex::encode(encrypted_data_bytes));
 
         // Extract commitment
         let commitment = &target_output.commitment;
@@ -794,8 +703,16 @@ mod test {
 
         // Both test wallets
         let seeds = [
-            ("Receiving", "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart vicious cinnamon eternal invest shoulder green file"),
-            ("Sending", "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart vicious cinnamon eternal invest shoulder green file")
+            (
+                "Receiving",
+                "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue \
+                 smart vicious cinnamon eternal invest shoulder green file",
+            ),
+            (
+                "Sending",
+                "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue \
+                 smart vicious cinnamon eternal invest shoulder green file",
+            ),
         ];
 
         let encrypted_data = &target_output.encrypted_data;
@@ -807,24 +724,14 @@ mod test {
 
             // Derive view key
             let encrypted_bytes = mnemonic_to_bytes(seed).expect("Should convert mnemonic");
-            let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)
-                .expect("Should decrypt cipher seed");
+            let cipher_seed =
+                CipherSeed::from_enciphered_bytes(&encrypted_bytes, None).expect("Should decrypt cipher seed");
             let entropy = cipher_seed.entropy();
-            let entropy_array: [u8; 16] =
-                entropy.try_into().expect("Should convert entropy to array");
+            let entropy_array: [u8; 16] = entropy.try_into().expect("Should convert entropy to array");
 
-            let view_key_raw = key_derivation::derive_private_key_from_entropy(
-                &entropy_array,
-                "data encryption",
-                0,
-            )
-            .expect("Should derive view key");
-            let view_key = PrivateKey::new(
-                view_key_raw
-                    .as_bytes()
-                    .try_into()
-                    .expect("Should convert to array"),
-            );
+            let view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)
+                .expect("Should derive view key");
+            let view_key = PrivateKey::new(view_key_raw.as_bytes().try_into().expect("Should convert to array"));
 
             let view_key_hex = hex::encode(view_key.as_bytes());
             println!("🔑 View key: {view_key_hex}");
@@ -846,7 +753,7 @@ mod test {
                         println!("   🎯 FOUND THE TARGET 2.000000 T VALUE!");
                     }
                     found_decryption = true;
-                }
+                },
                 Err(e) => println!("❌ Failed: {e}"),
             }
 
@@ -855,12 +762,7 @@ mod test {
                 print!("🔍 Testing one-sided decryption... ");
                 let sender_offset_pk = &target_output.sender_offset_public_key;
 
-                match EncryptedData::decrypt_one_sided_data(
-                    &view_key,
-                    commitment,
-                    sender_offset_pk,
-                    encrypted_data,
-                ) {
+                match EncryptedData::decrypt_one_sided_data(&view_key, commitment, sender_offset_pk, encrypted_data) {
                     Ok((value, mask, payment_id)) => {
                         println!("✅ SUCCESS!");
                         let value_u64 = value.as_u64();
@@ -875,7 +777,7 @@ mod test {
                             println!("   🎯 FOUND THE TARGET 2.000000 T VALUE!");
                         }
                         found_decryption = true;
-                    }
+                    },
                     Err(e) => println!("❌ Failed: {e}"),
                 }
             } else {
@@ -903,18 +805,11 @@ mod test {
 
         // Test Case: Simple values with Open PaymentId
         let value = MicroMinotari::new(123456);
-        let mask = PrivateKey::from_hex(
-            "e703000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-        let encryption_key = PrivateKey::from_hex(
-            "a7e101000000000040e201000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-        let commitment = CompressedCommitment::from_hex(
-            "c83df28387bfab6f33421fbc5f8fddefad63614adb9aff96135bc60c5d907f7c",
-        )
-        .unwrap();
+        let mask = PrivateKey::from_hex("e703000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let encryption_key =
+            PrivateKey::from_hex("a7e101000000000040e201000000000000000000000000000000000000000000").unwrap();
+        let commitment =
+            CompressedCommitment::from_hex("c83df28387bfab6f33421fbc5f8fddefad63614adb9aff96135bc60c5d907f7c").unwrap();
         let payment_id = PaymentId::Open {
             user_data: vec![231, 3, 0, 0, 0, 0, 0, 0],
             tx_type: TxType::PaymentToOther,
@@ -929,16 +824,10 @@ mod test {
             "AEAD key derivation mismatch"
         );
 
-        // Test expected encrypted data (this would require deterministic nonce, which our implementation doesn't support)
-        // So instead, we test encryption/decryption roundtrip
-        let encrypted = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            payment_id.clone(),
-        )
-        .unwrap();
+        // Test expected encrypted data (this would require deterministic nonce, which our implementation doesn't
+        // support) So instead, we test encryption/decryption roundtrip
+        let encrypted =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
 
         let (decrypted_value, decrypted_mask, decrypted_payment_id) =
             EncryptedData::decrypt_data(&encryption_key, &commitment, &encrypted).unwrap();
@@ -966,18 +855,11 @@ mod test {
     fn test_encrypted_data_test_vectors_zero_empty_payment_id() {
         // Test Case: Zero value with Empty PaymentId
         let value = MicroMinotari::new(0);
-        let mask = PrivateKey::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-        let encryption_key = PrivateKey::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-        let commitment = CompressedCommitment::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
+        let mask = PrivateKey::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let encryption_key =
+            PrivateKey::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let commitment =
+            CompressedCommitment::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let payment_id = PaymentId::Empty;
 
         // Test key derivation
@@ -990,24 +872,15 @@ mod test {
         );
 
         // Test encryption/decryption roundtrip
-        let encrypted = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            payment_id.clone(),
-        )
-        .unwrap();
+        let encrypted =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
 
         let (decrypted_value, decrypted_mask, decrypted_payment_id) =
             EncryptedData::decrypt_data(&encryption_key, &commitment, &encrypted).unwrap();
 
         assert_eq!(decrypted_value, value, "Value mismatch for zero case");
         assert_eq!(decrypted_mask, mask, "Mask mismatch for zero case");
-        assert_eq!(
-            decrypted_payment_id, payment_id,
-            "Payment ID mismatch for zero case"
-        );
+        assert_eq!(decrypted_payment_id, payment_id, "Payment ID mismatch for zero case");
 
         // Verify encrypted data structure
         let encrypted_bytes = encrypted.as_bytes();
@@ -1030,18 +903,11 @@ mod test {
 
         // Test Case: Large value with Unicode PaymentId
         let value = MicroMinotari::new(18446744073709551615); // u64::MAX
-        let mask = PrivateKey::from_hex(
-            "2a00000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-        let encryption_key = PrivateKey::from_hex(
-            "d5ffffffffffffffffffffffffffffff00000000000000000000000000000000",
-        )
-        .unwrap();
-        let commitment = CompressedCommitment::from_hex(
-            "e67159598723660c9d8c004bcb2972a2173f1498fbe2257988f69f4e86bf8060",
-        )
-        .unwrap();
+        let mask = PrivateKey::from_hex("2a00000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let encryption_key =
+            PrivateKey::from_hex("d5ffffffffffffffffffffffffffffff00000000000000000000000000000000").unwrap();
+        let commitment =
+            CompressedCommitment::from_hex("e67159598723660c9d8c004bcb2972a2173f1498fbe2257988f69f4e86bf8060").unwrap();
         let payment_id = PaymentId::Open {
             user_data: vec![240, 159, 154, 128, 240, 159, 146, 142], // Unicode rocket and money emojis
             tx_type: TxType::PaymentToSelf,
@@ -1057,22 +923,13 @@ mod test {
         );
 
         // Test encryption/decryption roundtrip
-        let encrypted = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            payment_id.clone(),
-        )
-        .unwrap();
+        let encrypted =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
 
         let (decrypted_value, decrypted_mask, decrypted_payment_id) =
             EncryptedData::decrypt_data(&encryption_key, &commitment, &encrypted).unwrap();
 
-        assert_eq!(
-            decrypted_value, value,
-            "Value mismatch for large value case"
-        );
+        assert_eq!(decrypted_value, value, "Value mismatch for large value case");
         assert_eq!(decrypted_mask, mask, "Mask mismatch for large value case");
         assert_eq!(
             decrypted_payment_id, payment_id,
@@ -1103,17 +960,12 @@ mod test {
         let mask = PrivateKey::new([3u8; 32]);
         let payment_id = PaymentId::Empty;
 
-        let encrypted =
-            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id)
-                .unwrap();
+        let encrypted = EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
 
         let encrypted_bytes = encrypted.as_bytes();
 
         // Verify structure: TAG (16) || NONCE (24) || CIPHERTEXT (40)
-        assert_eq!(
-            encrypted_bytes.len(),
-            SIZE_TAG + SIZE_NONCE + SIZE_VALUE + SIZE_MASK
-        );
+        assert_eq!(encrypted_bytes.len(), SIZE_TAG + SIZE_NONCE + SIZE_VALUE + SIZE_MASK);
 
         // Extract components according to layout
         let tag_part = &encrypted_bytes[0..SIZE_TAG];
@@ -1142,7 +994,8 @@ mod test {
     fn test_aad_constant_validation() {
         // Verify that our AAD constant matches the reference implementation
         let expected_aad = "TARI_AAD_VALUE_AND_MASK_EXTEND_NONCE_VARIANT";
-        let expected_aad_bytes = "544152495f4141445f56414c55455f414e445f4d41534b5f455854454e445f4e4f4e43455f56415249414e54";
+        let expected_aad_bytes =
+            "544152495f4141445f56414c55455f414e445f4d41534b5f455854454e445f4e4f4e43455f56415249414e54";
 
         assert_eq!(ENCRYPTED_DATA_AAD, expected_aad.as_bytes());
         assert_eq!(hex::encode(ENCRYPTED_DATA_AAD), expected_aad_bytes);
@@ -1156,22 +1009,12 @@ mod test {
     #[test]
     fn test_kdf_domain_validation() {
         // Test that our domain separation works correctly for different inputs
-        let key1 = PrivateKey::from_hex(
-            "1111111111111111111111111111111111111111111111111111111111111111",
-        )
-        .unwrap();
-        let key2 = PrivateKey::from_hex(
-            "2222222222222222222222222222222222222222222222222222222222222222",
-        )
-        .unwrap();
-        let commitment1 = CompressedCommitment::from_hex(
-            "3333333333333333333333333333333333333333333333333333333333333333",
-        )
-        .unwrap();
-        let commitment2 = CompressedCommitment::from_hex(
-            "4444444444444444444444444444444444444444444444444444444444444444",
-        )
-        .unwrap();
+        let key1 = PrivateKey::from_hex("1111111111111111111111111111111111111111111111111111111111111111").unwrap();
+        let key2 = PrivateKey::from_hex("2222222222222222222222222222222222222222222222222222222222222222").unwrap();
+        let commitment1 =
+            CompressedCommitment::from_hex("3333333333333333333333333333333333333333333333333333333333333333").unwrap();
+        let commitment2 =
+            CompressedCommitment::from_hex("4444444444444444444444444444444444444444444444444444444444444444").unwrap();
 
         // Different keys should produce different AEAD keys
         let aead1 = kdf_aead(&key1, &commitment1);
@@ -1251,14 +1094,8 @@ mod test {
             let commitment = CompressedCommitment::from_hex(commitment_hex).unwrap();
 
             // Test encryption
-            let encrypted = EncryptedData::encrypt_data(
-                &encryption_key,
-                &commitment,
-                value,
-                &mask,
-                payment_id.clone(),
-            )
-            .unwrap();
+            let encrypted =
+                EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
 
             // Test decryption
             let (decrypted_value, decrypted_mask, decrypted_payment_id) =
@@ -1267,10 +1104,7 @@ mod test {
             // Verify all values match
             assert_eq!(decrypted_value, value, "Value mismatch in {description}");
             assert_eq!(decrypted_mask, mask, "Mask mismatch in {description}");
-            assert_eq!(
-                decrypted_payment_id, payment_id,
-                "Payment ID mismatch in {description}"
-            );
+            assert_eq!(decrypted_payment_id, payment_id, "Payment ID mismatch in {description}");
 
             // Test serialization roundtrip
             let hex_string = encrypted.to_hex();
@@ -1281,8 +1115,7 @@ mod test {
             );
 
             // Verify encrypted data length is correct
-            let expected_length =
-                SIZE_TAG + SIZE_NONCE + SIZE_VALUE + SIZE_MASK + payment_id.get_size();
+            let expected_length = SIZE_TAG + SIZE_NONCE + SIZE_VALUE + SIZE_MASK + payment_id.get_size();
             assert_eq!(
                 encrypted.as_bytes().len(),
                 expected_length,
@@ -1406,37 +1239,23 @@ mod test {
         let mut total_attempts = 0;
         let mut utxo_results = Vec::new();
 
-        for (
-            id,
-            commitment_hex,
-            encrypted_data_hex,
-            expected_value,
-            sender_offset_hex,
-            expected_payment_id,
-        ) in utxo_data
+        for (id, commitment_hex, encrypted_data_hex, expected_value, sender_offset_hex, expected_payment_id) in
+            utxo_data
         {
             println!("\n--- Processing UTXO {id} ---");
 
             // Parse the commitment
             let commitment_bytes = hex::decode(commitment_hex).expect("Should decode commitment");
-            let commitment = CompressedCommitment::new(
-                commitment_bytes
-                    .try_into()
-                    .expect("Should convert to commitment"),
-            );
+            let commitment =
+                CompressedCommitment::new(commitment_bytes.try_into().expect("Should convert to commitment"));
 
             // Parse the encrypted data
-            let encrypted_data =
-                EncryptedData::from_hex(encrypted_data_hex).expect("Should decode encrypted data");
+            let encrypted_data = EncryptedData::from_hex(encrypted_data_hex).expect("Should decode encrypted data");
 
             // Parse the sender offset public key
-            let sender_offset_bytes =
-                hex::decode(sender_offset_hex).expect("Should decode sender offset key");
-            let sender_offset_pk = CompressedPublicKey::new(
-                sender_offset_bytes
-                    .try_into()
-                    .expect("Should convert to public key"),
-            );
+            let sender_offset_bytes = hex::decode(sender_offset_hex).expect("Should decode sender offset key");
+            let sender_offset_pk =
+                CompressedPublicKey::new(sender_offset_bytes.try_into().expect("Should convert to public key"));
 
             println!(
                 "  💰 Expected value: {} μT ({} T)",
@@ -1479,21 +1298,16 @@ mod test {
                             value.as_u64()
                         );
                     }
-                }
+                },
                 Err(e) => {
                     println!("❌ Failed: {e}");
-                }
+                },
             }
 
             // Try one-sided payment decryption
             total_attempts += 1;
             print!("  🔍 Testing one-sided decryption... ");
-            match EncryptedData::decrypt_one_sided_data(
-                &view_key,
-                &commitment,
-                &sender_offset_pk,
-                &encrypted_data,
-            ) {
+            match EncryptedData::decrypt_one_sided_data(&view_key, &commitment, &sender_offset_pk, &encrypted_data) {
                 Ok((value, mask, payment_id)) => {
                     println!("✅ SUCCESS!");
                     println!(
@@ -1521,10 +1335,10 @@ mod test {
                             value.as_u64()
                         );
                     }
-                }
+                },
                 Err(e) => {
                     println!("❌ Failed: {e}");
-                }
+                },
             }
 
             utxo_results.push(utxo_result);
@@ -1542,9 +1356,7 @@ mod test {
         println!("| UTXO | Regular | One-Sided | Value Extracted | Status |");
         println!("|------|---------|-----------|-----------------|--------|");
 
-        for (id, regular_success, one_sided_success, extracted_value, _payment_info) in
-            &utxo_results
-        {
+        for (id, regular_success, one_sided_success, extracted_value, _payment_info) in &utxo_results {
             let regular_mark = if *regular_success { "✅" } else { "❌" };
             let one_sided_mark = if *one_sided_success { "✅" } else { "❌" };
             let status = if *regular_success || *one_sided_success {
@@ -1558,9 +1370,7 @@ mod test {
                 "None".to_string()
             };
 
-            println!(
-                "| {id:4} | {regular_mark:7} | {one_sided_mark:9} | {value_display:15} | {status:6} |"
-            );
+            println!("| {id:4} | {regular_mark:7} | {one_sided_mark:9} | {value_display:15} | {status:6} |");
         }
 
         // Count successful UTXOs
@@ -1570,14 +1380,8 @@ mod test {
             .count();
 
         println!("\n📈 === BREAKDOWN BY METHOD ===");
-        let regular_successes = utxo_results
-            .iter()
-            .filter(|(_, regular, _, _, _)| *regular)
-            .count();
-        let one_sided_successes = utxo_results
-            .iter()
-            .filter(|(_, _, one_sided, _, _)| *one_sided)
-            .count();
+        let regular_successes = utxo_results.iter().filter(|(_, regular, _, _, _)| *regular).count();
+        let one_sided_successes = utxo_results.iter().filter(|(_, _, one_sided, _, _)| *one_sided).count();
 
         println!("🔐 Regular decryption successes: {regular_successes}/11");
         println!("🔄 One-sided decryption successes: {one_sided_successes}/11");
@@ -1616,22 +1420,13 @@ mod test {
         let sender_offset_hex = "643254E023144413E0ADBAB2934AD5394EC19016ECC2455B451A08A64A739E0B";
 
         let commitment_bytes = hex::decode(commitment_hex).expect("Should decode commitment");
-        let commitment = CompressedCommitment::new(
-            commitment_bytes
-                .try_into()
-                .expect("Should convert to commitment"),
-        );
+        let commitment = CompressedCommitment::new(commitment_bytes.try_into().expect("Should convert to commitment"));
 
-        let encrypted_data =
-            EncryptedData::from_hex(encrypted_data_hex).expect("Should decode encrypted data");
+        let encrypted_data = EncryptedData::from_hex(encrypted_data_hex).expect("Should decode encrypted data");
 
-        let sender_offset_bytes =
-            hex::decode(sender_offset_hex).expect("Should decode sender offset key");
-        let sender_offset_pk = CompressedPublicKey::new(
-            sender_offset_bytes
-                .try_into()
-                .expect("Should convert to public key"),
-        );
+        let sender_offset_bytes = hex::decode(sender_offset_hex).expect("Should decode sender offset key");
+        let sender_offset_pk =
+            CompressedPublicKey::new(sender_offset_bytes.try_into().expect("Should convert to public key"));
 
         println!("🔑 Testing view key: {view_key_hex}");
         let commitment_prefix = &commitment_hex[..16];
@@ -1656,10 +1451,10 @@ mod test {
                         let aead_key = kdf_aead(&encryption_key, &commitment);
                         let final_aead_hex = hex::encode(aead_key.reveal());
                         println!("  Final AEAD key: {final_aead_hex}");
-                    }
+                    },
                     Err(e) => println!("  Key derivation failed: {e}"),
                 }
-            }
+            },
             Err(e) => println!("  Diffie-Hellman failed: {e}"),
         }
 
@@ -1673,8 +1468,7 @@ mod test {
         if encrypted_bytes.len() >= 40 {
             let tag_hex = hex::encode(&encrypted_bytes[..16]);
             let nonce_hex = hex::encode(&encrypted_bytes[16..40]);
-            let ciphertext_preview =
-                hex::encode(&encrypted_bytes[40..std::cmp::min(56, encrypted_bytes.len())]);
+            let ciphertext_preview = hex::encode(&encrypted_bytes[40..std::cmp::min(56, encrypted_bytes.len())]);
             println!("Tag: {tag_hex}");
             println!("Nonce: {nonce_hex}");
             println!("Ciphertext: {ciphertext_preview}...");
@@ -1707,18 +1501,12 @@ mod test {
 
         // Test mechanism 1: Change output (encrypted with view key directly)
         println!("\n--- Testing Mechanism 1: Change Output ---");
-        let change_encrypted =
-            EncryptedData::encrypt_data(&view_key, &commitment, value, &mask, payment_id.clone())
-                .expect("Should encrypt change output");
+        let change_encrypted = EncryptedData::encrypt_data(&view_key, &commitment, value, &mask, payment_id.clone())
+            .expect("Should encrypt change output");
 
         // Try our combined decrypt function
         if let Some((method, dec_value, dec_mask, dec_payment_id)) =
-            EncryptedData::try_decrypt_output(
-                &view_key,
-                &commitment,
-                &sender_offset_public,
-                &change_encrypted,
-            )
+            EncryptedData::try_decrypt_output(&view_key, &commitment, &sender_offset_public, &change_encrypted)
         {
             println!("✅ Decrypted as: {method}");
             let dec_value_u64 = dec_value.as_u64();
@@ -1744,26 +1532,16 @@ mod test {
             &CompressedPublicKey::from_private_key(&view_key),
         )
         .expect("Should compute shared secret");
-        let encryption_key = shared_secret_to_output_encryption_key(&shared_secret)
-            .expect("Should derive encryption key");
+        let encryption_key =
+            shared_secret_to_output_encryption_key(&shared_secret).expect("Should derive encryption key");
 
-        let received_encrypted = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            payment_id.clone(),
-        )
-        .expect("Should encrypt received output");
+        let received_encrypted =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone())
+                .expect("Should encrypt received output");
 
         // Try our combined decrypt function
         if let Some((method, dec_value, dec_mask, dec_payment_id)) =
-            EncryptedData::try_decrypt_output(
-                &view_key,
-                &commitment,
-                &sender_offset_public,
-                &received_encrypted,
-            )
+            EncryptedData::try_decrypt_output(&view_key, &commitment, &sender_offset_public, &received_encrypted)
         {
             println!("✅ Decrypted as: {method}");
             println!("   Value: {} μT", dec_value.as_u64());
@@ -1782,13 +1560,8 @@ mod test {
 
         // Change output should not decrypt with one-sided method
         assert!(
-            EncryptedData::decrypt_one_sided_data(
-                &view_key,
-                &commitment,
-                &sender_offset_public,
-                &change_encrypted
-            )
-            .is_err(),
+            EncryptedData::decrypt_one_sided_data(&view_key, &commitment, &sender_offset_public, &change_encrypted)
+                .is_err(),
             "Change output should not decrypt with one-sided method"
         );
 

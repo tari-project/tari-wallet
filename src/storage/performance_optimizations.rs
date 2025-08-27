@@ -4,9 +4,10 @@
 //! wallet scanner's high-throughput database write scenarios.
 
 #[cfg(feature = "storage")]
-use crate::errors::WalletResult;
-#[cfg(feature = "storage")]
 use tokio_rusqlite::Connection;
+
+#[cfg(feature = "storage")]
+use crate::errors::WalletResult;
 
 /// High-performance SQLite configuration for wallet scanning
 #[cfg(feature = "storage")]
@@ -110,12 +111,12 @@ impl SqlitePerformanceConfig {
     pub fn production_optimized() -> Self {
         Self {
             enable_wal_mode: true,
-            synchronous_mode: 1,   // NORMAL - good balance of speed and safety
-            cache_size_kb: 64_000, // 64MB cache
-            page_size: 8192,       // Good for bulk operations
-            temp_store: 2,         // Memory temp storage
+            synchronous_mode: 1,                   // NORMAL - good balance of speed and safety
+            cache_size_kb: 64_000,                 // 64MB cache
+            page_size: 8192,                       // Good for bulk operations
+            temp_store: 2,                         // Memory temp storage
             journal_size_limit: 128 * 1024 * 1024, // 128MB
-            mmap_size: 256 * 1024 * 1024, // 256MB memory mapping
+            mmap_size: 256 * 1024 * 1024,          // 256MB memory mapping
             busy_timeout_ms: 8000,
             enable_automatic_index: false, // Disabled for predictable performance
         }
@@ -131,9 +132,7 @@ impl SqlitePerformanceConfig {
                     Ok(())
                 })
                 .await
-                .map_err(|e| {
-                    crate::WalletError::StorageError(format!("Failed to enable WAL mode: {e}"))
-                })?;
+                .map_err(|e| crate::WalletError::StorageError(format!("Failed to enable WAL mode: {e}")))?;
         }
 
         // Set synchronous mode (accepts values, use pragma_update)
@@ -146,9 +145,7 @@ impl SqlitePerformanceConfig {
                 }
             })
             .await
-            .map_err(|e| {
-                crate::WalletError::StorageError(format!("Failed to set synchronous mode: {e}"))
-            })?;
+            .map_err(|e| crate::WalletError::StorageError(format!("Failed to set synchronous mode: {e}")))?;
 
         // Set cache size (negative values = KB directly, positive = pages)
         connection
@@ -160,9 +157,7 @@ impl SqlitePerformanceConfig {
                 }
             })
             .await
-            .map_err(|e| {
-                crate::WalletError::StorageError(format!("Failed to set cache size: {e}"))
-            })?;
+            .map_err(|e| crate::WalletError::StorageError(format!("Failed to set cache size: {e}")))?;
 
         // Set page size (must be done before any tables are created)
         connection
@@ -174,9 +169,7 @@ impl SqlitePerformanceConfig {
                 }
             })
             .await
-            .map_err(|e| {
-                crate::WalletError::StorageError(format!("Failed to set page size: {e}"))
-            })?;
+            .map_err(|e| crate::WalletError::StorageError(format!("Failed to set page size: {e}")))?;
 
         // Set temp store mode
         connection
@@ -188,9 +181,7 @@ impl SqlitePerformanceConfig {
                 }
             })
             .await
-            .map_err(|e| {
-                crate::WalletError::StorageError(format!("Failed to set temp store: {e}"))
-            })?;
+            .map_err(|e| crate::WalletError::StorageError(format!("Failed to set temp store: {e}")))?;
 
         // Set journal size limit
         connection
@@ -202,9 +193,7 @@ impl SqlitePerformanceConfig {
                 }
             })
             .await
-            .map_err(|e| {
-                crate::WalletError::StorageError(format!("Failed to set journal size limit: {e}"))
-            })?;
+            .map_err(|e| crate::WalletError::StorageError(format!("Failed to set journal size limit: {e}")))?;
 
         // Set memory mapping size
         if self.mmap_size > 0 {
@@ -217,9 +206,7 @@ impl SqlitePerformanceConfig {
                     }
                 })
                 .await
-                .map_err(|e| {
-                    crate::WalletError::StorageError(format!("Failed to set mmap size: {e}"))
-                })?;
+                .map_err(|e| crate::WalletError::StorageError(format!("Failed to set mmap size: {e}")))?;
         }
 
         // Set busy timeout
@@ -232,9 +219,7 @@ impl SqlitePerformanceConfig {
                 }
             })
             .await
-            .map_err(|e| {
-                crate::WalletError::StorageError(format!("Failed to set busy timeout: {e}"))
-            })?;
+            .map_err(|e| crate::WalletError::StorageError(format!("Failed to set busy timeout: {e}")))?;
 
         Ok(())
     }
@@ -275,11 +260,7 @@ impl SqlitePerformanceConfig {
                 Ok(())
             })
             .await
-            .map_err(|e| {
-                crate::WalletError::StorageError(format!(
-                    "Failed to apply scanning optimizations: {e}"
-                ))
-            })?;
+            .map_err(|e| crate::WalletError::StorageError(format!("Failed to apply scanning optimizations: {e}")))?;
 
         Ok(())
     }
@@ -297,8 +278,7 @@ impl BatchOperations {
         available_memory_mb: usize,
         target_memory_usage_percent: f32,
     ) -> usize {
-        let target_memory_bytes =
-            (available_memory_mb * 1024 * 1024) as f32 * target_memory_usage_percent;
+        let target_memory_bytes = (available_memory_mb * 1024 * 1024) as f32 * target_memory_usage_percent;
         let batch_size = (target_memory_bytes / avg_item_size_bytes as f32) as usize;
 
         // Constrain to reasonable bounds

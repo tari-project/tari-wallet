@@ -3,9 +3,7 @@
 //! This module provides functionality to recover private keys for stealth addresses
 //! and integrate with the UTXO extraction process.
 
-use crate::{
-    data_structures::types::PrivateKey, errors::WalletError, key_management::StealthAddress,
-};
+use crate::{data_structures::types::PrivateKey, errors::WalletError, key_management::StealthAddress};
 
 /// Result of stealth address key recovery
 #[derive(Debug, Clone)]

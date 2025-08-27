@@ -6,9 +6,9 @@
 //! - Error handling and isolation between listeners
 //! - Concrete listener implementations for common use cases
 
+use std::{collections::HashMap, error::Error};
+
 use async_trait::async_trait;
-use std::collections::HashMap;
-use std::error::Error;
 
 use crate::events::types::{SharedWalletEvent, WalletEventError, WalletEventResult};
 
@@ -31,10 +31,10 @@ use crate::events::types::{SharedWalletEvent, WalletEventError, WalletEventResul
 /// # Examples
 ///
 /// ```rust,no_run
-/// use async_trait::async_trait;
-/// use lightweight_wallet_libs::events::listener::EventListener;
-/// use lightweight_wallet_libs::events::types::SharedWalletEvent;
 /// use std::error::Error;
+///
+/// use async_trait::async_trait;
+/// use lightweight_wallet_libs::events::{listener::EventListener, types::SharedWalletEvent};
 ///
 /// struct ConsoleLogger;
 ///
@@ -42,7 +42,7 @@ use crate::events::types::{SharedWalletEvent, WalletEventError, WalletEventResul
 /// impl EventListener for ConsoleLogger {
 ///     async fn handle_event(
 ///         &mut self,
-///         event: &SharedWalletEvent
+///         event: &SharedWalletEvent,
 ///     ) -> Result<(), Box<dyn Error + Send + Sync>> {
 ///         println!("Event received: {:?}", event);
 ///         Ok(())
@@ -76,10 +76,7 @@ pub trait EventListener: Send + Sync {
     ///
     /// For critical failures that should stop wallet operations, listeners should
     /// use other mechanisms to signal the error outside of the event system.
-    async fn handle_event(
-        &mut self,
-        event: &SharedWalletEvent,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn handle_event(&mut self, event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Get a unique name for this listener
     ///
@@ -236,10 +233,7 @@ impl EventRegistry {
     /// - `WalletEventError::DuplicateEvent` - If a listener with the same name already exists
     /// - `WalletEventError::ConfigurationError` - If the maximum listener limit would be exceeded
     /// - Other errors from listener initialization
-    pub async fn register(
-        &mut self,
-        mut listener: Box<dyn EventListener>,
-    ) -> WalletEventResult<()> {
+    pub async fn register(&mut self, mut listener: Box<dyn EventListener>) -> WalletEventResult<()> {
         let listener_name = listener.name().to_string();
 
         // Validate listener name
@@ -306,18 +300,17 @@ impl EventRegistry {
     ///
     /// Returns `Ok(())` if the listener was removed, or an error if not found.
     pub async fn remove(&mut self, listener_name: &str) -> WalletEventResult<()> {
-        let index = self.listener_names.remove(listener_name).ok_or_else(|| {
-            WalletEventError::EventNotFound {
+        let index = self
+            .listener_names
+            .remove(listener_name)
+            .ok_or_else(|| WalletEventError::EventNotFound {
                 event_id: listener_name.to_string(),
-            }
-        })?;
+            })?;
 
         // Cleanup the listener before removal
         if let Err(e) = self.listeners[index].cleanup().await {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::warn_1(
-                &format!("Cleanup failed for listener '{listener_name}': {e}").into(),
-            );
+            web_sys::console::warn_1(&format!("Cleanup failed for listener '{listener_name}': {e}").into());
             #[cfg(not(target_arch = "wasm32"))]
             eprintln!("Cleanup failed for listener '{listener_name}': {e}");
         }
@@ -354,11 +347,7 @@ impl EventRegistry {
     pub async fn dispatch(&mut self, event: SharedWalletEvent) {
         let event_type = self.get_event_type_name(&event);
         self.stats.total_events_dispatched += 1;
-        *self
-            .stats
-            .events_by_type
-            .entry(event_type.clone())
-            .or_insert(0) += 1;
+        *self.stats.events_by_type.entry(event_type.clone()).or_insert(0) += 1;
 
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(
@@ -465,9 +454,7 @@ impl EventRegistry {
         for name in unhealthy_names {
             if let Err(e) = self.remove(&name).await {
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::error_1(
-                    &format!("Failed to remove unhealthy listener '{name}': {e}").into(),
-                );
+                web_sys::console::error_1(&format!("Failed to remove unhealthy listener '{name}': {e}").into());
                 #[cfg(not(target_arch = "wasm32"))]
                 eprintln!("Failed to remove unhealthy listener '{name}': {e}");
             } else {
@@ -485,26 +472,17 @@ impl EventRegistry {
     pub async fn shutdown(&mut self) {
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(
-            &format!(
-                "Shutting down event registry with {} listeners",
-                self.listeners.len()
-            )
-            .into(),
+            &format!("Shutting down event registry with {} listeners", self.listeners.len()).into(),
         );
         #[cfg(not(target_arch = "wasm32"))]
-        println!(
-            "Shutting down event registry with {} listeners",
-            self.listeners.len()
-        );
+        println!("Shutting down event registry with {} listeners", self.listeners.len());
 
         // Cleanup all listeners
         for listener in &mut self.listeners {
             if let Err(e) = listener.cleanup().await {
                 let listener_name = listener.name();
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::warn_1(
-                    &format!("Cleanup failed for listener '{listener_name}': {e}").into(),
-                );
+                web_sys::console::warn_1(&format!("Cleanup failed for listener '{listener_name}': {e}").into());
                 #[cfg(not(target_arch = "wasm32"))]
                 eprintln!("Cleanup failed for listener '{listener_name}': {e}");
             }
@@ -538,10 +516,7 @@ impl std::fmt::Debug for EventRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventRegistry")
             .field("listener_count", &self.listeners.len())
-            .field(
-                "listener_names",
-                &self.listener_names.keys().collect::<Vec<_>>(),
-            )
+            .field("listener_names", &self.listener_names.keys().collect::<Vec<_>>())
             .field("max_listeners", &self.max_listeners)
             .field("stats", &self.stats)
             .finish()
@@ -550,9 +525,10 @@ impl std::fmt::Debug for EventRegistry {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
     use crate::events::types::{EventMetadata, UtxoReceivedPayload, WalletEvent};
-    use std::sync::{Arc, Mutex};
 
     // Test listener for unit testing
     struct TestListener {
@@ -598,10 +574,7 @@ mod tests {
 
     #[async_trait]
     impl EventListener for TestListener {
-        async fn handle_event(
-            &mut self,
-            event: &SharedWalletEvent,
-        ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        async fn handle_event(&mut self, event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
             if self.should_fail {
                 return Err("Test listener intentional failure".into());
             }
@@ -612,10 +585,7 @@ mod tests {
                 WalletEvent::Reorg { .. } => "Reorg",
             };
 
-            self.events_received
-                .lock()
-                .unwrap()
-                .push(event_type.to_string());
+            self.events_received.lock().unwrap().push(event_type.to_string());
             Ok(())
         }
 
@@ -768,10 +738,7 @@ mod tests {
         let selective_listener = TestListener::new_selective("selective_listener");
         let events_received = selective_listener.events_received.clone();
 
-        registry
-            .register(Box::new(selective_listener))
-            .await
-            .unwrap();
+        registry.register(Box::new(selective_listener)).await.unwrap();
 
         // Create UtxoReceived event (should be handled)
         let metadata1 = EventMetadata::new("test", "test_wallet");
@@ -840,10 +807,7 @@ mod tests {
 
         #[async_trait]
         impl EventListener for EmptyNameListener {
-            async fn handle_event(
-                &mut self,
-                _event: &SharedWalletEvent,
-            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            async fn handle_event(&mut self, _event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
                 Ok(())
             }
 
@@ -875,10 +839,7 @@ mod tests {
 
         #[async_trait]
         impl EventListener for HealthyListener {
-            async fn handle_event(
-                &mut self,
-                _event: &SharedWalletEvent,
-            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            async fn handle_event(&mut self, _event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
                 Ok(())
             }
 
@@ -896,10 +857,7 @@ mod tests {
 
         #[async_trait]
         impl EventListener for UnhealthyListener {
-            async fn handle_event(
-                &mut self,
-                _event: &SharedWalletEvent,
-            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            async fn handle_event(&mut self, _event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
                 Ok(())
             }
 
@@ -913,10 +871,7 @@ mod tests {
         }
 
         registry.register(Box::new(HealthyListener)).await.unwrap();
-        registry
-            .register(Box::new(UnhealthyListener))
-            .await
-            .unwrap();
+        registry.register(Box::new(UnhealthyListener)).await.unwrap();
         assert_eq!(registry.listener_count(), 2);
 
         let health_status = registry.health_check();
@@ -934,10 +889,7 @@ mod tests {
 
         #[async_trait]
         impl EventListener for HealthyListener {
-            async fn handle_event(
-                &mut self,
-                _event: &SharedWalletEvent,
-            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            async fn handle_event(&mut self, _event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
                 Ok(())
             }
 
@@ -955,10 +907,7 @@ mod tests {
 
         #[async_trait]
         impl EventListener for UnhealthyListener {
-            async fn handle_event(
-                &mut self,
-                _event: &SharedWalletEvent,
-            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            async fn handle_event(&mut self, _event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
                 Ok(())
             }
 
@@ -972,10 +921,7 @@ mod tests {
         }
 
         registry.register(Box::new(HealthyListener)).await.unwrap();
-        registry
-            .register(Box::new(UnhealthyListener))
-            .await
-            .unwrap();
+        registry.register(Box::new(UnhealthyListener)).await.unwrap();
         assert_eq!(registry.listener_count(), 2);
 
         let removed = registry.remove_unhealthy_listeners().await;
@@ -1108,10 +1054,7 @@ mod tests {
 
         #[async_trait]
         impl EventListener for FailingInitListener {
-            async fn handle_event(
-                &mut self,
-                _event: &SharedWalletEvent,
-            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            async fn handle_event(&mut self, _event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
                 Ok(())
             }
 
@@ -1148,20 +1091,14 @@ mod tests {
 
         #[async_trait]
         impl EventListener for SpentOnlyListener {
-            async fn handle_event(
-                &mut self,
-                event: &SharedWalletEvent,
-            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            async fn handle_event(&mut self, event: &SharedWalletEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
                 let event_type = match &**event {
                     WalletEvent::UtxoReceived { .. } => "UtxoReceived",
                     WalletEvent::UtxoSpent { .. } => "UtxoSpent",
                     WalletEvent::Reorg { .. } => "Reorg",
                 };
 
-                self.events_received
-                    .lock()
-                    .unwrap()
-                    .push(event_type.to_string());
+                self.events_received.lock().unwrap().push(event_type.to_string());
                 Ok(())
             }
 

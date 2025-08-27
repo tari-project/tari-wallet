@@ -1,19 +1,23 @@
-use crate::data_structures::{
-    encrypted_data::EncryptedData,
-    transaction_input::TransactionInput,
-    types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
-    wallet_output::{Covenant, OutputFeatures, OutputType, RangeProof, Script, Signature},
+use std::{
+    cmp::Ordering,
+    fmt::{Display, Formatter},
 };
-use crate::errors::{SerializationError, ValidationError, WalletError};
-use crate::hex_utils::{HexEncodable, HexError, HexValidatable};
+
 use blake2::{Blake2b, Digest};
 use borsh::{BorshDeserialize, BorshSerialize};
 use digest::consts::{U32, U64};
 use hex::ToHex;
 use serde::{Deserialize, Serialize};
-use std::{
-    cmp::Ordering,
-    fmt::{Display, Formatter},
+
+use crate::{
+    data_structures::{
+        encrypted_data::EncryptedData,
+        transaction_input::TransactionInput,
+        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
+        wallet_output::{Covenant, OutputFeatures, OutputType, RangeProof, Script, Signature},
+    },
+    errors::{SerializationError, ValidationError, WalletError},
+    hex_utils::{HexEncodable, HexError, HexValidatable},
 };
 
 /// Output for a transaction, defining the new ownership of coins that are being transferred.
@@ -223,11 +227,7 @@ impl TransactionOutput {
     /// Get the size of features, scripts and covenant in bytes
     pub fn get_features_and_scripts_size(&self) -> Result<usize, WalletError> {
         let features_size = borsh::to_vec(&self.features)
-            .map_err(|e| {
-                WalletError::SerializationError(SerializationError::BorshSerializationError(
-                    e.to_string(),
-                ))
-            })?
+            .map_err(|e| WalletError::SerializationError(SerializationError::BorshSerializationError(e.to_string())))?
             .len();
         let script_size = self.script.bytes.len();
         let covenant_size = self.covenant.bytes.len();
@@ -244,18 +244,14 @@ impl TransactionOutput {
 
         if self.metadata_signature.u_a.is_empty() {
             return Err(WalletError::ValidationError(
-                ValidationError::MetadataSignatureValidationFailed(
-                    "Metadata signature is empty".to_string(),
-                ),
+                ValidationError::MetadataSignatureValidationFailed("Metadata signature is empty".to_string()),
             ));
         }
 
         // Basic length and format validation
         if self.metadata_signature.u_a.len() != 64 {
             return Err(WalletError::ValidationError(
-                ValidationError::MetadataSignatureValidationFailed(
-                    "Invalid metadata signature length".to_string(),
-                ),
+                ValidationError::MetadataSignatureValidationFailed("Invalid metadata signature length".to_string()),
             ));
         }
 
@@ -267,17 +263,12 @@ impl TransactionOutput {
     /// Verify validator node signature (simplified for lightweight implementation)
     pub fn verify_validator_node_signature(&self) -> Result<(), WalletError> {
         // Check if this is a validator node registration output
-        if matches!(
-            self.features.output_type,
-            OutputType::ValidatorNodeRegistration
-        ) {
+        if matches!(self.features.output_type, OutputType::ValidatorNodeRegistration) {
             // For lightweight implementation, perform basic validation
             // The full implementation would verify cryptographic signatures
             if self.metadata_signature.u_a.is_empty() {
                 return Err(WalletError::ValidationError(
-                    ValidationError::SignatureValidationFailed(
-                        "Validator node signature is not valid".to_string(),
-                    ),
+                    ValidationError::SignatureValidationFailed("Validator node signature is not valid".to_string()),
                 ));
             }
         }
@@ -378,10 +369,7 @@ impl TransactionOutput {
     }
 
     /// Create metadata signature message from script and common parts
-    pub fn metadata_signature_message_from_script_and_common(
-        script: &Script,
-        common: &[u8; 32],
-    ) -> [u8; 32] {
+    pub fn metadata_signature_message_from_script_and_common(script: &Script, common: &[u8; 32]) -> [u8; 32] {
         let mut hasher = Blake2b::<U32>::new();
         hasher.update(b"metadata_message"); // Domain separator
         hasher.update(&script.bytes);
@@ -405,8 +393,7 @@ impl Default for TransactionOutput {
             covenant: Covenant::default(),
             encrypted_data: EncryptedData::default(),
             minimum_value_promise: MicroMinotari::new(0),
-            output_features:
-                tari_transaction_components::transaction_components::OutputFeatures::default(),
+            output_features: tari_transaction_components::transaction_components::OutputFeatures::default(),
         }
     }
 }
@@ -415,7 +402,8 @@ impl Display for TransactionOutput {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             fmt,
-            "({}, {:?}) [{:?}], Script: ({}), Offset Pubkey: ({}), Metadata Signature: ({}), Encrypted data ({}), Proof: {}",
+            "({}, {:?}) [{:?}], Script: ({}), Offset Pubkey: ({}), Metadata Signature: ({}), Encrypted data ({}), \
+             Proof: {}",
             hex::encode(self.commitment.as_bytes()),
             hex::encode(self.hash()),
             self.features,

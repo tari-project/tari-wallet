@@ -7,9 +7,9 @@ pub mod key_derivation;
 pub mod seed_phrase;
 pub mod stealth_address;
 
-use crate::data_structures::types::PrivateKey;
-use crate::errors::KeyManagementError;
 use zeroize::Zeroize;
+
+use crate::{data_structures::types::PrivateKey, errors::KeyManagementError};
 
 /// Key derivation path for deterministic key generation
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -24,10 +24,7 @@ pub struct KeyDerivationPath {
 impl KeyDerivationPath {
     /// Create a new key derivation path
     pub fn new(branch_seed: String, key_index: u64) -> Self {
-        Self {
-            branch_seed,
-            key_index,
-        }
+        Self { branch_seed, key_index }
     }
 
     /// Parse path from string representation
@@ -42,9 +39,7 @@ impl KeyDerivationPath {
         let key_index = parts[1]
             .trim_end_matches('\'')
             .parse::<u64>()
-            .map_err(|_| {
-                KeyManagementError::InvalidKeyDerivationPath("Invalid key index".to_string())
-            })?;
+            .map_err(|_| KeyManagementError::InvalidKeyDerivationPath("Invalid key index".to_string()))?;
 
         Ok(Self {
             branch_seed: "".to_string(),
@@ -98,16 +93,10 @@ impl DerivedKeyPair {
 /// Key manager for deterministic key derivation
 pub trait KeyManager {
     /// Derive a key pair from the given path
-    fn derive_key_pair(
-        &self,
-        path: &KeyDerivationPath,
-    ) -> Result<DerivedKeyPair, KeyManagementError>;
+    fn derive_key_pair(&self, path: &KeyDerivationPath) -> Result<DerivedKeyPair, KeyManagementError>;
 
     /// Derive a private key from the given path
-    fn derive_private_key(
-        &self,
-        path: &KeyDerivationPath,
-    ) -> Result<PrivateKey, KeyManagementError>;
+    fn derive_private_key(&self, path: &KeyDerivationPath) -> Result<PrivateKey, KeyManagementError>;
 
     /// Derive a public key from the given path
     fn derive_public_key(
@@ -179,12 +168,14 @@ impl Drop for ImportedPrivateKey {
     }
 }
 
-pub use key_derivation::{
-    derive_private_key_from_entropy, derive_view_and_spend_keys_from_entropy,
-};
+pub use key_derivation::{derive_private_key_from_entropy, derive_view_and_spend_keys_from_entropy};
 pub use seed_phrase::{
-    bytes_to_mnemonic, generate_seed_phrase, mnemonic_to_bytes, mnemonic_to_master_key,
-    validate_seed_phrase, CipherSeed,
+    bytes_to_mnemonic,
+    generate_seed_phrase,
+    mnemonic_to_bytes,
+    mnemonic_to_master_key,
+    validate_seed_phrase,
+    CipherSeed,
 };
 pub use stealth_address::{StealthAddress, StealthAddressService};
 
@@ -210,10 +201,7 @@ impl KeyStore {
     }
 
     /// Add an imported private key to the store
-    pub fn add_imported_key(
-        &mut self,
-        imported_key: ImportedPrivateKey,
-    ) -> Result<(), KeyManagementError> {
+    pub fn add_imported_key(&mut self, imported_key: ImportedPrivateKey) -> Result<(), KeyManagementError> {
         // Check for duplicates (by comparing private key bytes)
         for existing_key in &self.imported_keys {
             if existing_key.private_key.as_bytes() == imported_key.private_key.as_bytes() {
@@ -228,13 +216,9 @@ impl KeyStore {
     }
 
     /// Import a private key from hex string
-    pub fn import_private_key_from_hex(
-        &mut self,
-        hex: &str,
-        label: Option<String>,
-    ) -> Result<(), KeyManagementError> {
-        let private_key = PrivateKey::from_hex(hex)
-            .map_err(|e| KeyManagementError::InvalidPrivateKey(e.to_string()))?;
+    pub fn import_private_key_from_hex(&mut self, hex: &str, label: Option<String>) -> Result<(), KeyManagementError> {
+        let private_key =
+            PrivateKey::from_hex(hex).map_err(|e| KeyManagementError::InvalidPrivateKey(e.to_string()))?;
 
         let imported_key = ImportedPrivateKey::new(private_key, label);
         self.add_imported_key(imported_key)
@@ -257,33 +241,22 @@ impl KeyStore {
     }
 
     /// Get imported key by index
-    pub fn get_imported_key(
-        &self,
-        index: usize,
-    ) -> Result<&ImportedPrivateKey, KeyManagementError> {
-        self.imported_keys.get(index).ok_or_else(|| {
-            KeyManagementError::KeyNotFound(format!("Imported key at index {index}"))
-        })
+    pub fn get_imported_key(&self, index: usize) -> Result<&ImportedPrivateKey, KeyManagementError> {
+        self.imported_keys
+            .get(index)
+            .ok_or_else(|| KeyManagementError::KeyNotFound(format!("Imported key at index {index}")))
     }
 
     /// Get imported key by label
-    pub fn get_imported_key_by_label(
-        &self,
-        label: &str,
-    ) -> Result<&ImportedPrivateKey, KeyManagementError> {
+    pub fn get_imported_key_by_label(&self, label: &str) -> Result<&ImportedPrivateKey, KeyManagementError> {
         self.imported_keys
             .iter()
             .find(|key| key.label.as_ref().is_some_and(|l| l == label))
-            .ok_or_else(|| {
-                KeyManagementError::KeyNotFound(format!("Imported key with label '{label}'"))
-            })
+            .ok_or_else(|| KeyManagementError::KeyNotFound(format!("Imported key with label '{label}'")))
     }
 
     /// Remove imported key by index
-    pub fn remove_imported_key(
-        &mut self,
-        index: usize,
-    ) -> Result<ImportedPrivateKey, KeyManagementError> {
+    pub fn remove_imported_key(&mut self, index: usize) -> Result<ImportedPrivateKey, KeyManagementError> {
         if index >= self.imported_keys.len() {
             return Err(KeyManagementError::KeyNotFound(format!(
                 "Imported key at index {index}"

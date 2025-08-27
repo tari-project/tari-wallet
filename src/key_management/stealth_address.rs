@@ -7,8 +7,10 @@ use blake2::Blake2b;
 use digest::consts::U64;
 use tari_crypto::{hash_domain, hashing::DomainSeparatedHasher};
 
-use crate::data_structures::types::{CompressedPublicKey, PrivateKey};
-use crate::errors::WalletResult;
+use crate::{
+    data_structures::types::{CompressedPublicKey, PrivateKey},
+    errors::WalletResult,
+};
 
 // Domain separators for stealth address operations
 hash_domain!(
@@ -23,17 +25,11 @@ hash_domain!(
     1
 );
 
-hash_domain!(
-    StealthAddressDomain,
-    "com.tari.base_layer.wallet.stealth_address",
-    1
-);
+hash_domain!(StealthAddressDomain, "com.tari.base_layer.wallet.stealth_address", 1);
 
 // Type aliases for domain separated hashers
-type WalletOutputEncryptionKeysDomainHasher =
-    DomainSeparatedHasher<Blake2b<U64>, WalletOutputEncryptionKeysDomain>;
-type WalletOutputSpendingKeysDomainHasher =
-    DomainSeparatedHasher<Blake2b<U64>, WalletOutputSpendingKeysDomain>;
+type WalletOutputEncryptionKeysDomainHasher = DomainSeparatedHasher<Blake2b<U64>, WalletOutputEncryptionKeysDomain>;
+type WalletOutputSpendingKeysDomainHasher = DomainSeparatedHasher<Blake2b<U64>, WalletOutputSpendingKeysDomain>;
 type StealthAddressDomainHasher = DomainSeparatedHasher<Blake2b<U64>, StealthAddressDomain>;
 
 /// Stealth address service for handling one-sided payments and stealth transactions
@@ -47,10 +43,7 @@ impl StealthAddressService {
     }
 
     /// Generate an output encryption key from a shared secret (simplified)
-    pub fn shared_secret_to_output_encryption_key(
-        &self,
-        shared_secret: &[u8],
-    ) -> WalletResult<PrivateKey> {
+    pub fn shared_secret_to_output_encryption_key(&self, shared_secret: &[u8]) -> WalletResult<PrivateKey> {
         let key_bytes = WalletOutputEncryptionKeysDomainHasher::new()
             .chain(shared_secret)
             .finalize();
@@ -62,10 +55,7 @@ impl StealthAddressService {
     }
 
     /// Generate an output encryption key from a secret key
-    pub fn secret_key_to_output_encryption_key(
-        &self,
-        secret_key: &PrivateKey,
-    ) -> WalletResult<PrivateKey> {
+    pub fn secret_key_to_output_encryption_key(&self, secret_key: &PrivateKey) -> WalletResult<PrivateKey> {
         let key_bytes = WalletOutputEncryptionKeysDomainHasher::new()
             .chain(secret_key.as_bytes())
             .finalize();
@@ -76,10 +66,7 @@ impl StealthAddressService {
     }
 
     /// Generate an output encryption key from a public key
-    pub fn public_key_to_output_encryption_key(
-        &self,
-        public_key: &CompressedPublicKey,
-    ) -> WalletResult<PrivateKey> {
+    pub fn public_key_to_output_encryption_key(&self, public_key: &CompressedPublicKey) -> WalletResult<PrivateKey> {
         let key_bytes = WalletOutputEncryptionKeysDomainHasher::new()
             .chain(public_key.as_bytes())
             .finalize();
@@ -90,10 +77,7 @@ impl StealthAddressService {
     }
 
     /// Generate an output spending key from a shared secret (simplified)
-    pub fn shared_secret_to_output_spending_key(
-        &self,
-        shared_secret: &[u8],
-    ) -> WalletResult<PrivateKey> {
+    pub fn shared_secret_to_output_spending_key(&self, shared_secret: &[u8]) -> WalletResult<PrivateKey> {
         let key_bytes = WalletOutputSpendingKeysDomainHasher::new()
             .chain(shared_secret)
             .finalize();
@@ -149,9 +133,8 @@ impl StealthAddressService {
         let shared_secret = self.generate_shared_secret(sender_private_key, &view_public_key)?;
 
         // Derive stealth spending key (simplified - just use a derived key)
-        let stealth_spending_key = CompressedPublicKey::from_private_key(
-            &self.shared_secret_to_output_spending_key(&shared_secret)?,
-        );
+        let stealth_spending_key =
+            CompressedPublicKey::from_private_key(&self.shared_secret_to_output_spending_key(&shared_secret)?);
 
         // Generate sender offset public key (ephemeral key)
         let sender_offset_public_key = CompressedPublicKey::from_private_key(sender_private_key);
@@ -250,12 +233,8 @@ mod tests {
         let secret_key = PrivateKey::new([42u8; 32]); // Fixed key for deterministic test
 
         // Multiple calls should produce the same result
-        let encryption_key1 = service
-            .secret_key_to_output_encryption_key(&secret_key)
-            .unwrap();
-        let encryption_key2 = service
-            .secret_key_to_output_encryption_key(&secret_key)
-            .unwrap();
+        let encryption_key1 = service.secret_key_to_output_encryption_key(&secret_key).unwrap();
+        let encryption_key2 = service.secret_key_to_output_encryption_key(&secret_key).unwrap();
 
         assert_eq!(encryption_key1, encryption_key2);
     }
@@ -281,12 +260,8 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::new([2u8; 32]));
 
         // Multiple calls with same inputs should produce same secret
-        let secret1 = service
-            .generate_shared_secret(&private_key, &public_key)
-            .unwrap();
-        let secret2 = service
-            .generate_shared_secret(&private_key, &public_key)
-            .unwrap();
+        let secret1 = service.generate_shared_secret(&private_key, &public_key).unwrap();
+        let secret2 = service.generate_shared_secret(&private_key, &public_key).unwrap();
 
         assert_eq!(secret1, secret2);
     }
@@ -299,12 +274,8 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::new([3u8; 32]));
 
         // Different private keys should produce different secrets
-        let secret1 = service
-            .generate_shared_secret(&private_key1, &public_key)
-            .unwrap();
-        let secret2 = service
-            .generate_shared_secret(&private_key2, &public_key)
-            .unwrap();
+        let secret1 = service.generate_shared_secret(&private_key1, &public_key).unwrap();
+        let secret2 = service.generate_shared_secret(&private_key2, &public_key).unwrap();
 
         assert_ne!(secret1, secret2);
     }
@@ -344,8 +315,7 @@ mod tests {
         let spend_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
         let sender_private_key = PrivateKey::random();
 
-        let stealth_address =
-            service.generate_stealth_address(&view_key, &spend_key, &sender_private_key);
+        let stealth_address = service.generate_stealth_address(&view_key, &spend_key, &sender_private_key);
         assert!(stealth_address.is_ok());
 
         let address = stealth_address.unwrap();
@@ -354,10 +324,7 @@ mod tests {
         assert_ne!(address.spend_public_key, address.stealth_spending_key);
         assert_ne!(address.view_public_key, address.spend_public_key);
         assert_ne!(address.view_public_key, address.stealth_spending_key);
-        assert_ne!(
-            address.sender_offset_public_key,
-            address.stealth_spending_key
-        );
+        assert_ne!(address.sender_offset_public_key, address.stealth_spending_key);
     }
 
     #[test]
@@ -464,19 +431,11 @@ mod tests {
         let secret1 = vec![1u8; 64];
         let secret2 = vec![2u8; 64];
 
-        let enc_key1 = service
-            .shared_secret_to_output_encryption_key(&secret1)
-            .unwrap();
-        let enc_key2 = service
-            .shared_secret_to_output_encryption_key(&secret2)
-            .unwrap();
+        let enc_key1 = service.shared_secret_to_output_encryption_key(&secret1).unwrap();
+        let enc_key2 = service.shared_secret_to_output_encryption_key(&secret2).unwrap();
 
-        let spend_key1 = service
-            .shared_secret_to_output_spending_key(&secret1)
-            .unwrap();
-        let spend_key2 = service
-            .shared_secret_to_output_spending_key(&secret2)
-            .unwrap();
+        let spend_key1 = service.shared_secret_to_output_spending_key(&secret1).unwrap();
+        let spend_key2 = service.shared_secret_to_output_spending_key(&secret2).unwrap();
 
         // Different secrets should produce different keys
         assert_ne!(enc_key1, enc_key2);
@@ -517,20 +476,14 @@ mod tests {
 
         // 1. Sender generates stealth address
         let stealth_address = service
-            .generate_stealth_address(
-                &receiver_view_key,
-                &receiver_spend_key,
-                &sender_ephemeral_key,
-            )
+            .generate_stealth_address(&receiver_view_key, &receiver_spend_key, &sender_ephemeral_key)
             .unwrap();
 
         // 2. Sender creates shared secret for encryption
         let shared_secret = service
             .generate_shared_secret(&sender_ephemeral_key, &stealth_address.view_public_key)
             .unwrap();
-        let _encryption_key = service
-            .shared_secret_to_output_encryption_key(&shared_secret)
-            .unwrap();
+        let _encryption_key = service.shared_secret_to_output_encryption_key(&shared_secret).unwrap();
 
         // 3. Receiver tries to recover the output
         let recovered_key = service
@@ -546,10 +499,7 @@ mod tests {
 
         // 4. Receiver should be able to derive same encryption key
         let receiver_shared_secret = service
-            .generate_shared_secret(
-                &receiver_view_key,
-                &stealth_address.sender_offset_public_key,
-            )
+            .generate_shared_secret(&receiver_view_key, &stealth_address.sender_offset_public_key)
             .unwrap();
         let _receiver_encryption_key = service
             .shared_secret_to_output_encryption_key(&receiver_shared_secret)
@@ -580,10 +530,7 @@ mod tests {
 
         // Should produce different stealth addresses
         assert_ne!(address1.stealth_spending_key, address2.stealth_spending_key);
-        assert_ne!(
-            address1.sender_offset_public_key,
-            address2.sender_offset_public_key
-        );
+        assert_ne!(address1.sender_offset_public_key, address2.sender_offset_public_key);
 
         // But same view and spend keys
         assert_eq!(address1.view_public_key, address2.view_public_key);

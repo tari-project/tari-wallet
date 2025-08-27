@@ -4,14 +4,19 @@
 //! the original scanner progress bar functionality. It uses carriage return (`\r`)
 //! to update the same line continuously, providing smooth progress feedback.
 
-use async_trait::async_trait;
-use std::error::Error;
-use std::io::{self, Write};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    error::Error,
+    io::{self, Write},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
-use crate::common::format_number;
-use crate::events::{EventListener, SharedEvent, WalletScanEvent};
+use async_trait::async_trait;
+
+use crate::{
+    common::format_number,
+    events::{EventListener, SharedEvent, WalletScanEvent},
+};
 
 /// Configuration for ASCII progress bar display
 #[derive(Debug, Clone)]
@@ -383,14 +388,11 @@ impl Default for AsciiProgressBarListener {
 
 #[async_trait]
 impl EventListener for AsciiProgressBarListener {
-    async fn handle_event(
-        &mut self,
-        event: &SharedEvent,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
         match &**event {
             WalletScanEvent::ScanStarted { .. } => {
                 self.start_scan();
-            }
+            },
             WalletScanEvent::ScanProgress {
                 current_block,
                 total_blocks,
@@ -409,15 +411,15 @@ impl EventListener for AsciiProgressBarListener {
                     *speed_blocks_per_second,
                     *estimated_time_remaining,
                 );
-            }
+            },
             WalletScanEvent::OutputFound { .. } => {
                 // Output counts are now tracked via BlockProcessed events to avoid double counting
                 // Individual OutputFound events are used for detailed logging but not counting
-            }
+            },
             WalletScanEvent::SpentOutputFound { .. } => {
                 // Spent output counts are now tracked via BlockProcessed events to avoid double counting
                 // Individual SpentOutputFound events are used for detailed logging but not counting
-            }
+            },
             WalletScanEvent::BlockProcessed {
                 outputs_count,
                 spent_outputs_count,
@@ -430,14 +432,14 @@ impl EventListener for AsciiProgressBarListener {
                     state.spent_found += spent_outputs_count;
                     // Don't display progress here - let ScanProgress events handle it
                 }
-            }
-            WalletScanEvent::ScanCompleted { .. }
-            | WalletScanEvent::ScanError { .. }
-            | WalletScanEvent::ScanCancelled { .. } => {
+            },
+            WalletScanEvent::ScanCompleted { .. } |
+            WalletScanEvent::ScanError { .. } |
+            WalletScanEvent::ScanCancelled { .. } => {
                 self.finish_scan();
                 // Add a newline after clearing the progress line so subsequent output appears on a new line
                 println!();
-            }
+            },
         }
 
         Ok(())
@@ -451,23 +453,24 @@ impl EventListener for AsciiProgressBarListener {
         // We want to handle progress-related events
         matches!(
             &**event,
-            WalletScanEvent::ScanStarted { .. }
-                | WalletScanEvent::ScanProgress { .. }
-                | WalletScanEvent::OutputFound { .. }
-                | WalletScanEvent::SpentOutputFound { .. }
-                | WalletScanEvent::BlockProcessed { .. }
-                | WalletScanEvent::ScanCompleted { .. }
-                | WalletScanEvent::ScanError { .. }
-                | WalletScanEvent::ScanCancelled { .. }
+            WalletScanEvent::ScanStarted { .. } |
+                WalletScanEvent::ScanProgress { .. } |
+                WalletScanEvent::OutputFound { .. } |
+                WalletScanEvent::SpentOutputFound { .. } |
+                WalletScanEvent::BlockProcessed { .. } |
+                WalletScanEvent::ScanCompleted { .. } |
+                WalletScanEvent::ScanError { .. } |
+                WalletScanEvent::ScanCancelled { .. }
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::events::types::{EventMetadata, WalletScanEvent};
-    use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_progress_bar_creation() {

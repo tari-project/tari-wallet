@@ -16,8 +16,11 @@
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use blake2::{Blake2b, Digest};
 use serde::{Deserialize, Serialize};
+use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
 use tari_transaction_components::transaction_components::Transaction;
+use tari_utilities::ByteArray;
 
 use crate::{
     data_structures::{
@@ -32,9 +35,6 @@ use crate::{
     extraction::{extract_wallet_output, ExtractionConfig},
     key_management::{self, KeyManager, KeyStore},
 };
-use blake2::{Blake2b, Digest};
-use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
-use tari_utilities::ByteArray;
 
 #[cfg(feature = "grpc")]
 pub mod convert_output_features;
@@ -70,58 +70,60 @@ pub mod data_processor;
 pub mod database_processor;
 
 // Re-export GRPC scanner types
-#[cfg(feature = "grpc")]
-pub use grpc_scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
-
-// Re-export HTTP scanner types
-#[cfg(feature = "http")]
-pub use http_scanner::HttpBlockchainScanner;
-
-// Re-export configuration types for scanner binary operations
-pub use scan_config::{BinaryScanConfig, OutputFormat, ScanContext};
-
-pub use wallet_scanner::{
-    create_wallet_from_seed_phrase, create_wallet_from_view_key, RetryConfig, ScanMetadata,
-    ScanResult, ScannerBuilder, ScannerConfigError, WalletScannerConfig,
-};
-
-pub use wallet_scanner::WalletScanner as WalletScannerStruct;
-
-#[cfg(feature = "storage")]
-pub use wallet_scanner::extract_utxo_outputs_from_wallet_state;
-
 // Re-export background writer types for scanner binary operations
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 pub use background_writer::{BackgroundWriter, BackgroundWriterCommand};
-
-// Re-export storage manager types for scanner binary operations
-#[cfg(feature = "storage")]
-pub use storage_manager::ScannerStorage;
-
-// Re-export progress tracking types for scanner binary operations
-pub use progress::{ProgressCallback, ProgressConfig, ProgressInfo, ProgressTracker};
-
 // Re-export data processor types
 pub use data_processor::{
-    BlockData, CompletionData, CompositeDataProcessor, DataProcessor, MemoryDataProcessor,
-    NoOpDataProcessor, ProgressData,
+    BlockData,
+    CompletionData,
+    CompositeDataProcessor,
+    DataProcessor,
+    MemoryDataProcessor,
+    NoOpDataProcessor,
+    ProgressData,
 };
-
 // Re-export database processor types
 #[cfg(feature = "storage")]
 pub use database_processor::{DatabaseDataProcessor, MemoryStorageProcessor};
+#[cfg(feature = "grpc")]
+pub use grpc_scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
+// Re-export HTTP scanner types
+#[cfg(feature = "http")]
+pub use http_scanner::HttpBlockchainScanner;
+// Re-export progress tracking types for scanner binary operations
+pub use progress::{ProgressCallback, ProgressConfig, ProgressInfo, ProgressTracker};
+// Re-export configuration types for scanner binary operations
+pub use scan_config::{BinaryScanConfig, OutputFormat, ScanContext};
+// Re-export storage manager types for scanner binary operations
+#[cfg(feature = "storage")]
+pub use storage_manager::ScannerStorage;
+#[cfg(feature = "storage")]
+pub use wallet_scanner::extract_utxo_outputs_from_wallet_state;
+pub use wallet_scanner::{
+    create_wallet_from_seed_phrase,
+    create_wallet_from_view_key,
+    RetryConfig,
+    ScanMetadata,
+    ScanResult,
+    ScannerBuilder,
+    ScannerConfigError,
+    WalletScanner as WalletScannerStruct,
+    WalletScannerConfig,
+};
 
 // Event emitter module for scanner integration with event system
 pub mod event_emitter;
 
 // Re-export event emitter types
-pub use event_emitter::{
-    create_address_info_from_transaction, create_block_info_from_block,
-    create_default_event_emitter, ScanEventEmitter,
-};
-
 #[cfg(feature = "storage")]
 pub use event_emitter::create_database_event_emitter;
+pub use event_emitter::{
+    create_address_info_from_transaction,
+    create_block_info_from_block,
+    create_default_event_emitter,
+    ScanEventEmitter,
+};
 
 /// Legacy progress callback for scanning operations (for compatibility)
 pub type LegacyProgressCallback = Box<dyn Fn(ScanProgress) + Send + Sync>;
@@ -160,20 +162,17 @@ pub struct ScanConfig {
 
 // Helper module for Duration serialization
 mod duration_serde {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::time::Duration;
 
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    where S: Serializer {
         duration.as_secs().serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    where D: Deserializer<'de> {
         let secs = u64::deserialize(deserializer)?;
         Ok(Duration::from_secs(secs))
     }
@@ -181,10 +180,7 @@ mod duration_serde {
 
 impl ScanConfig {
     /// Create a new scan config with a progress callback
-    pub fn with_progress_callback(
-        self,
-        callback: LegacyProgressCallback,
-    ) -> ScanConfigWithCallback {
+    pub fn with_progress_callback(self, callback: LegacyProgressCallback) -> ScanConfigWithCallback {
         ScanConfigWithCallback {
             config: self,
             progress_callback: Some(callback),
@@ -372,10 +368,7 @@ pub trait BlockchainScanner: Send + Sync {
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo>;
 
     /// Search for specific UTXOs by commitment
-    async fn search_utxos(
-        &mut self,
-        commitments: Vec<Vec<u8>>,
-    ) -> WalletResult<Vec<BlockScanResult>>;
+    async fn search_utxos(&mut self, commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>>;
 
     /// Fetch specific UTXOs by hash
     async fn fetch_utxos(&mut self, hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>>;
@@ -436,14 +429,12 @@ impl DefaultScanningLogic {
         transaction_output: &TransactionOutput,
     ) -> Result<Option<WalletOutput>, WalletError> {
         // Derive view key using the same method as reference
-        let (view_key_ristretto, _spend_key) =
-            key_management::derive_view_and_spend_keys_from_entropy(&self.entropy).map_err(
-                |e| WalletError::InvalidArgument {
-                    argument: "entropy".to_string(),
-                    value: "key_derivation".to_string(),
-                    message: format!("Key derivation failed: {e}"),
-                },
-            )?;
+        let (view_key_ristretto, _spend_key) = key_management::derive_view_and_spend_keys_from_entropy(&self.entropy)
+            .map_err(|e| WalletError::InvalidArgument {
+            argument: "entropy".to_string(),
+            value: "key_derivation".to_string(),
+            message: format!("Key derivation failed: {e}"),
+        })?;
 
         // Convert RistrettoSecretKey to PrivateKey
         let view_key_bytes = view_key_ristretto.as_bytes();
@@ -452,9 +443,7 @@ impl DefaultScanningLogic {
         let view_key = PrivateKey::new(view_key_array);
 
         // Try Diffie-Hellman shared secret approach (reference implementation method)
-        if let Some(wallet_output) =
-            self.try_diffie_hellman_recovery(transaction_output, &view_key)?
-        {
+        if let Some(wallet_output) = self.try_diffie_hellman_recovery(transaction_output, &view_key)? {
             return Ok(Some(wallet_output));
         }
 
@@ -471,8 +460,7 @@ impl DefaultScanningLogic {
         let sender_offset_public_key = transaction_output.sender_offset_public_key();
 
         // Compute Diffie-Hellman shared secret: view_private_key * sender_offset_public_key
-        let shared_secret =
-            self.compute_diffie_hellman_shared_secret(view_private_key, sender_offset_public_key)?;
+        let shared_secret = self.compute_diffie_hellman_shared_secret(view_private_key, sender_offset_public_key)?;
 
         // Derive encryption key from shared secret (same as reference implementation)
         let encryption_key = self.shared_secret_to_encryption_key(&shared_secret)?;
@@ -490,13 +478,13 @@ impl DefaultScanningLogic {
                     Ok(wallet_output) => Ok(Some(wallet_output)),
                     Err(_) => {
                         Ok(None) // For now, return None to avoid constructor complexity
-                    }
+                    },
                 }
-            }
+            },
             Err(_e) => {
                 // TODO: Check if we should rather return an error here
                 Ok(None)
-            }
+            },
         }
     }
 
@@ -507,22 +495,22 @@ impl DefaultScanningLogic {
         public_key: &CompressedPublicKey,
     ) -> Result<[u8; 32], WalletError> {
         // Convert private key to RistrettoSecretKey
-        let secret_key = RistrettoSecretKey::from_canonical_bytes(&private_key.as_bytes())
-            .map_err(|e| WalletError::InvalidArgument {
+        let secret_key = RistrettoSecretKey::from_canonical_bytes(&private_key.as_bytes()).map_err(|e| {
+            WalletError::InvalidArgument {
                 argument: "private_key".to_string(),
                 value: "key_derivation".to_string(),
                 message: format!("Invalid private key: {e}"),
-            })?;
+            }
+        })?;
 
         // Decompress public key to RistrettoPublicKey
-        let pub_key =
-            RistrettoPublicKey::from_canonical_bytes(&public_key.as_bytes()).map_err(|e| {
-                WalletError::InvalidArgument {
-                    argument: "public_key".to_string(),
-                    value: "key_derivation".to_string(),
-                    message: format!("Invalid public key: {e}"),
-                }
-            })?;
+        let pub_key = RistrettoPublicKey::from_canonical_bytes(&public_key.as_bytes()).map_err(|e| {
+            WalletError::InvalidArgument {
+                argument: "public_key".to_string(),
+                value: "key_derivation".to_string(),
+                message: format!("Invalid public key: {e}"),
+            }
+        })?;
 
         // Compute shared secret: private_key * public_key
         let shared_secret_point = pub_key * secret_key;
@@ -535,10 +523,7 @@ impl DefaultScanningLogic {
     }
 
     /// Convert shared secret to encryption key (mimics reference implementation)
-    fn shared_secret_to_encryption_key(
-        &self,
-        shared_secret: &[u8; 32],
-    ) -> Result<PrivateKey, WalletError> {
+    fn shared_secret_to_encryption_key(&self, shared_secret: &[u8; 32]) -> Result<PrivateKey, WalletError> {
         // Use Blake2b hash to derive encryption key from shared secret
         // This matches the pattern used in the reference implementation
         let mut hasher = Blake2b::<digest::consts::U32>::new();
@@ -546,15 +531,11 @@ impl DefaultScanningLogic {
         hasher.update(shared_secret);
 
         let result = hasher.finalize();
-        let key_bytes: [u8; 32] =
-            result
-                .as_slice()
-                .try_into()
-                .map_err(|_| WalletError::InvalidArgument {
-                    argument: "shared_secret".to_string(),
-                    value: "key_derivation".to_string(),
-                    message: "Failed to convert hash to key".to_string(),
-                })?;
+        let key_bytes: [u8; 32] = result.as_slice().try_into().map_err(|_| WalletError::InvalidArgument {
+            argument: "shared_secret".to_string(),
+            value: "key_derivation".to_string(),
+            message: "Failed to convert hash to key".to_string(),
+        })?;
 
         Ok(PrivateKey::new(key_bytes))
     }
@@ -572,7 +553,7 @@ impl DefaultScanningLogic {
             for output in &block.outputs {
                 match extract_wallet_output(output, extraction_config) {
                     Ok(wallet_output) => wallet_outputs.push(wallet_output),
-                    Err(_e) => {} // Continue processing other outputs
+                    Err(_e) => {}, // Continue processing other outputs
                 }
             }
 
@@ -608,9 +589,7 @@ impl DefaultScanningLogic {
 
                 // Strategy 1: One-sided payments (different detection logic)
                 if !found_output {
-                    if let Some(wallet_output) =
-                        Self::scan_for_one_sided_payment(output, extraction_config)?
-                    {
+                    if let Some(wallet_output) = Self::scan_for_one_sided_payment(output, extraction_config)? {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
                     }
@@ -618,9 +597,7 @@ impl DefaultScanningLogic {
 
                 // Strategy 2: Regular recoverable outputs (encrypted data decryption)
                 if !found_output {
-                    if let Some(wallet_output) =
-                        Self::scan_for_recoverable_output(output, extraction_config)?
-                    {
+                    if let Some(wallet_output) = Self::scan_for_recoverable_output(output, extraction_config)? {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
                     }
@@ -700,8 +677,7 @@ impl DefaultScanningLogic {
 
         // For coinbase outputs, the value is typically revealed in the minimum value promise
         if output.minimum_value_promise().as_u64() > 0 {
-            use crate::data_structures::payment_id::PaymentId;
-            use crate::data_structures::wallet_output::*;
+            use crate::data_structures::{payment_id::PaymentId, wallet_output::*};
 
             let wallet_output = WalletOutput::new(
                 output.version(),
@@ -758,10 +734,7 @@ impl DefaultScanningLogic {
 
             // Update progress
             if let Some(callback) = progress_callback {
-                let total_outputs: u64 = all_results
-                    .iter()
-                    .map(|r| r.wallet_outputs.len() as u64)
-                    .sum();
+                let total_outputs: u64 = all_results.iter().map(|r| r.wallet_outputs.len() as u64).sum();
                 let total_value: u64 = all_results
                     .iter()
                     .flat_map(|r| &r.wallet_outputs)
@@ -802,10 +775,7 @@ impl DefaultScanningLogic {
         });
 
         while current_height <= end_height {
-            let batch_end = std::cmp::min(
-                current_height + config.scan_config.batch_size - 1,
-                end_height,
-            );
+            let batch_end = std::cmp::min(current_height + config.scan_config.batch_size - 1, end_height);
 
             // Get blocks in this batch
             let heights: Vec<u64> = (current_height..=batch_end).collect();
@@ -817,10 +787,7 @@ impl DefaultScanningLogic {
 
             // Update progress
             if let Some(callback) = progress_callback {
-                let total_outputs: u64 = all_results
-                    .iter()
-                    .map(|r| r.wallet_outputs.len() as u64)
-                    .sum();
+                let total_outputs: u64 = all_results.iter().map(|r| r.wallet_outputs.len() as u64).sum();
                 let total_value: u64 = all_results
                     .iter()
                     .flat_map(|r| &r.wallet_outputs)
@@ -839,10 +806,7 @@ impl DefaultScanningLogic {
             current_height = batch_end + 1;
         }
 
-        let total_wallet_outputs: u64 = all_results
-            .iter()
-            .map(|r| r.wallet_outputs.len() as u64)
-            .sum();
+        let total_wallet_outputs: u64 = all_results.iter().map(|r| r.wallet_outputs.len() as u64).sum();
         let total_value: u64 = all_results
             .iter()
             .flat_map(|r| &r.wallet_outputs)
@@ -908,10 +872,7 @@ impl BlockchainScanner for MockBlockchainScanner {
         Ok(self.tip_info.clone())
     }
 
-    async fn search_utxos(
-        &mut self,
-        _commitments: Vec<Vec<u8>>,
-    ) -> WalletResult<Vec<BlockScanResult>> {
+    async fn search_utxos(&mut self, _commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
         // Mock implementation - return empty results
         Ok(Vec::new())
     }
@@ -989,7 +950,7 @@ impl BlockchainScannerBuilder {
             Some(ScannerType::Grpc { url }) => {
                 let scanner = GrpcBlockchainScanner::new(url).await?;
                 Ok(Box::new(scanner))
-            }
+            },
             None => Err(WalletError::ConfigurationError(
                 "Scanner type not specified".to_string(),
             )),

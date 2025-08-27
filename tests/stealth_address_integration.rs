@@ -25,9 +25,7 @@ fn test_stealth_address_with_encrypted_data() {
     let shared_secret = service
         .generate_shared_secret(&sender_private_key, &stealth_address.view_public_key)
         .unwrap();
-    let encryption_key = service
-        .shared_secret_to_output_encryption_key(&shared_secret)
-        .unwrap();
+    let encryption_key = service.shared_secret_to_output_encryption_key(&shared_secret).unwrap();
 
     // Test that encryption key can be derived from stealth address components
     let receiver_shared_secret = service
@@ -50,16 +48,14 @@ fn test_stealth_address_with_key_derivation() {
     let entropy = [42u8; 16];
 
     // Derive a view key using the key derivation system
-    let derived_key =
-        key_derivation::derive_private_key_from_entropy(&entropy, "stealth_test", 0).unwrap();
+    let derived_key = key_derivation::derive_private_key_from_entropy(&entropy, "stealth_test", 0).unwrap();
     let view_key = PrivateKey::new(derived_key.as_bytes().try_into().unwrap());
 
     let spend_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
     let sender_private_key = PrivateKey::random();
 
     // Should work with derived keys
-    let stealth_address =
-        service.generate_stealth_address(&view_key, &spend_key, &sender_private_key);
+    let stealth_address = service.generate_stealth_address(&view_key, &spend_key, &sender_private_key);
     assert!(stealth_address.is_ok());
 
     // Should be able to recover keys
@@ -81,25 +77,17 @@ fn test_stealth_address_key_consistency() {
     let public_key = CompressedPublicKey::from_private_key(&base_key);
 
     // Derive encryption key from secret
-    let enc_from_secret = service
-        .secret_key_to_output_encryption_key(&base_key)
-        .unwrap();
+    let enc_from_secret = service.secret_key_to_output_encryption_key(&base_key).unwrap();
 
     // Derive encryption key from public key
-    let enc_from_public = service
-        .public_key_to_output_encryption_key(&public_key)
-        .unwrap();
+    let enc_from_public = service.public_key_to_output_encryption_key(&public_key).unwrap();
 
     // Should produce different results (as expected)
     assert_ne!(enc_from_secret, enc_from_public);
 
     // But both should be valid and deterministic
-    let enc_from_secret2 = service
-        .secret_key_to_output_encryption_key(&base_key)
-        .unwrap();
-    let enc_from_public2 = service
-        .public_key_to_output_encryption_key(&public_key)
-        .unwrap();
+    let enc_from_secret2 = service.secret_key_to_output_encryption_key(&base_key).unwrap();
+    let enc_from_public2 = service.public_key_to_output_encryption_key(&public_key).unwrap();
 
     assert_eq!(enc_from_secret, enc_from_secret2);
     assert_eq!(enc_from_public, enc_from_public2);
@@ -122,10 +110,7 @@ fn test_stealth_address_payment_id_integration() {
     assert_ne!(stealth_address.view_public_key.as_bytes(), [0u8; 32]);
     assert_ne!(stealth_address.spend_public_key.as_bytes(), [0u8; 32]);
     assert_ne!(stealth_address.stealth_spending_key.as_bytes(), [0u8; 32]);
-    assert_ne!(
-        stealth_address.sender_offset_public_key.as_bytes(),
-        [0u8; 32]
-    );
+    assert_ne!(stealth_address.sender_offset_public_key.as_bytes(), [0u8; 32]);
 }
 
 #[test]
@@ -135,24 +120,16 @@ fn test_stealth_address_with_multiple_domains() {
     // Test that different domain separations produce different results
     let secret_data = b"test_secret_data";
 
-    let enc_key = service
-        .shared_secret_to_output_encryption_key(secret_data)
-        .unwrap();
-    let spend_key = service
-        .shared_secret_to_output_spending_key(secret_data)
-        .unwrap();
+    let enc_key = service.shared_secret_to_output_encryption_key(secret_data).unwrap();
+    let spend_key = service.shared_secret_to_output_spending_key(secret_data).unwrap();
 
     // Domain separation should ensure different keys
     assert_ne!(enc_key, spend_key);
 
     // Test with different input data
     let secret_data2 = b"different_secret";
-    let enc_key2 = service
-        .shared_secret_to_output_encryption_key(secret_data2)
-        .unwrap();
-    let spend_key2 = service
-        .shared_secret_to_output_spending_key(secret_data2)
-        .unwrap();
+    let enc_key2 = service.shared_secret_to_output_encryption_key(secret_data2).unwrap();
+    let spend_key2 = service.shared_secret_to_output_spending_key(secret_data2).unwrap();
 
     // Different inputs should produce different keys
     assert_ne!(enc_key, enc_key2);
@@ -168,12 +145,8 @@ fn test_stealth_address_service_stateless() {
     let test_key = PrivateKey::new([42u8; 32]);
 
     // Multiple instances should produce same results
-    let result1 = service1
-        .secret_key_to_output_encryption_key(&test_key)
-        .unwrap();
-    let result2 = service2
-        .secret_key_to_output_encryption_key(&test_key)
-        .unwrap();
+    let result1 = service1.secret_key_to_output_encryption_key(&test_key).unwrap();
+    let result2 = service2.secret_key_to_output_encryption_key(&test_key).unwrap();
 
     assert_eq!(result1, result2);
 }
@@ -220,10 +193,7 @@ fn test_stealth_address_large_scale() {
     // All addresses should be unique
     for i in 0..addresses.len() {
         for j in i + 1..addresses.len() {
-            assert_ne!(
-                addresses[i].stealth_spending_key,
-                addresses[j].stealth_spending_key
-            );
+            assert_ne!(addresses[i].stealth_spending_key, addresses[j].stealth_spending_key);
             assert_ne!(
                 addresses[i].sender_offset_public_key,
                 addresses[j].sender_offset_public_key

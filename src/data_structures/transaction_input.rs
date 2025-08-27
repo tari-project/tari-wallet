@@ -1,7 +1,10 @@
-use crate::data_structures::types::{CompressedPublicKey, MicroMinotari};
-use crate::errors::DataStructureError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use zeroize::Zeroize;
+
+use crate::{
+    data_structures::types::{CompressedPublicKey, MicroMinotari},
+    errors::DataStructureError,
+};
 
 /// Transaction input structure
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -153,8 +156,7 @@ impl TransactionInput {
 
     /// Deserialize from hex string
     pub fn from_hex(hex_str: &str) -> Result<Self, DataStructureError> {
-        let bytes = hex::decode(hex_str)
-            .map_err(|e| DataStructureError::InvalidDataFormat(e.to_string()))?;
+        let bytes = hex::decode(hex_str).map_err(|e| DataStructureError::InvalidDataFormat(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -164,10 +166,7 @@ impl Zeroize for TransactionInput {
         self.commitment.zeroize();
         self.script_signature.zeroize();
         self.covenant.zeroize();
-        self.input_data
-            .items
-            .iter_mut()
-            .for_each(|item| item.zeroize());
+        self.input_data.items.iter_mut().for_each(|item| item.zeroize());
         self.output_hash.zeroize();
         self.output_metadata_signature.zeroize();
     }

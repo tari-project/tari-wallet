@@ -3,18 +3,24 @@
 //! This module provides the core wallet struct and operations for managing
 //! master keys, seed phrases, and wallet metadata.
 
-use crate::common::string_to_network;
-use crate::data_structures::address::{
-    DualAddress, SingleAddress, TariAddress, TariAddressFeatures,
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
 };
-use crate::data_structures::types::{CompressedPublicKey, PrivateKey};
-use crate::data_structures::SafeArray;
-use crate::errors::KeyManagementError;
-use crate::key_management::{bytes_to_mnemonic, mnemonic_to_master_key, CipherSeed};
+
 use rand_core::{OsRng, RngCore};
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
+
+use crate::{
+    common::string_to_network,
+    data_structures::{
+        address::{DualAddress, SingleAddress, TariAddress, TariAddressFeatures},
+        types::{CompressedPublicKey, PrivateKey},
+        SafeArray,
+    },
+    errors::KeyManagementError,
+    key_management::{bytes_to_mnemonic, mnemonic_to_master_key, CipherSeed},
+};
 
 // Constants from Tari CipherSeed specification for birthday calculation
 const BIRTHDAY_GENESIS_FROM_UNIX_EPOCH: u64 = 1640995200; // seconds to 2022-01-01 00:00:00 UTC
@@ -58,10 +64,7 @@ impl Wallet {
     }
 
     /// Create a new wallet from a seed phrase and optional passphrase
-    pub fn new_from_seed_phrase(
-        phrase: &str,
-        passphrase: Option<&str>,
-    ) -> Result<Self, KeyManagementError> {
+    pub fn new_from_seed_phrase(phrase: &str, passphrase: Option<&str>) -> Result<Self, KeyManagementError> {
         // Convert seed phrase to master key
         let master_key = mnemonic_to_master_key(phrase, passphrase)?;
 
@@ -102,9 +105,7 @@ impl Wallet {
     ///
     /// Creates a wallet using a randomly generated 24-word BIP39 seed phrase.
     /// The original seed phrase is stored and can be exported using `export_seed_phrase()`.
-    pub fn generate_new_with_seed_phrase(
-        passphrase: Option<&str>,
-    ) -> Result<Self, KeyManagementError> {
+    pub fn generate_new_with_seed_phrase(passphrase: Option<&str>) -> Result<Self, KeyManagementError> {
         // Create a new CipherSeed with random entropy
         let cipher_seed = CipherSeed::new();
 
@@ -206,11 +207,9 @@ impl Wallet {
     /// Returns an error if the wallet was created using `generate_new()` or other
     /// methods that don't use a seed phrase.
     pub fn export_seed_phrase(&self) -> Result<String, KeyManagementError> {
-        self.original_seed_phrase.clone().ok_or_else(|| {
-            KeyManagementError::SeedPhraseError(
-                "Wallet was not created from a seed phrase".to_string(),
-            )
-        })
+        self.original_seed_phrase
+            .clone()
+            .ok_or_else(|| KeyManagementError::SeedPhraseError("Wallet was not created from a seed phrase".to_string()))
     }
 
     /// Generate a dual address with view and spend keys
@@ -233,16 +232,8 @@ impl Wallet {
         let network = string_to_network(&self.metadata.network);
 
         // Create dual address
-        let dual_address = DualAddress::new(
-            view_public_key,
-            spend_public_key,
-            network,
-            features,
-            payment_id,
-        )
-        .map_err(|e| {
-            KeyManagementError::SeedPhraseError(format!("Failed to create dual address: {e}"))
-        })?;
+        let dual_address = DualAddress::new(view_public_key, spend_public_key, network, features, payment_id)
+            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create dual address: {e}")))?;
 
         Ok(TariAddress::Dual(dual_address))
     }
@@ -251,10 +242,7 @@ impl Wallet {
     ///
     /// Creates a single Tari address using only a spend key derived from the master key.
     /// This is simpler than dual addresses but has fewer features.
-    pub fn get_single_address(
-        &self,
-        features: TariAddressFeatures,
-    ) -> Result<TariAddress, KeyManagementError> {
+    pub fn get_single_address(&self, features: TariAddressFeatures) -> Result<TariAddress, KeyManagementError> {
         // Derive spend key from master key
         let (_, spend_key) = self.derive_key_pair()?;
 
@@ -265,10 +253,8 @@ impl Wallet {
         let network = string_to_network(&self.metadata.network);
 
         // Create single address
-        let single_address =
-            SingleAddress::new(spend_public_key, network, features).map_err(|e| {
-                KeyManagementError::SeedPhraseError(format!("Failed to create single address: {e}"))
-            })?;
+        let single_address = SingleAddress::new(spend_public_key, network, features)
+            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create single address: {e}")))?;
 
         Ok(TariAddress::Single(single_address))
     }
@@ -288,9 +274,8 @@ impl Wallet {
         // TODO: In the future, this should use proper hierarchical key derivation
         // with branch seeds as specified in the Tari key management documentation
 
-        let view_key = PrivateKey::from_canonical_bytes(master_key_bytes).map_err(|e| {
-            KeyManagementError::SeedPhraseError(format!("Failed to create view key: {e}"))
-        })?;
+        let view_key = PrivateKey::from_canonical_bytes(master_key_bytes)
+            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create view key: {e}")))?;
 
         // Create spend key by hashing master_key + "spend" string
         use blake2b_simd::blake2b;
@@ -299,14 +284,12 @@ impl Wallet {
         hasher_input.extend_from_slice(b"spend");
 
         let spend_key_hash = blake2b(&hasher_input);
-        let spend_key_bytes: [u8; 32] =
-            spend_key_hash.as_bytes()[0..32].try_into().map_err(|_| {
-                KeyManagementError::SeedPhraseError("Failed to create spend key bytes".to_string())
-            })?;
+        let spend_key_bytes: [u8; 32] = spend_key_hash.as_bytes()[0..32]
+            .try_into()
+            .map_err(|_| KeyManagementError::SeedPhraseError("Failed to create spend key bytes".to_string()))?;
 
-        let spend_key = PrivateKey::from_canonical_bytes(&spend_key_bytes).map_err(|e| {
-            KeyManagementError::SeedPhraseError(format!("Failed to create spend key: {e}"))
-        })?;
+        let spend_key = PrivateKey::from_canonical_bytes(&spend_key_bytes)
+            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create spend key: {e}")))?;
 
         Ok((view_key, spend_key))
     }
@@ -446,10 +429,8 @@ mod tests {
         let encrypted_bytes = cipher_seed.encipher(Some("test")).unwrap();
         let seed_phrase_with_pass = bytes_to_mnemonic(&encrypted_bytes).unwrap();
 
-        let wallet_with_pass =
-            Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("test")).unwrap();
-        let wallet_with_pass2 =
-            Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("test")).unwrap();
+        let wallet_with_pass = Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("test")).unwrap();
+        let wallet_with_pass2 = Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("test")).unwrap();
         assert_eq!(
             wallet_with_pass.master_key_bytes(),
             wallet_with_pass2.master_key_bytes()
@@ -498,12 +479,8 @@ mod tests {
         assert_ne!(wallet2.master_key_bytes(), wallet3.master_key_bytes());
 
         // Same seed phrase and passphrase should produce the same master key
-        let wallet1_duplicate =
-            Wallet::new_from_seed_phrase(&seed_phrase1, Some("passphrase1")).unwrap();
-        assert_eq!(
-            wallet1.master_key_bytes(),
-            wallet1_duplicate.master_key_bytes()
-        );
+        let wallet1_duplicate = Wallet::new_from_seed_phrase(&seed_phrase1, Some("passphrase1")).unwrap();
+        assert_eq!(wallet1.master_key_bytes(), wallet1_duplicate.master_key_bytes());
     }
 
     #[test]
@@ -570,10 +547,7 @@ mod tests {
         // Verify no two keys are the same
         for i in 0..keys.len() {
             for j in i + 1..keys.len() {
-                assert_ne!(
-                    keys[i], keys[j],
-                    "Wallets {i} and {j} have the same master key"
-                );
+                assert_ne!(keys[i], keys[j], "Wallets {i} and {j} have the same master key");
             }
         }
 
@@ -598,10 +572,7 @@ mod tests {
 
         // Should have the same birthday but different master keys
         assert_eq!(generated_wallet.birthday(), manual_wallet.birthday());
-        assert_ne!(
-            generated_wallet.master_key_bytes(),
-            manual_wallet.master_key_bytes()
-        );
+        assert_ne!(generated_wallet.master_key_bytes(), manual_wallet.master_key_bytes());
 
         // Generated wallet should have non-zero entropy (extremely unlikely to be all zeros)
         assert_ne!(generated_wallet.master_key_bytes(), [0u8; 32]);
@@ -623,8 +594,7 @@ mod tests {
         let encrypted_bytes = cipher_seed.encipher(Some("test")).unwrap();
         let seed_phrase_with_pass = bytes_to_mnemonic(&encrypted_bytes).unwrap();
 
-        let wallet_with_pass =
-            Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("test")).unwrap();
+        let wallet_with_pass = Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("test")).unwrap();
         let exported_phrase_with_pass = wallet_with_pass.export_seed_phrase().unwrap();
         assert_eq!(exported_phrase_with_pass, seed_phrase_with_pass);
     }
@@ -638,9 +608,7 @@ mod tests {
         assert!(result.is_err());
 
         if let Err(e) = result {
-            assert!(e
-                .to_string()
-                .contains("Wallet was not created from a seed phrase"));
+            assert!(e.to_string().contains("Wallet was not created from a seed phrase"));
         }
     }
 
@@ -653,9 +621,7 @@ mod tests {
         assert!(result.is_err());
 
         if let Err(e) = result {
-            assert!(e
-                .to_string()
-                .contains("Wallet was not created from a seed phrase"));
+            assert!(e.to_string().contains("Wallet was not created from a seed phrase"));
         }
     }
 
@@ -720,10 +686,7 @@ mod tests {
 
         // Test that same seed phrase with same passphrase produces consistent results
         let wallet1_duplicate = Wallet::new_from_seed_phrase(&seed_phrase1, Some("test1")).unwrap();
-        assert_eq!(
-            wallet1.master_key_bytes(),
-            wallet1_duplicate.master_key_bytes()
-        );
+        assert_eq!(wallet1.master_key_bytes(), wallet1_duplicate.master_key_bytes());
         assert_eq!(
             wallet1.export_seed_phrase().unwrap(),
             wallet1_duplicate.export_seed_phrase().unwrap()
@@ -764,10 +727,8 @@ mod tests {
         let encrypted_bytes = cipher_seed.encipher(Some("test")).unwrap();
         let phrase_with_pass = bytes_to_mnemonic(&encrypted_bytes).unwrap();
 
-        let wallet_with_pass =
-            Wallet::new_from_seed_phrase(&phrase_with_pass, Some("test")).unwrap();
-        let recreated_with_pass =
-            Wallet::new_from_seed_phrase(&phrase_with_pass, Some("test")).unwrap();
+        let wallet_with_pass = Wallet::new_from_seed_phrase(&phrase_with_pass, Some("test")).unwrap();
+        let recreated_with_pass = Wallet::new_from_seed_phrase(&phrase_with_pass, Some("test")).unwrap();
         assert_eq!(
             wallet_with_pass.master_key_bytes(),
             recreated_with_pass.master_key_bytes()
@@ -790,10 +751,7 @@ mod tests {
         assert!(wallet_random.birthday() > 0);
 
         // Should have different master keys
-        assert_ne!(
-            wallet_with_phrase.master_key_bytes(),
-            wallet_random.master_key_bytes()
-        );
+        assert_ne!(wallet_with_phrase.master_key_bytes(), wallet_random.master_key_bytes());
     }
 
     #[test]
@@ -819,10 +777,8 @@ mod tests {
         let encrypted_bytes = cipher_seed.encipher(Some("passphrase")).unwrap();
         let seed_phrase_with_pass = bytes_to_mnemonic(&encrypted_bytes).unwrap();
 
-        let wallet_with_pass =
-            Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("passphrase")).unwrap();
-        let wallet_with_pass2 =
-            Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("passphrase")).unwrap();
+        let wallet_with_pass = Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("passphrase")).unwrap();
+        let wallet_with_pass2 = Wallet::new_from_seed_phrase(&seed_phrase_with_pass, Some("passphrase")).unwrap();
 
         // Should have the same master key
         assert_eq!(
@@ -856,10 +812,7 @@ mod tests {
         // Verify no two keys are the same
         for i in 0..keys.len() {
             for j in i + 1..keys.len() {
-                assert_ne!(
-                    keys[i], keys[j],
-                    "Wallets {i} and {j} have the same master key"
-                );
+                assert_ne!(keys[i], keys[j], "Wallets {i} and {j} have the same master key");
             }
         }
 
@@ -876,10 +829,7 @@ mod tests {
 
         // Test basic dual address generation
         let address = wallet
-            .get_dual_address(
-                TariAddressFeatures::create_interactive_and_one_sided(),
-                None,
-            )
+            .get_dual_address(TariAddressFeatures::create_interactive_and_one_sided(), None)
             .unwrap();
 
         // Verify it's a dual address
@@ -894,10 +844,7 @@ mod tests {
         // Test dual address with payment ID
         let payment_id = vec![1u8, 2, 3, 4, 5];
         let address_with_payment = wallet
-            .get_dual_address(
-                TariAddressFeatures::create_interactive_only(),
-                Some(payment_id.clone()),
-            )
+            .get_dual_address(TariAddressFeatures::create_interactive_only(), Some(payment_id.clone()))
             .unwrap();
 
         assert!(matches!(address_with_payment, TariAddress::Dual(_)));
@@ -907,10 +854,7 @@ mod tests {
 
         // Test that the same wallet produces the same address
         let address2 = wallet
-            .get_dual_address(
-                TariAddressFeatures::create_interactive_and_one_sided(),
-                None,
-            )
+            .get_dual_address(TariAddressFeatures::create_interactive_and_one_sided(), None)
             .unwrap();
         assert_eq!(address.to_hex(), address2.to_hex());
     }
@@ -928,10 +872,7 @@ mod tests {
         assert!(matches!(address, TariAddress::Single(_)));
         assert!(address.public_view_key().is_none());
         assert_eq!(address.network(), Network::Esmeralda); // Default network
-        assert_eq!(
-            address.features(),
-            TariAddressFeatures::create_interactive_only()
-        );
+        assert_eq!(address.features(), TariAddressFeatures::create_interactive_only());
 
         // Test that the same wallet produces the same address
         let address2 = wallet
@@ -988,16 +929,10 @@ mod tests {
 
         // They should generate the same addresses
         let dual_addr1 = wallet1
-            .get_dual_address(
-                TariAddressFeatures::create_interactive_and_one_sided(),
-                None,
-            )
+            .get_dual_address(TariAddressFeatures::create_interactive_and_one_sided(), None)
             .unwrap();
         let dual_addr2 = wallet2
-            .get_dual_address(
-                TariAddressFeatures::create_interactive_and_one_sided(),
-                None,
-            )
+            .get_dual_address(TariAddressFeatures::create_interactive_and_one_sided(), None)
             .unwrap();
         assert_eq!(dual_addr1.to_hex(), dual_addr2.to_hex());
 
@@ -1022,10 +957,7 @@ mod tests {
             .get_dual_address(TariAddressFeatures::create_one_sided_only(), None)
             .unwrap();
         let both_features = wallet
-            .get_dual_address(
-                TariAddressFeatures::create_interactive_and_one_sided(),
-                None,
-            )
+            .get_dual_address(TariAddressFeatures::create_interactive_and_one_sided(), None)
             .unwrap();
 
         // Verify features are correctly set
@@ -1033,10 +965,7 @@ mod tests {
             interactive_only.features(),
             TariAddressFeatures::create_interactive_only()
         );
-        assert_eq!(
-            one_sided_only.features(),
-            TariAddressFeatures::create_one_sided_only()
-        );
+        assert_eq!(one_sided_only.features(), TariAddressFeatures::create_one_sided_only());
         assert_eq!(
             both_features.features(),
             TariAddressFeatures::create_interactive_and_one_sided()
@@ -1052,10 +981,7 @@ mod tests {
     fn test_wallet_address_formats() {
         let wallet = Wallet::generate_new_with_seed_phrase(None).unwrap();
         let address = wallet
-            .get_dual_address(
-                TariAddressFeatures::create_interactive_and_one_sided(),
-                None,
-            )
+            .get_dual_address(TariAddressFeatures::create_interactive_and_one_sided(), None)
             .unwrap();
 
         // Test all address formats

@@ -2,12 +2,19 @@ use std::sync::Arc;
 
 use tari_script::TariScript;
 use tari_transaction_components::{
-    fee::Fee, helpers::borsh::SerializedSize, tari_amount::MicroMinotari, weight::TransactionWeight,
+    fee::Fee,
+    helpers::borsh::SerializedSize,
+    tari_amount::MicroMinotari,
+    weight::TransactionWeight,
 };
 
 use crate::{
     data_structures::{Covenant, OutputFeatures},
-    SerializationError, StoredOutput, WalletError, WalletResult, WalletStorage,
+    SerializationError,
+    StoredOutput,
+    WalletError,
+    WalletResult,
+    WalletStorage,
 };
 
 #[derive(Debug)]
@@ -58,9 +65,7 @@ impl InputSelector {
         Ok(self
             .fee_calc
             .weighting()
-            .round_up_features_and_scripts_size(
-                output_features_size + tari_script_size + covenant_size,
-            ))
+            .round_up_features_and_scripts_size(output_features_size + tari_script_size + covenant_size))
     }
 
     pub async fn fetch_unspent_outputs(

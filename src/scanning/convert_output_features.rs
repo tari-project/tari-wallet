@@ -1,5 +1,9 @@
 use tari_transaction_components::transaction_components::{
-    CoinBaseExtra, OutputFeatures, OutputFeaturesVersion, OutputType, RangeProofType,
+    CoinBaseExtra,
+    OutputFeatures,
+    OutputFeaturesVersion,
+    OutputType,
+    RangeProofType,
 };
 
 use crate::tari_rpc;
@@ -12,8 +16,7 @@ pub fn convert_output_features(features: tari_rpc::OutputFeatures) -> OutputFeat
         Some(_) => panic!("Cannot deserialize sidechain features!"),
         None => None,
     };
-    let range_proof_type =
-        RangeProofType::from_byte(u8::try_from(features.range_proof_type).unwrap()).unwrap();
+    let range_proof_type = RangeProofType::from_byte(u8::try_from(features.range_proof_type).unwrap()).unwrap();
 
     OutputFeatures::new(
         version,

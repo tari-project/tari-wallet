@@ -67,10 +67,7 @@ pub fn check_stealth_one_sided_structure(script: &TariScript) -> Option<(String,
 
 /// Analyze a script and determine which pattern it matches
 /// Note: Key ownership verification is disabled due to tari_crypto version conflicts
-pub fn analyze_script_pattern(
-    script: &TariScript,
-    _derived_keys: &[RistrettoPublicKey],
-) -> ScriptPattern {
+pub fn analyze_script_pattern(script: &TariScript, _derived_keys: &[RistrettoPublicKey]) -> ScriptPattern {
     // Check for standard output pattern first
     if is_standard_output(script) {
         return ScriptPattern::Standard;
@@ -120,8 +117,9 @@ pub fn get_stealth_keys(pattern: &ScriptPattern) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tari_script::script;
+
+    use super::*;
 
     #[test]
     fn test_standard_output_pattern() {
@@ -137,15 +135,9 @@ mod tests {
         let derived_keys = vec![];
 
         let script = script!(Nop).unwrap();
-        assert_eq!(
-            analyze_script_pattern(&script, &derived_keys),
-            ScriptPattern::Standard
-        );
+        assert_eq!(analyze_script_pattern(&script, &derived_keys), ScriptPattern::Standard);
 
         let script = script!(PushZero).unwrap();
-        assert_eq!(
-            analyze_script_pattern(&script, &derived_keys),
-            ScriptPattern::Unknown
-        );
+        assert_eq!(analyze_script_pattern(&script, &derived_keys), ScriptPattern::Unknown);
     }
 }

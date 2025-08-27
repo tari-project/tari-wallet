@@ -173,17 +173,11 @@ impl EncryptedDataDecryptor {
                     self.validate_decrypted_data(&value, &mask, &payment_id)?;
                 }
 
-                return Ok(DecryptionResult::success(
-                    value,
-                    mask,
-                    payment_id,
-                    key.clone(),
-                    1,
-                ));
-            }
+                return Ok(DecryptionResult::success(value, mask, payment_id, key.clone(), 1));
+            },
             Err(_) => {
                 // Change output decryption failed, continue to try one-sided payment decryption
-            }
+            },
         }
 
         let error_msg = "Decryption error: No valid decryption mechanism found".to_string();
@@ -218,45 +212,28 @@ impl EncryptedDataDecryptor {
                     self.validate_decrypted_data(&value, &mask, &payment_id)?;
                 }
 
-                return Ok(DecryptionResult::success(
-                    value,
-                    mask,
-                    payment_id,
-                    key.clone(),
-                    1,
-                ));
-            }
+                return Ok(DecryptionResult::success(value, mask, payment_id, key.clone(), 1));
+            },
             Err(_) => {
                 // Change output decryption failed, continue to try one-sided payment decryption
-            }
+            },
         }
 
         // Try one-sided payment decryption (mechanism 2)
         // Only try if sender_offset_public_key is not zero (indicating it's a one-sided payment)
         if !sender_offset_public_key.as_bytes().iter().all(|&b| b == 0) {
-            match EncryptedData::decrypt_one_sided_data(
-                key,
-                commitment,
-                sender_offset_public_key,
-                encrypted_data,
-            ) {
+            match EncryptedData::decrypt_one_sided_data(key, commitment, sender_offset_public_key, encrypted_data) {
                 Ok((value, mask, payment_id)) => {
                     // Validate decrypted data if requested
                     if options.validate_decrypted_data {
                         self.validate_decrypted_data(&value, &mask, &payment_id)?;
                     }
 
-                    return Ok(DecryptionResult::success(
-                        value,
-                        mask,
-                        payment_id,
-                        key.clone(),
-                        1,
-                    ));
-                }
+                    return Ok(DecryptionResult::success(value, mask, payment_id, key.clone(), 1));
+                },
                 Err(_) => {
                     // One-sided payment decryption also failed
-                }
+                },
             }
         }
 
@@ -381,12 +358,7 @@ impl EncryptedDataDecryptor {
                 break;
             }
 
-            let result = self.decrypt_with_key(
-                encrypted_data,
-                commitment,
-                &imported_key.private_key,
-                options,
-            )?;
+            let result = self.decrypt_with_key(encrypted_data, commitment, &imported_key.private_key, options)?;
 
             keys_tried += 1;
 
@@ -411,8 +383,7 @@ impl EncryptedDataDecryptor {
                 // Note: This is a simplified approach - in practice, you'd need
                 // the actual key derivation logic from the key manager
                 if let Ok(derived_key) = self.try_derive_key_at_index(key_index) {
-                    let result =
-                        self.decrypt_with_key(encrypted_data, commitment, &derived_key, options)?;
+                    let result = self.decrypt_with_key(encrypted_data, commitment, &derived_key, options)?;
 
                     keys_tried += 1;
 
@@ -448,12 +419,7 @@ impl EncryptedDataDecryptor {
         let commitment = transaction_output.commitment();
         let sender_offset_public_key = transaction_output.sender_offset_public_key();
 
-        self.decrypt_with_all_keys_enhanced(
-            encrypted_data,
-            commitment,
-            sender_offset_public_key,
-            options,
-        )
+        self.decrypt_with_all_keys_enhanced(encrypted_data, commitment, sender_offset_public_key, options)
     }
 
     /// Try to decrypt with a specific key index (for derived keys)
@@ -468,10 +434,7 @@ impl EncryptedDataDecryptor {
         // This is a simplified implementation
         // In practice, you'd need the actual key derivation logic from the key manager
         // For now, we'll return an error to indicate that this needs to be implemented
-        Err(KeyManagementError::KeyDerivationFailed(
-            "Key derivation not yet implemented".to_string(),
-        )
-        .into())
+        Err(KeyManagementError::KeyDerivationFailed("Key derivation not yet implemented".to_string()).into())
     }
 
     /// Validate decrypted data
@@ -506,28 +469,26 @@ impl EncryptedDataDecryptor {
         match payment_id {
             PaymentId::Empty => {
                 // Empty payment ID is always valid
-            }
+            },
             PaymentId::U256 { .. } => {
                 // U256 payment ID is always valid
-            }
+            },
             PaymentId::Open { .. } => {
                 // Open payment ID is always valid
-            }
+            },
             PaymentId::AddressAndData { .. } => {
                 // AddressAndData payment ID is always valid, even with empty user_data
                 // The address information itself provides the necessary payment metadata
-            }
+            },
             PaymentId::TransactionInfo { .. } => {
                 // Transaction info payment ID is always valid
-            }
+            },
             PaymentId::Raw(data) => {
                 // Validate raw data is not empty
                 if data.is_empty() {
-                    return Err(
-                        EncryptionError::decryption_failed("Raw payment ID data is empty").into(),
-                    );
+                    return Err(EncryptionError::decryption_failed("Raw payment ID data is empty").into());
                 }
-            }
+            },
         }
 
         Ok(())
@@ -541,13 +502,8 @@ impl EncryptedDataDecryptor {
     /// # Returns
     /// * `Ok(())` if the key was added successfully
     /// * `Err(WalletError)` if adding the key failed
-    pub fn add_imported_key(
-        &mut self,
-        imported_key: ImportedPrivateKey,
-    ) -> Result<(), WalletError> {
-        self.key_store
-            .add_imported_key(imported_key)
-            .map_err(|e| e.into())
+    pub fn add_imported_key(&mut self, imported_key: ImportedPrivateKey) -> Result<(), WalletError> {
+        self.key_store.add_imported_key(imported_key).map_err(|e| e.into())
     }
 
     /// Import a private key from hex string
@@ -559,11 +515,7 @@ impl EncryptedDataDecryptor {
     /// # Returns
     /// * `Ok(())` if the key was imported successfully
     /// * `Err(WalletError)` if importing the key failed
-    pub fn import_private_key_from_hex(
-        &mut self,
-        hex: &str,
-        label: Option<String>,
-    ) -> Result<(), WalletError> {
+    pub fn import_private_key_from_hex(&mut self, hex: &str, label: Option<String>) -> Result<(), WalletError> {
         self.key_store
             .import_private_key_from_hex(hex, label)
             .map_err(|e| e.into())
@@ -578,11 +530,7 @@ impl EncryptedDataDecryptor {
     /// # Returns
     /// * `Ok(())` if the key was imported successfully
     /// * `Err(WalletError)` if importing the key failed
-    pub fn import_private_key_from_bytes(
-        &mut self,
-        bytes: [u8; 32],
-        label: Option<String>,
-    ) -> Result<(), WalletError> {
+    pub fn import_private_key_from_bytes(&mut self, bytes: [u8; 32], label: Option<String>) -> Result<(), WalletError> {
         self.key_store
             .import_private_key_from_bytes(bytes, label)
             .map_err(|e| e.into())
@@ -626,8 +574,7 @@ mod tests {
         let payment_id = PaymentId::Empty;
 
         let encrypted_data =
-            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id)
-                .unwrap();
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
 
         (encrypted_data, commitment, encryption_key)
     }
@@ -737,8 +684,7 @@ mod tests {
         let payment_id = PaymentId::Empty;
         let used_key = PrivateKey::random();
 
-        let result =
-            DecryptionResult::success(value, mask.clone(), payment_id.clone(), used_key.clone(), 1);
+        let result = DecryptionResult::success(value, mask.clone(), payment_id.clone(), used_key.clone(), 1);
 
         assert!(result.is_success());
         assert_eq!(result.value.unwrap(), value);

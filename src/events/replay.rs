@@ -16,21 +16,25 @@
 //! - **Discrepancy detection**: Identify and report differences between states
 
 #[cfg(feature = "storage")]
+use std::collections::BTreeSet;
+#[cfg(feature = "storage")]
+use std::time::Instant;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+
+use serde::Serialize;
+#[cfg(feature = "storage")]
+use tokio::sync::watch;
+
+#[cfg(feature = "storage")]
 use crate::data_structures::wallet_transaction::{WalletState, WalletTransaction};
 #[cfg(feature = "storage")]
 use crate::events::types::{WalletEvent, WalletEventError, WalletEventResult};
 #[cfg(feature = "storage")]
 use crate::storage::event_storage::{EventStorage, StoredEvent};
-use serde::Serialize;
-#[cfg(feature = "storage")]
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::sync::Arc;
-#[cfg(feature = "storage")]
-use std::time::Instant;
-use std::time::{Duration, SystemTime};
-#[cfg(feature = "storage")]
-use tokio::sync::watch;
 
 /// Configuration for event replay operations
 #[derive(Debug, Clone)]
@@ -491,10 +495,7 @@ pub enum StateDiscrepancy {
         current_unspent: usize,
     },
     /// Different highest block values
-    HighestBlockMismatch {
-        replayed_block: u64,
-        current_block: u64,
-    },
+    HighestBlockMismatch { replayed_block: u64, current_block: u64 },
 }
 
 /// Summary of verification results
@@ -748,11 +749,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Replay events for a wallet starting from a specific sequence number
-    pub async fn replay_from_sequence(
-        &self,
-        wallet_id: &str,
-        from_sequence: u64,
-    ) -> WalletEventResult<ReplayResult> {
+    pub async fn replay_from_sequence(&self, wallet_id: &str, from_sequence: u64) -> WalletEventResult<ReplayResult> {
         let mut cancel_rx = watch::channel(false).1;
         self.replay_from_sequence_with_cancel(wallet_id, from_sequence, &mut cancel_rx)
             .await
@@ -858,8 +855,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 }
 
                 // Check max events limit
-                if self.config.max_events > 0 && progress.events_processed >= self.config.max_events
-                {
+                if self.config.max_events > 0 && progress.events_processed >= self.config.max_events {
                     break;
                 }
 
@@ -867,19 +863,15 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 progress.events_processed += 1;
 
                 // Parse and apply the event
-                match self
-                    .parse_and_apply_event(stored_event, &mut wallet_state)
-                    .await
-                {
+                match self.parse_and_apply_event(stored_event, &mut wallet_state).await {
                     Ok(()) => {
                         progress.events_applied += 1;
-                    }
+                    },
                     Err(e) => {
                         progress.events_failed += 1;
-                        progress.errors.push(format!(
-                            "Failed to apply event {}: {}",
-                            stored_event.event_id, e
-                        ));
+                        progress
+                            .errors
+                            .push(format!("Failed to apply event {}: {}", stored_event.event_id, e));
 
                         validation_issues.push(ValidationIssue {
                             issue_type: ValidationIssueType::InvalidEventData,
@@ -900,7 +892,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                                 metrics,
                             });
                         }
-                    }
+                    },
                 }
 
                 // Report progress periodically
@@ -942,8 +934,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         // Finalize metrics
         metrics.total_duration = start_time.elapsed();
         if progress.events_processed > 0 {
-            metrics.average_event_time =
-                metrics.processing_duration / progress.events_processed as u32;
+            metrics.average_event_time = metrics.processing_duration / progress.events_processed as u32;
         }
 
         progress.phase = ReplayPhase::Completed;
@@ -1002,9 +993,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         }
 
         // Validate sequence number ordering (detect gaps or duplicates)
-        if stored_event.sequence_number <= wallet_state.last_sequence
-            && wallet_state.last_sequence > 0
-        {
+        if stored_event.sequence_number <= wallet_state.last_sequence && wallet_state.last_sequence > 0 {
             return Err(WalletEventError::SequenceError {
                 expected: wallet_state.last_sequence + 1,
                 actual: stored_event.sequence_number,
@@ -1016,26 +1005,17 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         if stored_event.timestamp > now {
             return Err(WalletEventError::InvalidMetadata {
                 field: "timestamp".to_string(),
-                message: format!(
-                    "Event timestamp is in the future: {:?}",
-                    stored_event.timestamp
-                ),
+                message: format!("Event timestamp is in the future: {:?}", stored_event.timestamp),
             });
         }
 
         // Check for extremely old timestamps (more than 10 years ago)
-        if let Ok(duration_since_epoch) = stored_event
-            .timestamp
-            .duration_since(SystemTime::UNIX_EPOCH)
-        {
+        if let Ok(duration_since_epoch) = stored_event.timestamp.duration_since(SystemTime::UNIX_EPOCH) {
             let ten_years_ago = Duration::from_secs(10 * 365 * 24 * 60 * 60);
             if duration_since_epoch < ten_years_ago {
                 return Err(WalletEventError::InvalidMetadata {
                     field: "timestamp".to_string(),
-                    message: format!(
-                        "Event timestamp is suspiciously old: {:?}",
-                        stored_event.timestamp
-                    ),
+                    message: format!("Event timestamp is suspiciously old: {:?}", stored_event.timestamp),
                 });
             }
         }
@@ -1044,10 +1024,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Parse stored event with enhanced corruption detection
-    fn parse_stored_event_safely(
-        &self,
-        stored_event: &StoredEvent,
-    ) -> WalletEventResult<WalletEvent> {
+    fn parse_stored_event_safely(&self, stored_event: &StoredEvent) -> WalletEventResult<WalletEvent> {
         // Check for empty or malformed JSON
         if stored_event.payload_json.trim().is_empty() {
             return Err(WalletEventError::DeserializationError {
@@ -1057,9 +1034,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         }
 
         // Validate JSON structure before parsing
-        if !stored_event.payload_json.trim().starts_with('{')
-            || !stored_event.payload_json.trim().ends_with('}')
-        {
+        if !stored_event.payload_json.trim().starts_with('{') || !stored_event.payload_json.trim().ends_with('}') {
             return Err(WalletEventError::DeserializationError {
                 message: "Event payload is not valid JSON object".to_string(),
                 data_snippet: Self::get_data_snippet(&stored_event.payload_json),
@@ -1068,11 +1043,9 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
 
         // Parse with detailed error reporting
         let wallet_event: WalletEvent =
-            serde_json::from_str(&stored_event.payload_json).map_err(|e| {
-                WalletEventError::DeserializationError {
-                    message: format!("Failed to parse event payload: {e}"),
-                    data_snippet: Self::get_data_snippet(&stored_event.payload_json),
-                }
+            serde_json::from_str(&stored_event.payload_json).map_err(|e| WalletEventError::DeserializationError {
+                message: format!("Failed to parse event payload: {e}"),
+                data_snippet: Self::get_data_snippet(&stored_event.payload_json),
             })?;
 
         // Additional validation of parsed event structure
@@ -1082,11 +1055,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Validate parsed event for logical consistency
-    fn validate_parsed_event(
-        &self,
-        wallet_event: &WalletEvent,
-        stored_event: &StoredEvent,
-    ) -> WalletEventResult<()> {
+    fn validate_parsed_event(&self, wallet_event: &WalletEvent, stored_event: &StoredEvent) -> WalletEventResult<()> {
         match wallet_event {
             WalletEvent::UtxoReceived { metadata, payload } => {
                 // Validate metadata consistency
@@ -1120,7 +1089,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                         reason: "Block height cannot be zero".to_string(),
                     });
                 }
-            }
+            },
             WalletEvent::UtxoSpent { metadata, payload } => {
                 // Similar validation for spent events
                 if metadata.event_id != stored_event.event_id {
@@ -1145,7 +1114,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                         message: "Spending transaction hash cannot be empty".to_string(),
                     });
                 }
-            }
+            },
             WalletEvent::Reorg { metadata, payload } => {
                 if metadata.event_id != stored_event.event_id {
                     return Err(WalletEventError::InvalidMetadata {
@@ -1158,11 +1127,10 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     return Err(WalletEventError::InvalidPayload {
                         event_type: "Reorg".to_string(),
                         field: "reorg_counts".to_string(),
-                        message: "Invalid reorg: both rollback_depth and new_blocks_count are zero"
-                            .to_string(),
+                        message: "Invalid reorg: both rollback_depth and new_blocks_count are zero".to_string(),
                     });
                 }
-            }
+            },
         }
 
         Ok(())
@@ -1197,9 +1165,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 }
 
                 // Validate block height progression
-                if payload.block_height < wallet_state.highest_block
-                    && wallet_state.highest_block > 0
-                {
+                if payload.block_height < wallet_state.highest_block && wallet_state.highest_block > 0 {
                     // This might be valid due to reorgs, but we should warn
                     // For now, we'll allow it but could add to validation issues
                 }
@@ -1218,11 +1184,9 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     maturity_height: payload.maturity_height,
                 };
 
-                wallet_state
-                    .utxos
-                    .insert(payload.utxo_id.clone(), utxo_state);
+                wallet_state.utxos.insert(payload.utxo_id.clone(), utxo_state);
                 wallet_state.highest_block = wallet_state.highest_block.max(payload.block_height);
-            }
+            },
             WalletEvent::UtxoSpent { payload, .. } => {
                 // Check if UTXO exists and is available for spending
                 if !wallet_state.utxos.contains_key(&payload.utxo_id) {
@@ -1230,10 +1194,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     if wallet_state.spent_utxos.contains_key(&payload.utxo_id) {
                         return Err(WalletEventError::ProcessingError {
                             event_type: "UtxoSpent".to_string(),
-                            reason: format!(
-                                "UTXO {} is already spent (double spend attempt)",
-                                payload.utxo_id
-                            ),
+                            reason: format!("UTXO {} is already spent (double spend attempt)", payload.utxo_id),
                         });
                     } else {
                         return Err(WalletEventError::ProcessingError {
@@ -1277,14 +1238,10 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                         spent_block_height: payload.spending_block_height,
                         spending_transaction_hash: payload.spending_transaction_hash.clone(),
                     };
-                    wallet_state
-                        .spent_utxos
-                        .insert(payload.utxo_id.clone(), spent_utxo);
+                    wallet_state.spent_utxos.insert(payload.utxo_id.clone(), spent_utxo);
                 }
-                wallet_state.highest_block = wallet_state
-                    .highest_block
-                    .max(payload.spending_block_height);
-            }
+                wallet_state.highest_block = wallet_state.highest_block.max(payload.spending_block_height);
+            },
             WalletEvent::Reorg { payload, .. } => {
                 // Validate reorg parameters
                 if payload.fork_height > wallet_state.highest_block {
@@ -1347,7 +1304,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                         });
                     }
                 }
-            }
+            },
         }
 
         Ok(())
@@ -1408,11 +1365,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         // Try to infer the missing event from surrounding context
         let before_events = self
             .storage
-            .get_wallet_events_in_range(
-                wallet_id,
-                sequence_number.saturating_sub(5),
-                sequence_number - 1,
-            )
+            .get_wallet_events_in_range(wallet_id, sequence_number.saturating_sub(5), sequence_number - 1)
             .await?;
 
         let after_events = self
@@ -1472,9 +1425,9 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         }
 
         if report.missing_sequences.len() > 10 {
-            report.recommendations.push(
-                "Large number of missing events detected - database corruption likely".to_string(),
-            );
+            report
+                .recommendations
+                .push("Large number of missing events detected - database corruption likely".to_string());
         }
     }
 
@@ -1518,10 +1471,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Check a single event for corruption indicators
-    async fn check_event_corruption(
-        &self,
-        event: &StoredEvent,
-    ) -> WalletEventResult<Option<CorruptedEvent>> {
+    async fn check_event_corruption(&self, event: &StoredEvent) -> WalletEventResult<Option<CorruptedEvent>> {
         let mut corruption_indicators = Vec::new();
 
         // Check for JSON corruption
@@ -1566,11 +1516,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         }
 
         // Check for systematic corruption patterns
-        let sequence_numbers: Vec<u64> = report
-            .corrupted_events
-            .iter()
-            .map(|e| e.sequence_number)
-            .collect();
+        let sequence_numbers: Vec<u64> = report.corrupted_events.iter().map(|e| e.sequence_number).collect();
 
         // Check for consecutive corruption
         let mut consecutive_count = 0;
@@ -1581,19 +1527,14 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         }
 
         if consecutive_count > 2 {
-            report
-                .corruption_patterns
-                .push(CorruptionPattern::ConsecutiveEvents);
+            report.corruption_patterns.push(CorruptionPattern::ConsecutiveEvents);
         }
 
         // Check for corruption by type
         let json_corruption_count = report
             .corrupted_events
             .iter()
-            .filter(|e| {
-                e.corruption_indicators
-                    .contains(&CorruptionIndicator::MalformedJson)
-            })
+            .filter(|e| e.corruption_indicators.contains(&CorruptionIndicator::MalformedJson))
             .count();
 
         if json_corruption_count > report.corrupted_events.len() / 2 {
@@ -1626,8 +1567,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
             return 1.0;
         }
 
-        let corruption_ratio =
-            report.corrupted_events.len() as f64 / report.total_events_checked as f64;
+        let corruption_ratio = report.corrupted_events.len() as f64 / report.total_events_checked as f64;
         let base_score = 1.0 - corruption_ratio;
 
         // Adjust based on severity
@@ -1655,35 +1595,34 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     fn generate_corruption_recommendations(&self, report: &mut CorruptionReport) {
         match report.severity_level {
             CorruptionSeverity::Critical => {
-                report.recommendations.push(
-                    "Critical corruption detected - database restore from backup required"
-                        .to_string(),
-                );
+                report
+                    .recommendations
+                    .push("Critical corruption detected - database restore from backup required".to_string());
                 report
                     .recommendations
                     .push("Do not attempt replay with current data".to_string());
-            }
+            },
             CorruptionSeverity::Major => {
-                report.recommendations.push(
-                    "Major corruption detected - attempt partial recovery with caution".to_string(),
-                );
+                report
+                    .recommendations
+                    .push("Major corruption detected - attempt partial recovery with caution".to_string());
                 report
                     .recommendations
                     .push("Consider blockchain re-scan to recover missing data".to_string());
-            }
+            },
             CorruptionSeverity::Minor => {
-                report.recommendations.push(
-                    "Minor corruption detected - replay may proceed with validation".to_string(),
-                );
+                report
+                    .recommendations
+                    .push("Minor corruption detected - replay may proceed with validation".to_string());
                 report
                     .recommendations
                     .push("Monitor for additional issues during replay".to_string());
-            }
+            },
             CorruptionSeverity::None => {
                 report
                     .recommendations
                     .push("No corruption detected - replay can proceed normally".to_string());
-            }
+            },
         }
 
         if report
@@ -1697,10 +1636,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Determine corruption severity for a set of indicators
-    fn determine_corruption_severity(
-        &self,
-        indicators: &[CorruptionIndicator],
-    ) -> EventCorruptionSeverity {
+    fn determine_corruption_severity(&self, indicators: &[CorruptionIndicator]) -> EventCorruptionSeverity {
         if indicators.contains(&CorruptionIndicator::MalformedJson) {
             EventCorruptionSeverity::Critical
         } else if indicators.contains(&CorruptionIndicator::MissingRequiredFields) {
@@ -1716,11 +1652,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Validate sequence continuity in the event list
-    fn validate_sequence_continuity(
-        &self,
-        events: &[StoredEvent],
-        from_sequence: u64,
-    ) -> Vec<ValidationIssue> {
+    fn validate_sequence_continuity(&self, events: &[StoredEvent], from_sequence: u64) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
         let mut seen_sequences = BTreeSet::new();
         let mut expected_sequence = from_sequence;
@@ -1783,10 +1715,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
             if utxo.utxo_id != *utxo_id {
                 issues.push(ValidationIssue {
                     issue_type: ValidationIssueType::InvalidEventData,
-                    description: format!(
-                        "UTXO ID mismatch in state: {} vs {}",
-                        utxo_id, utxo.utxo_id
-                    ),
+                    description: format!("UTXO ID mismatch in state: {} vs {}", utxo_id, utxo.utxo_id),
                     sequence_number: None,
                     event_id: None,
                     severity: ValidationSeverity::Error,
@@ -1870,7 +1799,10 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     block_height: Some(spent_utxo.spent_block_height),
                     sequence_number: None,
                     context: HashMap::from([
-                        ("original_amount".to_string(), spent_utxo.original_utxo.amount.to_string()),
+                        (
+                            "original_amount".to_string(),
+                            spent_utxo.original_utxo.amount.to_string(),
+                        ),
                         ("spent_block".to_string(), spent_utxo.spent_block_height.to_string()),
                     ]),
                     impact: InconsistencyImpact::StateReconstructionImpact,
@@ -1930,10 +1862,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     block_height: Some(utxo.block_height),
                     sequence_number: None,
                     context: HashMap::from([
-                        (
-                            "transaction_hash".to_string(),
-                            utxo.transaction_hash.clone(),
-                        ),
+                        ("transaction_hash".to_string(), utxo.transaction_hash.clone()),
                         ("output_index".to_string(), utxo.output_index.to_string()),
                     ]),
                     impact: InconsistencyImpact::BalanceImpact,
@@ -1951,9 +1880,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 inconsistencies.push(InconsistencyIssue {
                     issue_type: InconsistencyType::LogicalInconsistency,
                     severity: InconsistencySeverity::Critical,
-                    description: format!(
-                        "UTXO {utxo_id} exists in both unspent and spent collections"
-                    ),
+                    description: format!("UTXO {utxo_id} exists in both unspent and spent collections"),
                     affected_entity: Some(utxo_id.clone()),
                     expected: Some("UTXO should be in only one collection".to_string()),
                     actual: Some("UTXO exists in both collections".to_string()),
@@ -2027,10 +1954,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                             "received_block".to_string(),
                             spent_utxo.original_utxo.block_height.to_string(),
                         ),
-                        (
-                            "spent_block".to_string(),
-                            spent_utxo.spent_block_height.to_string(),
-                        ),
+                        ("spent_block".to_string(), spent_utxo.spent_block_height.to_string()),
                     ]),
                     impact: InconsistencyImpact::TransactionHistoryImpact,
                     remediation: vec![
@@ -2086,19 +2010,13 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 inconsistencies.push(InconsistencyIssue {
                     issue_type: InconsistencyType::BalanceInconsistency,
                     severity: InconsistencySeverity::Major,
-                    description: format!(
-                        "UTXO {} has suspiciously large amount: {}",
-                        utxo.utxo_id, utxo.amount
-                    ),
+                    description: format!("UTXO {} has suspiciously large amount: {}", utxo.utxo_id, utxo.amount),
                     affected_entity: Some(utxo.utxo_id.clone()),
                     expected: Some("reasonable amount < u64::MAX/2".to_string()),
                     actual: Some(utxo.amount.to_string()),
                     block_height: Some(utxo.block_height),
                     sequence_number: None,
-                    context: HashMap::from([(
-                        "transaction_hash".to_string(),
-                        utxo.transaction_hash.clone(),
-                    )]),
+                    context: HashMap::from([("transaction_hash".to_string(), utxo.transaction_hash.clone())]),
                     impact: InconsistencyImpact::BalanceImpact,
                     remediation: vec![
                         "Verify transaction amount parsing".to_string(),
@@ -2129,10 +2047,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     sequence_number: None,
                     context: HashMap::from([
                         ("amount".to_string(), utxo.amount.to_string()),
-                        (
-                            "transaction_hash".to_string(),
-                            utxo.transaction_hash.clone(),
-                        ),
+                        ("transaction_hash".to_string(), utxo.transaction_hash.clone()),
                     ]),
                     impact: InconsistencyImpact::StateReconstructionImpact,
                     remediation: vec![
@@ -2183,10 +2098,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Categorize inconsistencies by severity and assess overall risk
-    fn categorize_inconsistency_severity(
-        &self,
-        inconsistencies: &[InconsistencyIssue],
-    ) -> SeveritySummary {
+    fn categorize_inconsistency_severity(&self, inconsistencies: &[InconsistencyIssue]) -> SeveritySummary {
         let mut critical_count = 0;
         let mut major_count = 0;
         let mut minor_count = 0;
@@ -2237,14 +2149,8 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
 
         output.push_str("# Wallet Event Replay Inconsistency Report\n\n");
         output.push_str(&format!("**Wallet ID:** {}\n", report.wallet_id));
-        output.push_str(&format!(
-            "**Analysis Duration:** {:?}\n",
-            report.detection_duration
-        ));
-        output.push_str(&format!(
-            "**Total Issues Found:** {}\n\n",
-            report.total_issues
-        ));
+        output.push_str(&format!("**Analysis Duration:** {:?}\n", report.detection_duration));
+        output.push_str(&format!("**Total Issues Found:** {}\n\n", report.total_issues));
 
         // Risk assessment summary
         output.push_str("## Risk Assessment\n\n");
@@ -2369,21 +2275,21 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 output.push_str("⚠️ **IMMEDIATE ACTION REQUIRED**\n\n");
                 output.push_str("Critical issues detected that affect wallet functionality. ");
                 output.push_str("Do not rely on this wallet state for transactions until issues are resolved.\n\n");
-            }
+            },
             RiskLevel::Medium => {
                 output.push_str("⚠️ **ACTION RECOMMENDED**\n\n");
                 output.push_str("Significant issues detected that should be addressed. ");
                 output.push_str("Review the issues and consider re-scanning or investigating event sources.\n\n");
-            }
+            },
             RiskLevel::Low => {
                 output.push_str("ℹ️ **MINOR ISSUES**\n\n");
                 output.push_str("Minor issues detected that can be addressed when convenient. ");
                 output.push_str("Wallet functionality should not be significantly affected.\n\n");
-            }
+            },
             RiskLevel::None => {
                 output.push_str("✅ **ALL CLEAR**\n\n");
                 output.push_str("No significant issues detected. Wallet state appears healthy and reliable.\n\n");
-            }
+            },
         }
 
         output.push_str(&format!("Report generated at: {:?}\n", SystemTime::now()));
@@ -2440,19 +2346,16 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         let mut discrepancies = Vec::new();
 
         // Compare balances
-        let balance_comparison =
-            self.compare_balances(replayed_state, current_state, &mut discrepancies);
+        let balance_comparison = self.compare_balances(replayed_state, current_state, &mut discrepancies);
 
         // Compare UTXOs
         let utxo_comparison = self.compare_utxos(replayed_state, current_state, &mut discrepancies);
 
         // Compare transaction counts
-        let transaction_comparison =
-            self.compare_transaction_counts(replayed_state, current_state, &mut discrepancies);
+        let transaction_comparison = self.compare_transaction_counts(replayed_state, current_state, &mut discrepancies);
 
         // Compare general statistics
-        let statistics_comparison =
-            self.compare_statistics(replayed_state, current_state, &mut discrepancies);
+        let statistics_comparison = self.compare_statistics(replayed_state, current_state, &mut discrepancies);
 
         // Generate summary
         let summary = self.generate_verification_summary(&discrepancies);
@@ -2564,9 +2467,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
             });
         }
 
-        let utxos_match = only_in_replayed.is_empty()
-            && only_in_current.is_empty()
-            && value_mismatches.is_empty();
+        let utxos_match = only_in_replayed.is_empty() && only_in_current.is_empty() && value_mismatches.is_empty();
 
         UtxoComparison {
             replayed_utxo_count: replayed_state.utxos.len(),
@@ -2668,27 +2569,24 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
     }
 
     /// Generate verification summary based on discrepancies
-    fn generate_verification_summary(
-        &self,
-        discrepancies: &[StateDiscrepancy],
-    ) -> VerificationSummary {
+    fn generate_verification_summary(&self, discrepancies: &[StateDiscrepancy]) -> VerificationSummary {
         let total_discrepancies = discrepancies.len();
         let mut critical_discrepancies = 0;
         let mut warning_discrepancies = 0;
 
         for discrepancy in discrepancies {
             match discrepancy {
-                StateDiscrepancy::BalanceMismatch { .. }
-                | StateDiscrepancy::MissingUtxoInCurrent { .. }
-                | StateDiscrepancy::ExtraUtxoInCurrent { .. }
-                | StateDiscrepancy::UtxoValueMismatch { .. } => {
+                StateDiscrepancy::BalanceMismatch { .. } |
+                StateDiscrepancy::MissingUtxoInCurrent { .. } |
+                StateDiscrepancy::ExtraUtxoInCurrent { .. } |
+                StateDiscrepancy::UtxoValueMismatch { .. } => {
                     critical_discrepancies += 1;
-                }
-                StateDiscrepancy::TransactionCountMismatch { .. }
-                | StateDiscrepancy::SpentCountMismatch { .. }
-                | StateDiscrepancy::HighestBlockMismatch { .. } => {
+                },
+                StateDiscrepancy::TransactionCountMismatch { .. } |
+                StateDiscrepancy::SpentCountMismatch { .. } |
+                StateDiscrepancy::HighestBlockMismatch { .. } => {
                     warning_discrepancies += 1;
-                }
+                },
             }
         }
 
@@ -2918,9 +2816,10 @@ pub async fn create_test_replay_engine<S: EventStorage + Sync>(storage: S) -> Ev
 
 #[cfg(all(test, feature = "storage"))]
 mod tests {
+    use tokio_rusqlite::Connection;
+
     use super::*;
     use crate::storage::event_storage::SqliteEventStorage;
-    use tokio_rusqlite::Connection;
 
     async fn create_test_storage() -> SqliteEventStorage {
         let conn = Connection::open_in_memory().await.unwrap();
@@ -2976,10 +2875,7 @@ mod tests {
             severity: ValidationSeverity::Warning,
         };
 
-        assert!(matches!(
-            issue.issue_type,
-            ValidationIssueType::MissingSequence
-        ));
+        assert!(matches!(issue.issue_type, ValidationIssueType::MissingSequence));
         assert_eq!(issue.sequence_number, Some(42));
         assert!(matches!(issue.severity, ValidationSeverity::Warning));
     }
@@ -3072,20 +2968,14 @@ mod tests {
         let summary = engine.generate_verification_summary(&critical_discrepancies);
         assert_eq!(summary.critical_discrepancies, 1);
         assert_eq!(summary.warning_discrepancies, 0);
-        assert!(matches!(
-            summary.verification_status,
-            VerificationStatus::MajorIssues
-        ));
+        assert!(matches!(summary.verification_status, VerificationStatus::MajorIssues));
 
         // Test warning classification
         let warning_discrepancies = vec![block_discrepancy];
         let summary = engine.generate_verification_summary(&warning_discrepancies);
         assert_eq!(summary.critical_discrepancies, 0);
         assert_eq!(summary.warning_discrepancies, 1);
-        assert!(matches!(
-            summary.verification_status,
-            VerificationStatus::MinorIssues
-        ));
+        assert!(matches!(summary.verification_status, VerificationStatus::MinorIssues));
     }
 
     #[tokio::test]
@@ -3110,17 +3000,8 @@ mod tests {
         };
 
         // Test that they can be created and matched
-        assert!(matches!(
-            balance_mismatch,
-            StateDiscrepancy::BalanceMismatch { .. }
-        ));
-        assert!(matches!(
-            missing_utxo,
-            StateDiscrepancy::MissingUtxoInCurrent { .. }
-        ));
-        assert!(matches!(
-            extra_utxo,
-            StateDiscrepancy::ExtraUtxoInCurrent { .. }
-        ));
+        assert!(matches!(balance_mismatch, StateDiscrepancy::BalanceMismatch { .. }));
+        assert!(matches!(missing_utxo, StateDiscrepancy::MissingUtxoInCurrent { .. }));
+        assert!(matches!(extra_utxo, StateDiscrepancy::ExtraUtxoInCurrent { .. }));
     }
 }

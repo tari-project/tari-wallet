@@ -2,6 +2,15 @@ use serde::{Deserialize, Serialize};
 use tari_utilities::ByteArray;
 use wasm_bindgen::prelude::*;
 
+#[cfg(feature = "http")]
+use crate::extraction::ExtractionConfig;
+// Only import HTTP scanner types when available
+#[cfg(feature = "http")]
+use crate::scanning::{
+    http_scanner::{HttpBlockData, HttpBlockResponse, HttpBlockchainScanner, HttpOutputData},
+    BlockchainScanner,
+    ScanConfig,
+};
 use crate::{
     data_structures::{
         block::Block,
@@ -19,16 +28,6 @@ use crate::{
         seed_phrase::{mnemonic_to_bytes, CipherSeed},
     },
 };
-
-// Only import HTTP scanner types when available
-#[cfg(feature = "http")]
-use crate::scanning::{
-    http_scanner::{HttpBlockData, HttpBlockResponse, HttpBlockchainScanner, HttpOutputData},
-    BlockchainScanner, ScanConfig,
-};
-
-#[cfg(feature = "http")]
-use crate::extraction::ExtractionConfig;
 
 /// Simplified block info for WASM serialization
 #[derive(Debug, Clone, serde::Serialize)]
@@ -199,9 +198,9 @@ impl WasmScanner {
                             "Failed to create scanner. View key error: {}. Seed phrase error: {}",
                             view_key_error, seed_phrase_error
                         ))
-                    }
+                    },
                 }
-            }
+            },
         }
     }
 
@@ -213,9 +212,7 @@ impl WasmScanner {
         }
 
         // Sort transactions by block height to keep the most recent ones
-        self.wallet_state
-            .transactions
-            .sort_by_key(|tx| tx.block_height);
+        self.wallet_state.transactions.sort_by_key(|tx| tx.block_height);
 
         // Calculate how many to remove
         let to_remove = self.wallet_state.transactions.len() - max_transactions;
@@ -234,21 +231,18 @@ impl WasmScanner {
     /// Create scanner from seed phrase
     pub fn from_seed_phrase(seed_phrase: &str) -> Result<Self, String> {
         // Convert seed phrase to bytes
-        let encrypted_bytes = mnemonic_to_bytes(seed_phrase)
-            .map_err(|e| format!("Failed to convert seed phrase: {}", e))?;
+        let encrypted_bytes =
+            mnemonic_to_bytes(seed_phrase).map_err(|e| format!("Failed to convert seed phrase: {}", e))?;
 
         let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)
             .map_err(|e| format!("Failed to create cipher seed: {}", e))?;
 
         let entropy = cipher_seed.entropy();
-        let entropy_array: [u8; 16] = entropy
-            .try_into()
-            .map_err(|_| "Invalid entropy length".to_string())?;
+        let entropy_array: [u8; 16] = entropy.try_into().map_err(|_| "Invalid entropy length".to_string())?;
 
         // Derive view key from entropy
-        let view_key_raw =
-            key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)
-                .map_err(|e| format!("Failed to derive view key: {}", e))?;
+        let view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)
+            .map_err(|e| format!("Failed to derive view key: {}", e))?;
 
         let view_key = PrivateKey::new(
             view_key_raw
@@ -268,8 +262,7 @@ impl WasmScanner {
 
     /// Create scanner from view key
     pub fn from_view_key(view_key_hex: &str) -> Result<Self, String> {
-        let view_key_bytes =
-            hex::decode(view_key_hex).map_err(|e| format!("Invalid hex format: {}", e))?;
+        let view_key_bytes = hex::decode(view_key_hex).map_err(|e| format!("Invalid hex format: {}", e))?;
 
         if view_key_bytes.len() != 32 {
             return Err("View key must be exactly 32 bytes (64 hex characters)".to_string());
@@ -305,11 +298,7 @@ impl WasmScanner {
 
     /// Process HTTP block response using the new HTTP scanner
     #[cfg(feature = "http")]
-    pub async fn process_http_blocks_async(
-        &mut self,
-        http_response_json: &str,
-        base_url: Option<&str>,
-    ) -> ScanResult {
+    pub async fn process_http_blocks_async(&mut self, http_response_json: &str, base_url: Option<&str>) -> ScanResult {
         // Initialize scanner if needed
         if let Some(url) = base_url {
             if let Err(e) = self.initialize_http_scanner(url).await {
@@ -351,7 +340,7 @@ impl WasmScanner {
                     success: false,
                     error: Some(format!("Failed to parse HTTP response: {}", e)),
                 };
-            }
+            },
         };
 
         let mut _total_found_outputs = 0;
@@ -397,7 +386,7 @@ impl WasmScanner {
                         .collect();
 
                     batch_transactions.extend(block_transactions);
-                }
+                },
                 Err(e) => {
                     return ScanResult {
                         total_outputs: 0,
@@ -407,18 +396,14 @@ impl WasmScanner {
                         blocks_processed,
                         transactions: batch_transactions,
                         success: false,
-                        error: Some(format!(
-                            "Failed to process block {}: {}",
-                            http_block.height, e
-                        )),
+                        error: Some(format!("Failed to process block {}: {}", http_block.height, e)),
                     };
-                }
+                },
             }
         }
 
         // Create result with all transactions found in this batch
-        let (total_received, _total_spent, balance, unspent_count, spent_count) =
-            self.wallet_state.get_summary();
+        let (total_received, _total_spent, balance, unspent_count, spent_count) = self.wallet_state.get_summary();
 
         ScanResult {
             total_outputs: unspent_count as u64,
@@ -433,10 +418,7 @@ impl WasmScanner {
     }
 
     /// Process single HTTP block using the new HTTP scanner if available, otherwise fallback to legacy method
-    fn process_single_http_block(
-        &mut self,
-        http_block: &HttpBlockData,
-    ) -> Result<(usize, usize), String> {
+    fn process_single_http_block(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
         // If we have an HTTP scanner, try to use it for better integration
         #[cfg(feature = "http")]
         if self.http_scanner.is_some() {
@@ -449,10 +431,7 @@ impl WasmScanner {
 
     /// Process single HTTP block using HTTP scanner (new method)
     #[cfg(feature = "http")]
-    fn process_single_http_block_with_scanner(
-        &mut self,
-        http_block: &HttpBlockData,
-    ) -> Result<(usize, usize), String> {
+    fn process_single_http_block_with_scanner(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
         // Convert HTTP block to our internal format and process
         // For now, use the same conversion logic but with better integration potential
         self.process_single_http_block_legacy(http_block)
@@ -463,10 +442,7 @@ impl WasmScanner {
     /// This method converts HTTP block data to the Block struct and uses the same
     /// `process_outputs()` method. For inputs, it now handles the simplified structure
     /// where inputs are just arrays of 32-byte commitment hashes.
-    fn process_single_http_block_legacy(
-        &mut self,
-        http_block: &HttpBlockData,
-    ) -> Result<(usize, usize), String> {
+    fn process_single_http_block_legacy(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
         // Convert HTTP outputs to TransactionOutput (same as scanner.rs expects)
         let outputs = self.convert_http_outputs_to_lightweight(&http_block.outputs)?;
 
@@ -480,13 +456,11 @@ impl WasmScanner {
             http_block.outputs.iter().zip(outputs.iter()).enumerate()
         {
             // Try to decrypt and extract wallet output
-            if let Ok((value, _mask, payment_id)) =
-                crate::data_structures::encrypted_data::EncryptedData::decrypt_data(
-                    &self.view_key,
-                    &lightweight_output.commitment,
-                    &lightweight_output.encrypted_data,
-                )
-            {
+            if let Ok((value, _mask, payment_id)) = crate::data_structures::encrypted_data::EncryptedData::decrypt_data(
+                &self.view_key,
+                &lightweight_output.commitment,
+                &lightweight_output.encrypted_data,
+            ) {
                 // Add to wallet state with the original output_hash from HTTP response
                 self.wallet_state.add_received_output(
                     http_block.height,
@@ -540,11 +514,10 @@ impl WasmScanner {
         let mut spent_outputs = 0;
         for (input_index, input) in inputs.iter().enumerate() {
             // Try to match by output hash - this is the primary method for HTTP API
-            if self.wallet_state.mark_output_spent_by_hash(
-                &input.output_hash,
-                http_block.height,
-                input_index,
-            ) {
+            if self
+                .wallet_state
+                .mark_output_spent_by_hash(&input.output_hash, http_block.height, input_index)
+            {
                 spent_outputs += 1;
             }
         }
@@ -579,9 +552,7 @@ impl WasmScanner {
 
             // Parse sender offset public key
             if http_output.sender_offset_public_key.len() != 32 {
-                return Err(
-                    "Invalid sender offset public key length, expected 32 bytes".to_string()
-                );
+                return Err("Invalid sender offset public key length, expected 32 bytes".to_string());
             }
             let sender_offset_public_key = CompressedPublicKey::new(
                 http_output
@@ -631,7 +602,7 @@ impl WasmScanner {
                     success: false,
                     error: Some(e),
                 };
-            }
+            },
         };
 
         let inputs = match self.convert_legacy_inputs(block_data) {
@@ -647,7 +618,7 @@ impl WasmScanner {
                     success: false,
                     error: Some(e),
                 };
-            }
+            },
         };
 
         let block_hash = match hex::decode(&block_data.hash) {
@@ -663,35 +634,28 @@ impl WasmScanner {
                     success: false,
                     error: Some(format!("Invalid block hash: {}", e)),
                 };
-            }
+            },
         };
 
         // Create Block using the same constructor as scanner.rs
-        let block = Block::new(
-            block_data.height,
-            block_hash,
-            block_data.timestamp,
-            outputs,
-            inputs,
-        );
+        let block = Block::new(block_data.height, block_hash, block_data.timestamp, outputs, inputs);
 
         // Use the exact same processing methods as scanner.rs
-        let found_outputs =
-            match block.process_outputs(&self.view_key, &self.entropy, &mut self.wallet_state) {
-                Ok(count) => count,
-                Err(e) => {
-                    return ScanResult {
-                        total_outputs: 0,
-                        total_spent: 0,
-                        total_value: 0,
-                        current_balance: 0,
-                        blocks_processed: 0,
-                        transactions: Vec::new(),
-                        success: false,
-                        error: Some(format!("Failed to process outputs: {}", e)),
-                    };
-                }
-            };
+        let found_outputs = match block.process_outputs(&self.view_key, &self.entropy, &mut self.wallet_state) {
+            Ok(count) => count,
+            Err(e) => {
+                return ScanResult {
+                    total_outputs: 0,
+                    total_spent: 0,
+                    total_value: 0,
+                    current_balance: 0,
+                    blocks_processed: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(format!("Failed to process outputs: {}", e)),
+                };
+            },
+        };
 
         let spent_outputs = match block.process_inputs(&mut self.wallet_state) {
             Ok(count) => count,
@@ -706,7 +670,7 @@ impl WasmScanner {
                     success: false,
                     error: Some(format!("Failed to process inputs: {}", e)),
                 };
-            }
+            },
         };
 
         self.create_scan_result(found_outputs, spent_outputs, 1)
@@ -715,13 +679,8 @@ impl WasmScanner {
     /// Process single block and return only block-specific results (LEGACY METHOD)
     pub fn process_single_block(&mut self, block_data: &BlockData) -> BlockScanResult {
         // Get wallet state before processing
-        let (
-            prev_total_received,
-            prev_total_spent,
-            _prev_balance,
-            _prev_unspent_count,
-            _prev_spent_count,
-        ) = self.wallet_state.get_summary();
+        let (prev_total_received, prev_total_spent, _prev_balance, _prev_unspent_count, _prev_spent_count) =
+            self.wallet_state.get_summary();
         let prev_transaction_count = self.wallet_state.transactions.len();
 
         // Convert legacy format to internal format
@@ -739,7 +698,7 @@ impl WasmScanner {
                     success: false,
                     error: Some(e),
                 };
-            }
+            },
         };
 
         let inputs = match self.convert_legacy_inputs(block_data) {
@@ -756,7 +715,7 @@ impl WasmScanner {
                     success: false,
                     error: Some(e),
                 };
-            }
+            },
         };
 
         let block_hash = match hex::decode(&block_data.hash) {
@@ -773,7 +732,7 @@ impl WasmScanner {
                     success: false,
                     error: Some(format!("Invalid block hash: {}", e)),
                 };
-            }
+            },
         };
 
         // Create Block using the same constructor as scanner.rs
@@ -786,23 +745,22 @@ impl WasmScanner {
         );
 
         // Use the exact same processing methods as scanner.rs
-        let found_outputs =
-            match block.process_outputs(&self.view_key, &self.entropy, &mut self.wallet_state) {
-                Ok(count) => count,
-                Err(e) => {
-                    return BlockScanResult {
-                        block_height: block_data.height,
-                        block_hash: block_data.hash.clone(),
-                        outputs_found: 0,
-                        inputs_spent: 0,
-                        value_found: 0,
-                        value_spent: 0,
-                        transactions: Vec::new(),
-                        success: false,
-                        error: Some(format!("Failed to process outputs: {}", e)),
-                    };
-                }
-            };
+        let found_outputs = match block.process_outputs(&self.view_key, &self.entropy, &mut self.wallet_state) {
+            Ok(count) => count,
+            Err(e) => {
+                return BlockScanResult {
+                    block_height: block_data.height,
+                    block_hash: block_data.hash.clone(),
+                    outputs_found: 0,
+                    inputs_spent: 0,
+                    value_found: 0,
+                    value_spent: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(format!("Failed to process outputs: {}", e)),
+                };
+            },
+        };
 
         let spent_outputs = match block.process_inputs(&mut self.wallet_state) {
             Ok(count) => count,
@@ -818,17 +776,12 @@ impl WasmScanner {
                     success: false,
                     error: Some(format!("Failed to process inputs: {}", e)),
                 };
-            }
+            },
         };
 
         // Get wallet state after processing
-        let (
-            new_total_received,
-            new_total_spent,
-            _new_balance,
-            _new_unspent_count,
-            _new_spent_count,
-        ) = self.wallet_state.get_summary();
+        let (new_total_received, new_total_spent, _new_balance, _new_unspent_count, _new_spent_count) =
+            self.wallet_state.get_summary();
 
         // Calculate block-specific values
         let value_found = new_total_received - prev_total_received;
@@ -873,10 +826,7 @@ impl WasmScanner {
     }
 
     /// Convert legacy OutputData to TransactionOutput
-    fn convert_legacy_outputs(
-        &self,
-        block_data: &BlockData,
-    ) -> Result<Vec<TransactionOutput>, String> {
+    fn convert_legacy_outputs(&self, block_data: &BlockData) -> Result<Vec<TransactionOutput>, String> {
         let mut outputs = Vec::new();
         for output_data in &block_data.outputs {
             let output = self.convert_legacy_output_data(output_data)?;
@@ -886,10 +836,7 @@ impl WasmScanner {
     }
 
     /// Convert legacy InputData to TransactionInput
-    fn convert_legacy_inputs(
-        &self,
-        block_data: &BlockData,
-    ) -> Result<Vec<TransactionInput>, String> {
+    fn convert_legacy_inputs(&self, block_data: &BlockData) -> Result<Vec<TransactionInput>, String> {
         let mut inputs = Vec::new();
         for input_data in &block_data.inputs {
             let input = self.convert_legacy_input_data(input_data)?;
@@ -899,18 +846,14 @@ impl WasmScanner {
     }
 
     /// Convert OutputData to TransactionOutput (LEGACY)
-    fn convert_legacy_output_data(
-        &self,
-        output_data: &OutputData,
-    ) -> Result<TransactionOutput, String> {
+    fn convert_legacy_output_data(&self, output_data: &OutputData) -> Result<TransactionOutput, String> {
         // Parse commitment
         let commitment = CompressedCommitment::from_hex(&output_data.commitment)
             .map_err(|e| format!("Invalid commitment hex: {}", e))?;
 
         // Parse sender offset public key
-        let sender_offset_public_key =
-            CompressedPublicKey::from_hex(&output_data.sender_offset_public_key)
-                .map_err(|e| format!("Invalid sender offset public key hex: {}", e))?;
+        let sender_offset_public_key = CompressedPublicKey::from_hex(&output_data.sender_offset_public_key)
+            .map_err(|e| format!("Invalid sender offset public key hex: {}", e))?;
 
         // Parse encrypted data
         let encrypted_data = EncryptedData::from_hex(&output_data.encrypted_data)
@@ -931,15 +874,12 @@ impl WasmScanner {
     }
 
     /// Convert InputData to TransactionInput (LEGACY)
-    fn convert_legacy_input_data(
-        &self,
-        input_data: &InputData,
-    ) -> Result<TransactionInput, String> {
+    fn convert_legacy_input_data(&self, input_data: &InputData) -> Result<TransactionInput, String> {
         use crate::data_structures::transaction_input::ExecutionStack;
 
         // Parse commitment
-        let commitment_bytes = hex::decode(&input_data.commitment)
-            .map_err(|e| format!("Invalid input commitment hex: {}", e))?;
+        let commitment_bytes =
+            hex::decode(&input_data.commitment).map_err(|e| format!("Invalid input commitment hex: {}", e))?;
 
         if commitment_bytes.len() != 32 {
             return Err("Commitment must be exactly 32 bytes".to_string());
@@ -949,10 +889,8 @@ impl WasmScanner {
         commitment.copy_from_slice(&commitment_bytes);
 
         // Parse sender offset public key if provided
-        let sender_offset_public_key = if let Some(ref pk_hex) = input_data.sender_offset_public_key
-        {
-            CompressedPublicKey::from_hex(pk_hex)
-                .map_err(|e| format!("Invalid sender offset public key hex: {}", e))?
+        let sender_offset_public_key = if let Some(ref pk_hex) = input_data.sender_offset_public_key {
+            CompressedPublicKey::from_hex(pk_hex).map_err(|e| format!("Invalid sender offset public key hex: {}", e))?
         } else {
             CompressedPublicKey::default()
         };
@@ -1009,16 +947,16 @@ impl WasmScanner {
                 let transaction_input = TransactionInput::new(
                     1,                              // version
                     0,                              // features (default)
-                    [0u8; 32], // commitment (not available from HTTP API, use placeholder)
-                    [0u8; 64], // script_signature (not available)
+                    [0u8; 32],                      // commitment (not available from HTTP API, use placeholder)
+                    [0u8; 64],                      // script_signature (not available)
                     CompressedPublicKey::default(), // sender_offset_public_key (not available)
-                    Vec::new(), // covenant (not available)
-                    ExecutionStack::new(), // input_data (not available)
-                    output_hash, // output_hash (CRITICAL: this is the actual data from HTTP API)
-                    0,         // output_features (not available)
-                    [0u8; 64], // output_metadata_signature (not available)
-                    0,         // maturity (not available)
-                    MicroMinotari::from(0u64), // value (not available)
+                    Vec::new(),                     // covenant (not available)
+                    ExecutionStack::new(),          // input_data (not available)
+                    output_hash,                    // output_hash (CRITICAL: this is the actual data from HTTP API)
+                    0,                              // output_features (not available)
+                    [0u8; 64],                      // output_metadata_signature (not available)
+                    0,                              // maturity (not available)
+                    MicroMinotari::from(0u64),      // value (not available)
                 );
 
                 transaction_inputs.push(transaction_input);
@@ -1029,14 +967,8 @@ impl WasmScanner {
     }
 
     /// Create scan result from processing results
-    fn create_scan_result(
-        &self,
-        _found_outputs: usize,
-        _spent_outputs: usize,
-        blocks_processed: usize,
-    ) -> ScanResult {
-        let (total_received, _total_spent, balance, unspent_count, spent_count) =
-            self.wallet_state.get_summary();
+    fn create_scan_result(&self, _found_outputs: usize, _spent_outputs: usize, blocks_processed: usize) -> ScanResult {
+        let (total_received, _total_spent, balance, unspent_count, spent_count) = self.wallet_state.get_summary();
 
         // Convert transactions to summary format
         let transactions: Vec<TransactionSummary> = self
@@ -1097,10 +1029,7 @@ pub fn create_wasm_scanner(data: &str) -> Result<WasmScanner, JsValue> {
 /// Initialize HTTP scanner (WASM export) - Returns a Promise
 #[cfg(feature = "http")]
 #[wasm_bindgen]
-pub async fn initialize_http_scanner(
-    scanner: &mut WasmScanner,
-    base_url: &str,
-) -> Result<(), JsValue> {
+pub async fn initialize_http_scanner(scanner: &mut WasmScanner, base_url: &str) -> Result<(), JsValue> {
     scanner
         .initialize_http_scanner(base_url)
         .await
@@ -1119,59 +1048,44 @@ pub async fn process_http_blocks_async(
         .process_http_blocks_async(http_response_json, base_url.as_deref())
         .await;
 
-    serde_json::to_string(&result)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
 
 /// Process HTTP block response (WASM export) - LEGACY METHOD for backward compatibility
 #[wasm_bindgen]
-pub fn process_http_blocks(
-    scanner: &mut WasmScanner,
-    http_response_json: &str,
-) -> Result<String, JsValue> {
+pub fn process_http_blocks(scanner: &mut WasmScanner, http_response_json: &str) -> Result<String, JsValue> {
     let result = scanner.process_http_blocks(http_response_json);
 
-    serde_json::to_string(&result)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
 
 /// Scan block data (WASM export) - LEGACY METHOD for backward compatibility
 #[wasm_bindgen]
-pub fn scan_block_data(
-    scanner: &mut WasmScanner,
-    block_data_json: &str,
-) -> Result<String, JsValue> {
+pub fn scan_block_data(scanner: &mut WasmScanner, block_data_json: &str) -> Result<String, JsValue> {
     let block_data: BlockData = serde_json::from_str(block_data_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse block data: {}", e)))?;
 
     let result = scanner.process_block(&block_data);
 
-    serde_json::to_string(&result)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
 
 /// Scan single block and return only block-specific data (WASM export) - LEGACY METHOD  
 #[wasm_bindgen]
-pub fn scan_single_block(
-    scanner: &mut WasmScanner,
-    block_data_json: &str,
-) -> Result<String, JsValue> {
+pub fn scan_single_block(scanner: &mut WasmScanner, block_data_json: &str) -> Result<String, JsValue> {
     let block_data: BlockData = serde_json::from_str(block_data_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse block data: {}", e)))?;
 
     let result = scanner.process_single_block(&block_data);
 
-    serde_json::to_string(&result)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
 
 /// Get cumulative scanner statistics (WASM export)
 #[wasm_bindgen]
 pub fn get_scanner_stats(scanner: &WasmScanner) -> Result<String, JsValue> {
-    let (total_received, total_spent, balance, unspent_count, spent_count) =
-        scanner.wallet_state.get_summary();
-    let (inbound_count, outbound_count, _unknown_count) =
-        scanner.wallet_state.get_direction_counts();
+    let (total_received, total_spent, balance, unspent_count, spent_count) = scanner.wallet_state.get_summary();
+    let (inbound_count, outbound_count, _unknown_count) = scanner.wallet_state.get_direction_counts();
 
     let stats = serde_json::json!({
         "total_outputs": unspent_count,
@@ -1184,8 +1098,7 @@ pub fn get_scanner_stats(scanner: &WasmScanner) -> Result<String, JsValue> {
         "outbound_transactions": outbound_count,
     });
 
-    serde_json::to_string(&stats)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize stats: {}", e)))
+    serde_json::to_string(&stats).map_err(|e| JsValue::from_str(&format!("Failed to serialize stats: {}", e)))
 }
 
 /// Get scanner state (WASM export)
@@ -1216,8 +1129,7 @@ pub async fn get_tip_info(scanner: &mut WasmScanner) -> Result<String, JsValue> 
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to get tip info: {}", e)))?;
 
-        serde_json::to_string(&tip_info)
-            .map_err(|e| JsValue::from_str(&format!("Failed to serialize tip info: {}", e)))
+        serde_json::to_string(&tip_info).map_err(|e| JsValue::from_str(&format!("Failed to serialize tip info: {}", e)))
     } else {
         Err(JsValue::from_str("HTTP scanner not initialized"))
     }
@@ -1225,10 +1137,7 @@ pub async fn get_tip_info(scanner: &mut WasmScanner) -> Result<String, JsValue> 
 /// Fetch specific blocks by height using HTTP scanner (WASM export)
 #[cfg(feature = "http")]
 #[wasm_bindgen]
-pub async fn fetch_blocks_by_heights(
-    scanner: &mut WasmScanner,
-    heights_json: &str,
-) -> Result<String, JsValue> {
+pub async fn fetch_blocks_by_heights(scanner: &mut WasmScanner, heights_json: &str) -> Result<String, JsValue> {
     if let Some(ref mut http_scanner) = scanner.http_scanner {
         let heights: Vec<u64> = serde_json::from_str(heights_json)
             .map_err(|e| JsValue::from_str(&format!("Failed to parse heights: {}", e)))?;
@@ -1239,8 +1148,7 @@ pub async fn fetch_blocks_by_heights(
             .map_err(|e| JsValue::from_str(&format!("Failed to fetch blocks: {}", e)))?;
 
         // Convert to WASM-serializable format
-        let wasm_blocks: Vec<WasmBlockInfo> =
-            blocks.into_iter().map(|block| block.into()).collect();
+        let wasm_blocks: Vec<WasmBlockInfo> = blocks.into_iter().map(|block| block.into()).collect();
 
         serde_json::to_string(&wasm_blocks)
             .map_err(|e| JsValue::from_str(&format!("Failed to serialize blocks: {}", e)))
@@ -1252,10 +1160,7 @@ pub async fn fetch_blocks_by_heights(
 /// Search for UTXOs by commitment using HTTP scanner (WASM export)
 #[cfg(feature = "http")]
 #[wasm_bindgen]
-pub async fn search_utxos(
-    scanner: &mut WasmScanner,
-    commitments_json: &str,
-) -> Result<String, JsValue> {
+pub async fn search_utxos(scanner: &mut WasmScanner, commitments_json: &str) -> Result<String, JsValue> {
     if let Some(ref mut http_scanner) = scanner.http_scanner {
         let commitments: Vec<Vec<u8>> = serde_json::from_str(commitments_json)
             .map_err(|e| JsValue::from_str(&format!("Failed to parse commitments: {}", e)))?;

@@ -77,11 +77,7 @@ impl NewImportedKeySql {
             Ok(())
         })
         .await
-        .map_err(|e| {
-            KeyManagerStorageError::StorageError(format!(
-                "Failed to save key manager imported key: {e}"
-            ))
-        })
+        .map_err(|e| KeyManagerStorageError::StorageError(format!("Failed to save key manager imported key: {e}")))
     }
 }
 
@@ -98,14 +94,9 @@ impl ImportedKeySql {
 
     /// Retrieve every imported key currently in the database.
     /// Returns a `Vec` of [ImportedKeySql], if none are found, it will return an empty `Vec`.
-    pub async fn index(
-        conn: &Connection,
-        wallet_id: u32,
-    ) -> Result<Vec<Self>, KeyManagerStorageError> {
+    pub async fn index(conn: &Connection, wallet_id: u32) -> Result<Vec<Self>, KeyManagerStorageError> {
         conn.call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM imported_keys WHERE wallet_id = ? ORDER BY timestamp DESC",
-            )?;
+            let mut stmt = conn.prepare("SELECT * FROM imported_keys WHERE wallet_id = ? ORDER BY timestamp DESC")?;
             let rows = stmt.query_map(params![wallet_id as i64], Self::row_to_state)?;
 
             let mut keys = Vec::new();
@@ -116,18 +107,11 @@ impl ImportedKeySql {
             Ok(keys)
         })
         .await
-        .map_err(|e| {
-            KeyManagerStorageError::StorageError(format!(
-                "Failed to list key manager imported keys: {e}"
-            ))
-        })
+        .map_err(|e| KeyManagerStorageError::StorageError(format!("Failed to list key manager imported keys: {e}")))
     }
 
     #[allow(clippy::wrong_self_convention)]
-    pub fn to_imported_key(
-        self,
-        cipher: &XChaCha20Poly1305,
-    ) -> Result<ImportedKey, KeyManagerStorageError> {
+    pub fn to_imported_key(self, cipher: &XChaCha20Poly1305) -> Result<ImportedKey, KeyManagerStorageError> {
         let mut decrypted = self
             .decrypt(cipher)
             .map_err(|_| KeyManagerStorageError::AeadError("Decryption Error".to_string()))?;
@@ -149,10 +133,8 @@ impl ImportedKeySql {
     ) -> Result<Self, KeyManagerStorageError> {
         let key_owned = key.to_hex();
         conn.call(move |conn| {
-            let mut stmt =
-                conn.prepare("SELECT * FROM imported_keys WHERE public_key = ? AND wallet_id = ?")?;
-            let mut rows =
-                stmt.query_map(params![key_owned, wallet_id as i64], Self::row_to_state)?;
+            let mut stmt = conn.prepare("SELECT * FROM imported_keys WHERE public_key = ? AND wallet_id = ?")?;
+            let mut rows = stmt.query_map(params![key_owned, wallet_id as i64], Self::row_to_state)?;
 
             if let Some(row) = rows.next() {
                 Ok(Some(row?))
@@ -161,11 +143,7 @@ impl ImportedKeySql {
             }
         })
         .await
-        .map_err(|e| {
-            KeyManagerStorageError::StorageError(format!(
-                "Failed to get key manager imported key: {e}"
-            ))
-        })?
+        .map_err(|e| KeyManagerStorageError::StorageError(format!("Failed to get key manager imported key: {e}")))?
         .ok_or(KeyManagerStorageError::KeyManagerNotInitialized)
     }
 }
@@ -192,8 +170,7 @@ impl Encryptable<XChaCha20Poly1305> for ImportedKeySql {
     }
 
     fn decrypt(mut self, cipher: &XChaCha20Poly1305) -> Result<Self, String> {
-        self.private_key =
-            decrypt_bytes_integral_nonce(cipher, self.domain("private_key"), &self.private_key)?;
+        self.private_key = decrypt_bytes_integral_nonce(cipher, self.domain("private_key"), &self.private_key)?;
 
         Ok(self)
     }

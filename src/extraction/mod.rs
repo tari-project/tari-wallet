@@ -14,34 +14,31 @@ pub mod wallet_output_reconstruction;
 pub mod batch_validation;
 pub mod corruption_detection;
 
-pub use encrypted_data_decryption::{DecryptionOptions, DecryptionResult, EncryptedDataDecryptor};
-
-pub use payment_id_extraction::{
-    PaymentIdExtractionResult, PaymentIdExtractor, PaymentIdMetadata, PaymentIdType,
+#[cfg(feature = "grpc")]
+pub use batch_validation::validate_output_batch_parallel;
+pub use batch_validation::{
+    validate_output_batch,
+    BatchValidationOptions,
+    BatchValidationResult,
+    BatchValidationSummary,
+    OutputValidationResult,
 };
-
+pub use corruption_detection::{CorruptionDetectionResult, CorruptionDetector, CorruptionType};
+pub use encrypted_data_decryption::{DecryptionOptions, DecryptionResult, EncryptedDataDecryptor};
+pub use payment_id_extraction::{PaymentIdExtractionResult, PaymentIdExtractor, PaymentIdMetadata, PaymentIdType};
+pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions, StealthKeyRecoveryResult};
 pub use wallet_output_reconstruction::{
-    WalletOutputReconstructionError, WalletOutputReconstructionOptions,
+    WalletOutputReconstructionError,
+    WalletOutputReconstructionOptions,
     WalletOutputReconstructionResult,
 };
 
-pub use stealth_address_key_recovery::{
-    StealthKeyRecoveryError, StealthKeyRecoveryOptions, StealthKeyRecoveryResult,
-};
-
-pub use corruption_detection::{CorruptionDetectionResult, CorruptionDetector, CorruptionType};
-
-pub use batch_validation::{
-    validate_output_batch, BatchValidationOptions, BatchValidationResult, BatchValidationSummary,
-    OutputValidationResult,
-};
-
-#[cfg(feature = "grpc")]
-pub use batch_validation::validate_output_batch_parallel;
-
 use crate::{
-    data_structures::types::{CompressedPublicKey, PrivateKey},
-    data_structures::{transaction_output::TransactionOutput, wallet_output::WalletOutput},
+    data_structures::{
+        transaction_output::TransactionOutput,
+        types::{CompressedPublicKey, PrivateKey},
+        wallet_output::WalletOutput,
+    },
     errors::WalletResult,
     key_management::{ImportedPrivateKey, KeyStore},
 };
@@ -124,8 +121,7 @@ pub fn extract_wallet_output(
 
     // Add the private key to the key store if provided
     if let Some(private_key) = &config.private_key {
-        let imported_key =
-            ImportedPrivateKey::new(private_key.clone(), Some("extraction_key".to_string()));
+        let imported_key = ImportedPrivateKey::new(private_key.clone(), Some("extraction_key".to_string()));
         key_store
             .add_imported_key(imported_key)
             .map_err(crate::errors::WalletError::KeyManagementError)?;
@@ -141,14 +137,11 @@ pub fn extract_wallet_output(
     };
 
     // Try to decrypt the encrypted data - this is the key test for wallet ownership
-    let decryption_result =
-        decryptor.decrypt_transaction_output(transaction_output, Some(&decryption_options))?;
+    let decryption_result = decryptor.decrypt_transaction_output(transaction_output, Some(&decryption_options))?;
 
     // If decryption failed, this output doesn't belong to our wallet
     if !decryption_result.is_success() {
-        let error_msg = decryption_result
-            .error_message()
-            .unwrap_or("decryption failed");
+        let error_msg = decryption_result.error_message().unwrap_or("decryption failed");
         return Err(crate::errors::WalletError::OperationNotSupported(format!(
             "Output does not belong to wallet: {error_msg}"
         )));
@@ -189,18 +182,29 @@ pub use wallet_output_reconstruction::*;
 /// Validate range proof using real validation logic
 #[cfg(test)]
 mod tests {
+    use tari_utilities::ByteArray;
+
     use super::*;
     use crate::{
         crypto::{RistrettoSecretKey, SecretKey},
         data_structures::{
-            CompressedCommitment, CompressedPublicKey, Covenant, EncryptedData, MicroMinotari,
-            OutputFeatures, OutputType, PrivateKey, RangeProof, RangeProofType, Script, Signature,
+            CompressedCommitment,
+            CompressedPublicKey,
+            Covenant,
+            EncryptedData,
+            MicroMinotari,
+            OutputFeatures,
+            OutputType,
+            PrivateKey,
+            RangeProof,
+            RangeProofType,
+            Script,
+            Signature,
             TransactionOutput,
         },
         key_management::derive_view_and_spend_keys_from_entropy,
         wallet::Wallet,
     };
-    use tari_utilities::ByteArray;
 
     #[test]
     fn test_extract_wallet_output_without_keys_fails() {
@@ -233,41 +237,36 @@ mod tests {
     #[test]
     fn test_key_derivation_direct() {
         // Known seed phrase from user's test case
-        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute awesome shield wire cruel mom depth enhance rough client aerobic";
+        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute \
+                           awesome shield wire cruel mom depth enhance rough client aerobic";
 
         // Create wallet and derive keys like the scanner does
-        let wallet =
-            Wallet::new_from_seed_phrase(seed_phrase, None).expect("Failed to create wallet");
+        let wallet = Wallet::new_from_seed_phrase(seed_phrase, None).expect("Failed to create wallet");
         let master_key_bytes = wallet.master_key_bytes();
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(&master_key_bytes[..16]);
 
-        let (view_key, _spend_key) =
-            derive_view_and_spend_keys_from_entropy(&entropy).expect("Key derivation failed");
+        let (view_key, _spend_key) = derive_view_and_spend_keys_from_entropy(&entropy).expect("Key derivation failed");
 
         // Expected view key for this seed phrase (using tari-crypto)
         let expected_view_key = "d50cb952e6cb40bf50d9acbd65eb071a5b9eaf189be611537f0dd18c9b3a1f02";
         let actual_view_key = hex::encode(view_key.as_bytes());
 
-        assert_eq!(
-            actual_view_key, expected_view_key,
-            "View key derivation mismatch"
-        );
+        assert_eq!(actual_view_key, expected_view_key, "View key derivation mismatch");
     }
 
     #[test]
     fn test_extract_wallet_output_block_34926_real_data() {
         // Known seed phrase that should have outputs in block 34926
-        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute awesome shield wire cruel mom depth enhance rough client aerobic";
+        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute \
+                           awesome shield wire cruel mom depth enhance rough client aerobic";
 
         // Create wallet and derive keys
-        let wallet =
-            Wallet::new_from_seed_phrase(seed_phrase, None).expect("Failed to create wallet");
+        let wallet = Wallet::new_from_seed_phrase(seed_phrase, None).expect("Failed to create wallet");
         let master_key_bytes = wallet.master_key_bytes();
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(&master_key_bytes[..16]);
-        let (view_key, _spend_key) =
-            derive_view_and_spend_keys_from_entropy(&entropy).expect("Key derivation failed");
+        let (view_key, _spend_key) = derive_view_and_spend_keys_from_entropy(&entropy).expect("Key derivation failed");
         let view_key_bytes = view_key.as_bytes();
         let mut view_key_array = [0u8; 32];
         view_key_array.copy_from_slice(view_key_bytes);
@@ -331,11 +330,11 @@ mod tests {
                     wallet_output.value().as_u64() > 0,
                     "Extracted output should have value > 0"
                 );
-            }
+            },
             Err(ref e) => {
                 println!("✗ Failed to extract output 100: {e}");
                 // This means it doesn't belong to our wallet
-            }
+            },
         }
 
         println!("Testing output 109 extraction...");
@@ -352,11 +351,11 @@ mod tests {
                     wallet_output.value().as_u64() > 0,
                     "Extracted output should have value > 0"
                 );
-            }
+            },
             Err(ref e) => {
                 println!("✗ Failed to extract output 109: {e}");
                 // This means it doesn't belong to our wallet
-            }
+            },
         }
 
         // Test with a random key to ensure it fails
@@ -366,10 +365,7 @@ mod tests {
 
         println!("Testing with wrong key (should fail)...");
         let wrong_result = extract_wallet_output(&output_100, &wrong_config);
-        assert!(
-            wrong_result.is_err(),
-            "Extraction should fail with wrong key"
-        );
+        assert!(wrong_result.is_err(), "Extraction should fail with wrong key");
         println!("✓ Correctly failed with wrong key");
 
         // At least one of the outputs should be extractable, or we need to check more outputs
@@ -386,11 +382,11 @@ mod tests {
         println!("=== DEBUGGING EXTRACTION FAILURE ===");
 
         // Known seed phrase that should work
-        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute awesome shield wire cruel mom depth enhance rough client aerobic";
+        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute \
+                           awesome shield wire cruel mom depth enhance rough client aerobic";
 
         // Test key derivation
-        let wallet = crate::wallet::Wallet::new_from_seed_phrase(seed_phrase, None)
-            .expect("Failed to create wallet");
+        let wallet = crate::wallet::Wallet::new_from_seed_phrase(seed_phrase, None).expect("Failed to create wallet");
         let master_key_bytes = wallet.master_key_bytes();
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(&master_key_bytes[..16]);
@@ -399,8 +395,7 @@ mod tests {
         println!("Entropy: {entropy:?}");
 
         let (view_key, _spend_key) =
-            crate::key_management::derive_view_and_spend_keys_from_entropy(&entropy)
-                .expect("Key derivation failed");
+            crate::key_management::derive_view_and_spend_keys_from_entropy(&entropy).expect("Key derivation failed");
         println!("View key bytes: {:?}", view_key.as_bytes());
 
         // Convert to PrivateKey
@@ -409,10 +404,7 @@ mod tests {
         view_key_array.copy_from_slice(view_key_bytes);
         let view_private_key = PrivateKey::new(view_key_array);
 
-        println!(
-            "Private key for extraction: {:?}",
-            view_private_key.as_bytes()
-        );
+        println!("Private key for extraction: {:?}", view_private_key.as_bytes());
 
         // Test with a simple dummy output first
         let dummy_output = create_dummy_output();
@@ -423,10 +415,8 @@ mod tests {
 
         // Test key store creation (this is what happens inside extract_wallet_output)
         let mut key_store = crate::key_management::KeyStore::default();
-        let imported_key = crate::key_management::ImportedPrivateKey::new(
-            view_private_key.clone(),
-            Some("test_key".to_string()),
-        );
+        let imported_key =
+            crate::key_management::ImportedPrivateKey::new(view_private_key.clone(), Some("test_key".to_string()));
 
         match key_store.add_imported_key(imported_key) {
             Ok(_) => println!("✓ Successfully added key to key store"),
@@ -449,10 +439,7 @@ mod tests {
         println!("Testing decryption of dummy output...");
         match decryptor.decrypt_transaction_output(&dummy_output, Some(&decryption_options)) {
             Ok(result) => {
-                println!(
-                    "✓ Decryption returned result. Success: {}",
-                    result.is_success()
-                );
+                println!("✓ Decryption returned result. Success: {}", result.is_success());
                 if let Some(error) = result.error_message() {
                     println!("  Error message: {error}");
                 }
@@ -462,24 +449,21 @@ mod tests {
                 if let Some(payment_id) = &result.payment_id {
                     println!("  Payment ID: {payment_id:?}");
                 }
-            }
+            },
             Err(e) => {
                 println!("✗ Decryption failed: {e}");
-            }
+            },
         }
 
         // Now test the full extraction
         println!("Testing full extraction...");
         match extract_wallet_output(&dummy_output, &config) {
             Ok(wallet_output) => {
-                println!(
-                    "✓ Full extraction succeeded! Value: {}",
-                    wallet_output.value().as_u64()
-                );
-            }
+                println!("✓ Full extraction succeeded! Value: {}", wallet_output.value().as_u64());
+            },
             Err(e) => {
                 println!("✗ Full extraction failed: {e}");
-            }
+            },
         }
     }
 
@@ -492,17 +476,11 @@ mod tests {
                 range_proof_type: RangeProofType::BulletProofPlus,
             },
             CompressedCommitment::new([0u8; 32]),
-            Some(RangeProof {
-                bytes: vec![0u8; 100],
-            }),
-            Script {
-                bytes: vec![0u8; 10],
-            },
+            Some(RangeProof { bytes: vec![0u8; 100] }),
+            Script { bytes: vec![0u8; 10] },
             CompressedPublicKey::new([0u8; 32]),
             Signature::default(),
-            Covenant {
-                bytes: vec![0u8; 1],
-            },
+            Covenant { bytes: vec![0u8; 1] },
             EncryptedData::from_bytes(&[0u8; 80]).expect("Valid encrypted data"),
             MicroMinotari::new(1000),
             tari_transaction_components::transaction_components::OutputFeatures::default(),
@@ -514,17 +492,16 @@ mod tests {
         // Test the specific output 98 from block 34926 that the user claims contains the 2.000000 T transaction
 
         // Known seed phrase
-        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute awesome shield wire cruel mom depth enhance rough client aerobic";
+        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute \
+                           awesome shield wire cruel mom depth enhance rough client aerobic";
 
         // Create wallet and derive keys like the scanner does
-        let wallet = crate::wallet::Wallet::new_from_seed_phrase(seed_phrase, None)
-            .expect("Failed to create wallet");
+        let wallet = crate::wallet::Wallet::new_from_seed_phrase(seed_phrase, None).expect("Failed to create wallet");
         let master_key_bytes = wallet.master_key_bytes();
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(&master_key_bytes[..16]);
 
-        let (view_key, _spend_key) =
-            derive_view_and_spend_keys_from_entropy(&entropy).expect("Failed to derive keys");
+        let (view_key, _spend_key) = derive_view_and_spend_keys_from_entropy(&entropy).expect("Failed to derive keys");
 
         println!("View key for test: {:?}", view_key.as_bytes());
 
@@ -543,8 +520,8 @@ mod tests {
 
         // Commitment data from JSON
         let commitment_bytes = vec![
-            196, 102, 130, 53, 194, 220, 65, 132, 15, 9, 32, 115, 120, 201, 242, 52, 108, 165, 53,
-            29, 25, 169, 59, 129, 34, 123, 254, 227, 63, 35, 73, 43,
+            196, 102, 130, 53, 194, 220, 65, 132, 15, 9, 32, 115, 120, 201, 242, 52, 108, 165, 53, 29, 25, 169, 59,
+            129, 34, 123, 254, 227, 63, 35, 73, 43,
         ];
         let mut commitment_array = [0u8; 32];
         // Copy the 32-byte commitment directly
@@ -553,37 +530,31 @@ mod tests {
 
         // Range proof data from JSON (full proof bytes)
         let range_proof_bytes = vec![
-            1, 39, 45, 222, 154, 135, 62, 196, 148, 28, 182, 22, 103, 113, 167, 210, 204, 180, 199,
-            251, 72, 75, 174, 61, 136, 122, 117, 171, 108, 248, 17, 70, 0, 40, 198, 220, 159, 218,
-            69, 2, 61, 35, 62, 179, 217, 204, 86, 143, 230, 117, 21, 43, 53, 16, 72, 96, 184, 233,
-            200, 123, 193, 138, 236, 133, 24, 142, 28, 60, 86, 27, 12, 4, 221, 170, 167, 123, 194,
-            54, 200, 229, 234, 253, 193, 22, 91, 42, 39, 139, 117, 31, 171, 4, 214, 166, 165, 88,
-            118, 74, 62, 248, 137, 232, 94, 113, 69, 123, 251, 76, 237, 247, 93, 6, 65, 190, 30,
-            59, 182, 86, 178, 63, 134, 56, 187, 69, 163, 143, 88, 88, 101, 227, 198, 219, 52, 143,
-            29, 6, 207, 147, 85, 30, 5, 103, 207, 104, 203, 255, 210, 226, 120, 118, 192, 0, 132,
-            252, 134, 136, 141, 51, 102, 1, 12, 96, 246, 146, 80, 44, 220, 164, 8, 181, 189, 168,
-            234, 108, 35, 235, 47, 127, 220, 106, 0, 64, 186, 198, 41, 240, 49, 67, 66, 128, 249,
-            137, 12, 64, 109, 114, 251, 230, 120, 12, 14, 215, 24, 192, 234, 165, 151, 191, 77, 0,
-            138, 131, 86, 207, 229, 71, 4, 252, 70, 252, 67, 83, 18, 33, 60, 52, 249, 79, 196, 189,
-            34, 106, 14, 94, 98, 95, 202, 53, 225, 180, 184, 57, 137, 140, 175, 71, 58, 233, 228,
-            82, 22, 99, 32, 186, 165, 77, 0, 118, 148, 250, 98, 171, 242, 249, 2, 108, 196, 26,
-            175, 158, 74, 70, 244, 122, 131, 45, 91, 69, 208, 45, 110, 158, 196, 144, 89, 8, 193,
-            174, 98, 174, 78, 141, 148, 124, 60, 213, 180, 103, 8, 194, 145, 52, 255, 7, 56, 182,
-            158, 85, 76, 249, 143, 34, 188, 105, 130, 247, 138, 119, 20, 34, 13, 52, 122, 105, 94,
-            71, 49, 108, 78, 32, 102, 90, 73, 151, 171, 103, 133, 244, 83, 71, 87, 237, 146, 185,
-            64, 231, 214, 220, 241, 56, 113, 142, 58, 58, 154, 157, 205, 192, 142, 142, 62, 253,
-            211, 120, 224, 10, 141, 231, 24, 209, 65, 87, 233, 157, 50, 75, 147, 16, 56, 225, 74,
-            98, 212, 171, 33, 88, 190, 111, 134, 86, 172, 211, 92, 34, 112, 207, 45, 238, 219, 233,
-            53, 116, 166, 239, 133, 10, 254, 1, 77, 79, 0, 211, 118, 225, 148, 216, 40, 132, 203,
-            32, 215, 206, 153, 14, 255, 24, 48, 174, 62, 60, 126, 80, 139, 49, 54, 205, 206, 114,
-            153, 112, 82, 219, 10, 85, 143, 215, 28, 68, 70, 58, 207, 229, 209, 90, 172, 42, 87,
-            16, 124, 224, 203, 227, 190, 6, 190, 204, 174, 211, 43, 55, 174, 188, 31, 161, 211,
-            103, 0, 118, 212, 112, 116, 68, 239, 16, 91, 145, 120, 157, 117, 66, 18, 49, 43, 96,
-            102, 81, 197, 106, 165, 70, 185, 98, 202, 221, 105, 234, 85, 250, 125, 242, 26, 163,
-            75, 196, 100, 27, 218, 170, 68, 238, 22, 193, 39, 89, 123, 39, 67, 4, 222, 88, 62, 176,
-            252, 14, 146, 201, 0, 238, 165, 230, 10, 68, 69, 59, 29, 192, 125, 204, 190, 203, 63,
-            111, 0, 219, 142, 77, 186, 221, 252, 204, 132, 79, 207, 171, 102, 73, 143, 137, 81, 74,
-            228, 212, 104, 196, 119, 159, 45,
+            1, 39, 45, 222, 154, 135, 62, 196, 148, 28, 182, 22, 103, 113, 167, 210, 204, 180, 199, 251, 72, 75, 174,
+            61, 136, 122, 117, 171, 108, 248, 17, 70, 0, 40, 198, 220, 159, 218, 69, 2, 61, 35, 62, 179, 217, 204, 86,
+            143, 230, 117, 21, 43, 53, 16, 72, 96, 184, 233, 200, 123, 193, 138, 236, 133, 24, 142, 28, 60, 86, 27, 12,
+            4, 221, 170, 167, 123, 194, 54, 200, 229, 234, 253, 193, 22, 91, 42, 39, 139, 117, 31, 171, 4, 214, 166,
+            165, 88, 118, 74, 62, 248, 137, 232, 94, 113, 69, 123, 251, 76, 237, 247, 93, 6, 65, 190, 30, 59, 182, 86,
+            178, 63, 134, 56, 187, 69, 163, 143, 88, 88, 101, 227, 198, 219, 52, 143, 29, 6, 207, 147, 85, 30, 5, 103,
+            207, 104, 203, 255, 210, 226, 120, 118, 192, 0, 132, 252, 134, 136, 141, 51, 102, 1, 12, 96, 246, 146, 80,
+            44, 220, 164, 8, 181, 189, 168, 234, 108, 35, 235, 47, 127, 220, 106, 0, 64, 186, 198, 41, 240, 49, 67, 66,
+            128, 249, 137, 12, 64, 109, 114, 251, 230, 120, 12, 14, 215, 24, 192, 234, 165, 151, 191, 77, 0, 138, 131,
+            86, 207, 229, 71, 4, 252, 70, 252, 67, 83, 18, 33, 60, 52, 249, 79, 196, 189, 34, 106, 14, 94, 98, 95, 202,
+            53, 225, 180, 184, 57, 137, 140, 175, 71, 58, 233, 228, 82, 22, 99, 32, 186, 165, 77, 0, 118, 148, 250, 98,
+            171, 242, 249, 2, 108, 196, 26, 175, 158, 74, 70, 244, 122, 131, 45, 91, 69, 208, 45, 110, 158, 196, 144,
+            89, 8, 193, 174, 98, 174, 78, 141, 148, 124, 60, 213, 180, 103, 8, 194, 145, 52, 255, 7, 56, 182, 158, 85,
+            76, 249, 143, 34, 188, 105, 130, 247, 138, 119, 20, 34, 13, 52, 122, 105, 94, 71, 49, 108, 78, 32, 102, 90,
+            73, 151, 171, 103, 133, 244, 83, 71, 87, 237, 146, 185, 64, 231, 214, 220, 241, 56, 113, 142, 58, 58, 154,
+            157, 205, 192, 142, 142, 62, 253, 211, 120, 224, 10, 141, 231, 24, 209, 65, 87, 233, 157, 50, 75, 147, 16,
+            56, 225, 74, 98, 212, 171, 33, 88, 190, 111, 134, 86, 172, 211, 92, 34, 112, 207, 45, 238, 219, 233, 53,
+            116, 166, 239, 133, 10, 254, 1, 77, 79, 0, 211, 118, 225, 148, 216, 40, 132, 203, 32, 215, 206, 153, 14,
+            255, 24, 48, 174, 62, 60, 126, 80, 139, 49, 54, 205, 206, 114, 153, 112, 82, 219, 10, 85, 143, 215, 28, 68,
+            70, 58, 207, 229, 209, 90, 172, 42, 87, 16, 124, 224, 203, 227, 190, 6, 190, 204, 174, 211, 43, 55, 174,
+            188, 31, 161, 211, 103, 0, 118, 212, 112, 116, 68, 239, 16, 91, 145, 120, 157, 117, 66, 18, 49, 43, 96,
+            102, 81, 197, 106, 165, 70, 185, 98, 202, 221, 105, 234, 85, 250, 125, 242, 26, 163, 75, 196, 100, 27, 218,
+            170, 68, 238, 22, 193, 39, 89, 123, 39, 67, 4, 222, 88, 62, 176, 252, 14, 146, 201, 0, 238, 165, 230, 10,
+            68, 69, 59, 29, 192, 125, 204, 190, 203, 63, 111, 0, 219, 142, 77, 186, 221, 252, 204, 132, 79, 207, 171,
+            102, 73, 143, 137, 81, 74, 228, 212, 104, 196, 119, 159, 45,
         ];
         let range_proof = RangeProof {
             bytes: range_proof_bytes,
@@ -591,17 +562,15 @@ mod tests {
 
         // Script data from JSON
         let script_bytes = vec![
-            126, 102, 238, 157, 88, 25, 214, 140, 189, 100, 120, 211, 250, 3, 127, 138, 183, 129,
-            80, 175, 182, 170, 9, 179, 78, 195, 243, 158, 214, 28, 91, 172, 81,
+            126, 102, 238, 157, 88, 25, 214, 140, 189, 100, 120, 211, 250, 3, 127, 138, 183, 129, 80, 175, 182, 170, 9,
+            179, 78, 195, 243, 158, 214, 28, 91, 172, 81,
         ];
-        let script = Script {
-            bytes: script_bytes,
-        };
+        let script = Script { bytes: script_bytes };
 
         // Sender offset public key from JSON
         let sender_offset_bytes = vec![
-            240, 202, 253, 42, 142, 8, 99, 176, 33, 246, 198, 169, 204, 221, 197, 14, 31, 198, 233,
-            47, 94, 236, 243, 252, 171, 136, 10, 94, 185, 244, 216, 8,
+            240, 202, 253, 42, 142, 8, 99, 176, 33, 246, 198, 169, 204, 221, 197, 14, 31, 198, 233, 47, 94, 236, 243,
+            252, 171, 136, 10, 94, 185, 244, 216, 8,
         ];
         let mut sender_offset_array = [0u8; 32];
         sender_offset_array.copy_from_slice(&sender_offset_bytes);
@@ -611,18 +580,15 @@ mod tests {
 
         // Encrypted data from JSON
         let encrypted_data_bytes = vec![
-            214, 153, 108, 209, 112, 160, 93, 93, 158, 237, 214, 109, 129, 40, 243, 81, 213, 192,
-            3, 202, 235, 171, 12, 164, 29, 216, 191, 234, 89, 166, 8, 205, 101, 106, 97, 210, 233,
-            151, 75, 187, 28, 100, 136, 118, 28, 26, 220, 0, 172, 112, 129, 87, 103, 143, 77, 167,
-            177, 157, 18, 131, 94, 9, 156, 235, 219, 112, 132, 213, 82, 183, 249, 42, 203, 84, 128,
-            85, 224, 154, 76, 204, 57, 4, 215, 222, 162, 68, 231, 188, 165, 113, 103, 230, 243,
-            115, 105, 113, 229, 174, 1, 252, 184, 189, 172, 108, 101, 116, 87, 46, 96, 162, 51,
-            110, 24, 152, 73, 198, 243, 66, 189, 108, 86, 98, 1, 165, 24, 36, 239, 251, 124, 62,
-            188, 151, 182, 167, 169, 82, 212, 217, 223, 222, 187, 155, 84, 157, 158, 104, 67, 59,
-            246, 198, 169, 202, 254, 10, 79, 142, 57, 148, 71, 37, 82,
+            214, 153, 108, 209, 112, 160, 93, 93, 158, 237, 214, 109, 129, 40, 243, 81, 213, 192, 3, 202, 235, 171, 12,
+            164, 29, 216, 191, 234, 89, 166, 8, 205, 101, 106, 97, 210, 233, 151, 75, 187, 28, 100, 136, 118, 28, 26,
+            220, 0, 172, 112, 129, 87, 103, 143, 77, 167, 177, 157, 18, 131, 94, 9, 156, 235, 219, 112, 132, 213, 82,
+            183, 249, 42, 203, 84, 128, 85, 224, 154, 76, 204, 57, 4, 215, 222, 162, 68, 231, 188, 165, 113, 103, 230,
+            243, 115, 105, 113, 229, 174, 1, 252, 184, 189, 172, 108, 101, 116, 87, 46, 96, 162, 51, 110, 24, 152, 73,
+            198, 243, 66, 189, 108, 86, 98, 1, 165, 24, 36, 239, 251, 124, 62, 188, 151, 182, 167, 169, 82, 212, 217,
+            223, 222, 187, 155, 84, 157, 158, 104, 67, 59, 246, 198, 169, 202, 254, 10, 79, 142, 57, 148, 71, 37, 82,
         ];
-        let encrypted_data =
-            EncryptedData::from_bytes(&encrypted_data_bytes).expect("Invalid encrypted data");
+        let encrypted_data = EncryptedData::from_bytes(&encrypted_data_bytes).expect("Invalid encrypted data");
 
         // Create the full transaction output using the lightweight types
         let output = TransactionOutput::new(
@@ -658,7 +624,10 @@ mod tests {
                 let payment_id_str = format!("{:?}", wallet_output.payment_id);
                 if payment_id_str.contains("TEST-ABC") {
                     println!("✅ Found expected Payment ID: TEST-ABC");
-                    println!("💰 Transaction value: {} microTari (could be 2.000000 T minus ~660 µT fee)", wallet_output.value().as_u64());
+                    println!(
+                        "💰 Transaction value: {} microTari (could be 2.000000 T minus ~660 µT fee)",
+                        wallet_output.value().as_u64()
+                    );
 
                     // Expected value around 2T minus fee (2_000_000_000_000 - 660 = 1_999_999_999_340 µT)
                     let value = wallet_output.value().as_u64();
@@ -670,18 +639,16 @@ mod tests {
                         "⚠️  Payment ID does not match expected TEST-ABC, got: {:?}",
                         wallet_output.payment_id
                     );
-                    println!(
-                        "💰 Transaction value: {} microTari",
-                        wallet_output.value().as_u64()
-                    );
+                    println!("💰 Transaction value: {} microTari", wallet_output.value().as_u64());
                 }
-            }
+            },
             Err(e) => {
                 println!("❌ Failed to extract wallet output: {e:?}");
 
-                // This means the output doesn't belong to our wallet, which is expected behavior if the keys don't match
+                // This means the output doesn't belong to our wallet, which is expected behavior if the keys don't
+                // match
                 println!("This is expected if the output doesn't belong to this wallet");
-            }
+            },
         }
     }
 
@@ -690,17 +657,16 @@ mod tests {
         // Test multiple hypothetical outputs from block 34926 to find the one with "TEST-ABC" payment ID
 
         // Known seed phrase
-        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute awesome shield wire cruel mom depth enhance rough client aerobic";
+        let seed_phrase = "scare pen great round cherry soul dismiss dance ghost hire color casino train execute \
+                           awesome shield wire cruel mom depth enhance rough client aerobic";
 
         // Create wallet and derive keys like the scanner does
-        let wallet = crate::wallet::Wallet::new_from_seed_phrase(seed_phrase, None)
-            .expect("Failed to create wallet");
+        let wallet = crate::wallet::Wallet::new_from_seed_phrase(seed_phrase, None).expect("Failed to create wallet");
         let master_key_bytes = wallet.master_key_bytes();
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(&master_key_bytes[..16]);
 
-        let (view_key, _spend_key) =
-            derive_view_and_spend_keys_from_entropy(&entropy).expect("Failed to derive keys");
+        let (view_key, _spend_key) = derive_view_and_spend_keys_from_entropy(&entropy).expect("Failed to derive keys");
 
         println!("Scanning block 34926 outputs for TEST-ABC payment ID...");
         println!("View key: {:?}", view_key.as_bytes());
@@ -715,21 +681,16 @@ mod tests {
         // Test several different outputs with varying encrypted data to simulate different outputs from block 34926
         let test_outputs = vec![
             // Output with the exact encrypted data you provided (output 98)
-            (
-                98,
-                vec![
-                    214, 153, 108, 209, 112, 160, 93, 93, 158, 237, 214, 109, 129, 40, 243, 81,
-                    213, 192, 3, 202, 235, 171, 12, 164, 29, 216, 191, 234, 89, 166, 8, 205, 101,
-                    106, 97, 210, 233, 151, 75, 187, 28, 100, 136, 118, 28, 26, 220, 0, 172, 112,
-                    129, 87, 103, 143, 77, 167, 177, 157, 18, 131, 94, 9, 156, 235, 219, 112, 132,
-                    213, 82, 183, 249, 42, 203, 84, 128, 85, 224, 154, 76, 204, 57, 4, 215, 222,
-                    162, 68, 231, 188, 165, 113, 103, 230, 243, 115, 105, 113, 229, 174, 1, 252,
-                    184, 189, 172, 108, 101, 116, 87, 46, 96, 162, 51, 110, 24, 152, 73, 198, 243,
-                    66, 189, 108, 86, 98, 1, 165, 24, 36, 239, 251, 124, 62, 188, 151, 182, 167,
-                    169, 82, 212, 217, 223, 222, 187, 155, 84, 157, 158, 104, 67, 59, 246, 198,
-                    169, 202, 254, 10, 79, 142, 57, 148, 71, 37, 82,
-                ],
-            ),
+            (98, vec![
+                214, 153, 108, 209, 112, 160, 93, 93, 158, 237, 214, 109, 129, 40, 243, 81, 213, 192, 3, 202, 235, 171,
+                12, 164, 29, 216, 191, 234, 89, 166, 8, 205, 101, 106, 97, 210, 233, 151, 75, 187, 28, 100, 136, 118,
+                28, 26, 220, 0, 172, 112, 129, 87, 103, 143, 77, 167, 177, 157, 18, 131, 94, 9, 156, 235, 219, 112,
+                132, 213, 82, 183, 249, 42, 203, 84, 128, 85, 224, 154, 76, 204, 57, 4, 215, 222, 162, 68, 231, 188,
+                165, 113, 103, 230, 243, 115, 105, 113, 229, 174, 1, 252, 184, 189, 172, 108, 101, 116, 87, 46, 96,
+                162, 51, 110, 24, 152, 73, 198, 243, 66, 189, 108, 86, 98, 1, 165, 24, 36, 239, 251, 124, 62, 188, 151,
+                182, 167, 169, 82, 212, 217, 223, 222, 187, 155, 84, 157, 158, 104, 67, 59, 246, 198, 169, 202, 254,
+                10, 79, 142, 57, 148, 71, 37, 82,
+            ]),
             // Hypothetical other outputs (we don't have real data, but testing the extraction logic)
             (97, create_test_encrypted_data_variation(1)),
             (99, create_test_encrypted_data_variation(2)),
@@ -761,19 +722,15 @@ mod tests {
                 Err(_) => {
                     println!("❌ Invalid encrypted data for output {output_num}");
                     continue;
-                }
+                },
             };
 
             let output = TransactionOutput::new(
                 0,
                 features,
                 commitment,
-                Some(RangeProof {
-                    bytes: vec![1u8; 100],
-                }), // Dummy range proof
-                Script {
-                    bytes: vec![0u8; 10],
-                },
+                Some(RangeProof { bytes: vec![1u8; 100] }), // Dummy range proof
+                Script { bytes: vec![0u8; 10] },
                 CompressedPublicKey::new([0u8; 32]),
                 Signature::default(),
                 Covenant { bytes: vec![0] },
@@ -804,10 +761,10 @@ mod tests {
                             println!("✅ Value is in expected range for 2.000000 T transaction with potential fee");
                         }
                     }
-                }
+                },
                 Err(e) => {
                     println!("❌ Output {output_num} does not belong to wallet: {e}");
-                }
+                },
             }
         }
 
@@ -816,17 +773,13 @@ mod tests {
         println!("Found TEST-ABC payment ID: {found_test_abc}");
 
         if successful_extractions > 0 {
-            println!(
-                "✅ Extraction logic is working - found {successful_extractions} wallet outputs",
-            );
+            println!("✅ Extraction logic is working - found {successful_extractions} wallet outputs",);
         }
 
         if found_test_abc {
             println!("🎯 ✅ SUCCESS: Found the TEST-ABC payment ID transaction!");
         } else {
-            println!(
-                "⚠️ TEST-ABC payment ID not found in tested outputs. The transaction might be:"
-            );
+            println!("⚠️ TEST-ABC payment ID not found in tested outputs. The transaction might be:");
             println!("   - In a different output number within block 34926");
             println!("   - In a different block");
             println!("   - Associated with a different wallet/seed phrase");

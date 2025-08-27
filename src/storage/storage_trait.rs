@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use tari_common_types::types::CompressedPublicKey;
 
+use super::{output_status::OutputStatus, stored_output::StoredOutput};
 use crate::{
     data_structures::{
         transaction::{TransactionDirection, TransactionStatus},
@@ -16,9 +17,6 @@ use crate::{
     key_management::seed_phrase::CipherSeed,
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
 };
-
-use super::output_status::OutputStatus;
-use super::stored_output::StoredOutput;
 
 /// Query filters for retrieving outputs
 #[derive(Debug, Clone, Default)]
@@ -90,18 +88,16 @@ impl OutputFilter {
 impl StoredOutput {
     /// Check if this output can be spent at the given block height
     pub fn can_spend_at_height(&self, block_height: u64) -> bool {
-        self.status == OutputStatus::Unspent as u32
-            && self.spent_in_tx_id.is_none()
-            && self.mined_height.is_some()
-            && block_height >= self.maturity
-            && block_height >= self.script_lock_height
+        self.status == OutputStatus::Unspent as u32 &&
+            self.spent_in_tx_id.is_none() &&
+            self.mined_height.is_some() &&
+            block_height >= self.maturity &&
+            block_height >= self.script_lock_height
     }
 
     /// Check if this output is currently spendable (assuming current tip)
     pub fn is_spendable(&self) -> bool {
-        self.status == OutputStatus::Unspent as u32
-            && self.spent_in_tx_id.is_none()
-            && self.mined_height.is_some()
+        self.status == OutputStatus::Unspent as u32 && self.spent_in_tx_id.is_none() && self.mined_height.is_some()
     }
 
     /// Get commitment as hex string
@@ -187,12 +183,7 @@ impl StoredWallet {
     }
 
     /// Create a view-only wallet (no spend key)
-    pub fn view_only(
-        name: String,
-        master_key: CipherSeed,
-        view_key: PrivateKey,
-        birthday_block: u64,
-    ) -> Self {
+    pub fn view_only(name: String, master_key: CipherSeed, view_key: PrivateKey, birthday_block: u64) -> Self {
         Self {
             id: None,
             name,
@@ -239,8 +230,7 @@ impl StoredWallet {
 
     /// Get the view key as PrivateKey (decode from hex)
     pub fn get_view_key(&self) -> Result<PrivateKey, String> {
-        let bytes =
-            hex::decode(&self.view_key_hex).map_err(|e| format!("Invalid view key hex: {e}"))?;
+        let bytes = hex::decode(&self.view_key_hex).map_err(|e| format!("Invalid view key hex: {e}"))?;
         if bytes.len() != 32 {
             return Err(format!("View key must be 32 bytes, got {}", bytes.len()));
         }
@@ -347,27 +337,15 @@ pub trait WalletStorage: Send + Sync {
     async fn wallet_name_exists(&self, name: &str) -> WalletResult<bool>;
 
     /// Update the latest scanned block for a wallet
-    async fn update_wallet_scanned_block(
-        &self,
-        wallet_id: u32,
-        block_height: u64,
-    ) -> WalletResult<()>;
+    async fn update_wallet_scanned_block(&self, wallet_id: u32, block_height: u64) -> WalletResult<()>;
 
     // === Transaction Management Methods (updated with wallet support) ===
 
     /// Save a single transaction to storage
-    async fn save_transaction(
-        &self,
-        wallet_id: u32,
-        transaction: &WalletTransaction,
-    ) -> WalletResult<()>;
+    async fn save_transaction(&self, wallet_id: u32, transaction: &WalletTransaction) -> WalletResult<()>;
 
     /// Save multiple transactions in a batch for efficiency
-    async fn save_transactions(
-        &self,
-        wallet_id: u32,
-        transactions: &[WalletTransaction],
-    ) -> WalletResult<()>;
+    async fn save_transactions(&self, wallet_id: u32, transactions: &[WalletTransaction]) -> WalletResult<()>;
 
     /// Update an existing transaction (e.g., mark as spent)
     async fn update_transaction(&self, transaction: &WalletTransaction) -> WalletResult<()>;
@@ -393,10 +371,7 @@ pub trait WalletStorage: Send + Sync {
     ) -> WalletResult<Option<WalletTransaction>>;
 
     /// Get transactions with optional filtering
-    async fn get_transactions(
-        &self,
-        filter: Option<TransactionFilter>,
-    ) -> WalletResult<Vec<WalletTransaction>>;
+    async fn get_transactions(&self, filter: Option<TransactionFilter>) -> WalletResult<Vec<WalletTransaction>>;
 
     /// Get all transactions for a wallet and build a WalletState
     async fn load_wallet_state(&self, wallet_id: u32) -> WalletResult<WalletState>;
@@ -467,10 +442,7 @@ pub trait WalletStorage: Send + Sync {
     async fn get_output_by_id(&self, output_id: u32) -> WalletResult<Option<StoredOutput>>;
 
     /// Get an output by commitment
-    async fn get_output_by_commitment(
-        &self,
-        commitment: &[u8],
-    ) -> WalletResult<Option<StoredOutput>>;
+    async fn get_output_by_commitment(&self, commitment: &[u8]) -> WalletResult<Option<StoredOutput>>;
 
     /// Get outputs with optional filtering
     async fn get_outputs(&self, filter: Option<OutputFilter>) -> WalletResult<Vec<StoredOutput>>;
@@ -479,11 +451,7 @@ pub trait WalletStorage: Send + Sync {
     async fn get_unspent_outputs(&self, wallet_id: u32) -> WalletResult<Vec<StoredOutput>>;
 
     /// Get outputs spendable at a specific block height
-    async fn get_spendable_outputs(
-        &self,
-        wallet_id: u32,
-        block_height: u64,
-    ) -> WalletResult<Vec<StoredOutput>>;
+    async fn get_spendable_outputs(&self, wallet_id: u32, block_height: u64) -> WalletResult<Vec<StoredOutput>>;
 
     /// Get total value of unspent outputs for a wallet
     async fn get_spendable_balance(&self, wallet_id: u32, block_height: u64) -> WalletResult<u64>;
@@ -504,11 +472,7 @@ pub trait WalletStorage: Send + Sync {
     async fn unlock_all_outputs(&self, wallet_id: u32) -> WalletResult<usize>;
 
     // === Key manager state Methods ===
-    async fn key_manager_get_state(
-        &self,
-        branch: &str,
-        wallet_id: u32,
-    ) -> WalletResult<KeyManagerStateSql>;
+    async fn key_manager_get_state(&self, branch: &str, wallet_id: u32) -> WalletResult<KeyManagerStateSql>;
     async fn key_manager_commit_state(&self, state: &NewKeyManagerStateSql) -> WalletResult<()>;
     async fn key_manager_set_index(&self, id: i32, index: Vec<u8>) -> WalletResult<()>;
 

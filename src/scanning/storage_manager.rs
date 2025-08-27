@@ -7,22 +7,19 @@
 //! This module is part of the scanner.rs binary refactoring effort.
 
 // Required imports for ScannerStorage functionality
+#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+use tokio::sync::{mpsc, oneshot};
+
+#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+use super::background_writer::{BackgroundWriter, BackgroundWriterCommand};
+#[cfg(feature = "storage")]
+use super::scan_config::{BinaryScanConfig, ScanContext};
 #[cfg(feature = "storage")]
 use crate::{
     data_structures::{types::CompressedCommitment, wallet_transaction::WalletTransaction},
     errors::{WalletError, WalletResult},
     storage::{BatchOperations, SqliteStorage, StoredOutput, StoredWallet, WalletStorage},
 };
-
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-use super::background_writer::{BackgroundWriter, BackgroundWriterCommand};
-
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-use tokio::sync::{mpsc, oneshot};
-
-#[cfg(feature = "storage")]
-use super::scan_config::{BinaryScanConfig, ScanContext};
-
 #[cfg(feature = "storage")]
 use crate::{
     errors::KeyManagementError,
@@ -88,10 +85,7 @@ impl ScannerStorage {
 
     /// Create a new scanner storage instance with high-performance database configuration
     #[cfg(feature = "storage")]
-    pub async fn new_with_performance_database(
-        database_path: &str,
-        workload_type: &str,
-    ) -> WalletResult<Self> {
+    pub async fn new_with_performance_database(database_path: &str, workload_type: &str) -> WalletResult<Self> {
         let (_batch_size, perf_config) = BatchOperations::recommend_batch_config(workload_type);
 
         let storage: Box<dyn WalletStorage> = if database_path == ":memory:" {
@@ -188,10 +182,7 @@ impl ScannerStorage {
 
     /// Load scan context from stored wallet
     #[cfg(feature = "storage")]
-    pub async fn load_scan_context_from_wallet(
-        &self,
-        quiet: bool,
-    ) -> WalletResult<Option<ScanContext>> {
+    pub async fn load_scan_context_from_wallet(&self, quiet: bool) -> WalletResult<Option<ScanContext>> {
         let storage = self
             .database
             .as_ref()
@@ -223,7 +214,7 @@ impl ScannerStorage {
                                 // For now, we'll just use default entropy
                             }
                             [0u8; 16]
-                        }
+                        },
                     }
                 } else {
                     [0u8; 16]
@@ -301,12 +292,8 @@ impl ScannerStorage {
         if wallets.is_empty() {
             if let Some(scan_ctx) = scan_context {
                 // Create default wallet automatically
-                let wallet = StoredWallet::view_only(
-                    "default".to_string(),
-                    CipherSeed::new(),
-                    scan_ctx.view_key.clone(),
-                    0,
-                );
+                let wallet =
+                    StoredWallet::view_only("default".to_string(), CipherSeed::new(), scan_ctx.view_key.clone(), 0);
                 let wallet_id = storage.save_wallet(&wallet).await?;
                 // Note: In library mode, success information should be logged by caller
                 Ok(Some(wallet_id))
@@ -314,7 +301,9 @@ impl ScannerStorage {
                 Err(WalletError::InvalidArgument {
                     argument: "wallets".to_string(),
                     value: "empty".to_string(),
-                    message: "No wallets found and no keys provided to create one. Provide --seed-phrase or --view-key, or use an existing wallet.".to_string(),
+                    message: "No wallets found and no keys provided to create one. Provide --seed-phrase or \
+                              --view-key, or use an existing wallet."
+                        .to_string(),
                 })
             }
         } else if wallets.len() == 1 {
@@ -364,10 +353,7 @@ impl ScannerStorage {
 
     /// Save transactions to storage incrementally - architecture-specific implementation
     #[cfg(feature = "storage")]
-    pub async fn save_transactions_incremental(
-        &mut self,
-        all_transactions: &[WalletTransaction],
-    ) -> WalletResult<()> {
+    pub async fn save_transactions_incremental(&mut self, all_transactions: &[WalletTransaction]) -> WalletResult<()> {
         if let Some(wallet_id) = self.wallet_id {
             // Only save new transactions since last save
             if all_transactions.len() > self.last_saved_transaction_count {
@@ -399,13 +385,11 @@ impl ScannerStorage {
                     transactions,
                     response_tx,
                 })
-                .map_err(|_| {
-                    WalletError::StorageError("Background writer channel closed".to_string())
-                })?;
+                .map_err(|_| WalletError::StorageError("Background writer channel closed".to_string()))?;
 
-            response_rx.await.map_err(|_| {
-                WalletError::StorageError("Background writer response lost".to_string())
-            })?
+            response_rx
+                .await
+                .map_err(|_| WalletError::StorageError("Background writer response lost".to_string()))?
         } else if let Some(storage) = &self.database {
             // Fallback to direct storage if background writer not available
             storage.save_transactions(wallet_id, &transactions).await
@@ -446,25 +430,17 @@ impl ScannerStorage {
 
     /// Architecture-specific output saving (non-WASM32: background writer)
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    async fn save_outputs_arch_specific(
-        &self,
-        outputs: Vec<StoredOutput>,
-    ) -> WalletResult<Vec<u32>> {
+    async fn save_outputs_arch_specific(&self, outputs: Vec<StoredOutput>) -> WalletResult<Vec<u32>> {
         if let Some(writer) = &self.background_writer {
             let (response_tx, response_rx) = oneshot::channel();
             writer
                 .command_tx
-                .send(BackgroundWriterCommand::SaveOutputs {
-                    outputs,
-                    response_tx,
-                })
-                .map_err(|_| {
-                    WalletError::StorageError("Background writer channel closed".to_string())
-                })?;
+                .send(BackgroundWriterCommand::SaveOutputs { outputs, response_tx })
+                .map_err(|_| WalletError::StorageError("Background writer channel closed".to_string()))?;
 
-            response_rx.await.map_err(|_| {
-                WalletError::StorageError("Background writer response lost".to_string())
-            })?
+            response_rx
+                .await
+                .map_err(|_| WalletError::StorageError("Background writer response lost".to_string()))?
         } else if let Some(storage) = &self.database {
             // Fallback to direct storage if background writer not available
             storage.save_outputs(&outputs).await
@@ -475,10 +451,7 @@ impl ScannerStorage {
 
     /// Architecture-specific output saving (WASM32: direct storage)
     #[cfg(all(feature = "storage", target_arch = "wasm32"))]
-    async fn save_outputs_arch_specific(
-        &self,
-        outputs: Vec<StoredOutput>,
-    ) -> WalletResult<Vec<u32>> {
+    async fn save_outputs_arch_specific(&self, outputs: Vec<StoredOutput>) -> WalletResult<Vec<u32>> {
         if let Some(storage) = &self.database {
             storage.save_outputs(&outputs).await
         } else {
@@ -499,11 +472,7 @@ impl ScannerStorage {
 
     /// Architecture-specific wallet scanned block update (non-WASM32: background writer)
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    async fn update_wallet_scanned_block_arch_specific(
-        &self,
-        wallet_id: u32,
-        block_height: u64,
-    ) -> WalletResult<()> {
+    async fn update_wallet_scanned_block_arch_specific(&self, wallet_id: u32, block_height: u64) -> WalletResult<()> {
         if let Some(writer) = &self.background_writer {
             let (response_tx, response_rx) = oneshot::channel();
             writer
@@ -513,18 +482,14 @@ impl ScannerStorage {
                     block_height,
                     response_tx,
                 })
-                .map_err(|_| {
-                    WalletError::StorageError("Background writer channel closed".to_string())
-                })?;
+                .map_err(|_| WalletError::StorageError("Background writer channel closed".to_string()))?;
 
-            response_rx.await.map_err(|_| {
-                WalletError::StorageError("Background writer response lost".to_string())
-            })?
+            response_rx
+                .await
+                .map_err(|_| WalletError::StorageError("Background writer response lost".to_string()))?
         } else if let Some(storage) = &self.database {
             // Fallback to direct storage if background writer not available
-            storage
-                .update_wallet_scanned_block(wallet_id, block_height)
-                .await
+            storage.update_wallet_scanned_block(wallet_id, block_height).await
         } else {
             Ok(()) // Memory-only mode
         }
@@ -532,15 +497,9 @@ impl ScannerStorage {
 
     /// Architecture-specific wallet scanned block update (WASM32: direct storage)
     #[cfg(all(feature = "storage", target_arch = "wasm32"))]
-    async fn update_wallet_scanned_block_arch_specific(
-        &self,
-        wallet_id: u32,
-        block_height: u64,
-    ) -> WalletResult<()> {
+    async fn update_wallet_scanned_block_arch_specific(&self, wallet_id: u32, block_height: u64) -> WalletResult<()> {
         if let Some(storage) = &self.database {
-            storage
-                .update_wallet_scanned_block(wallet_id, block_height)
-                .await
+            storage.update_wallet_scanned_block(wallet_id, block_height).await
         } else {
             Ok(()) // Memory-only mode
         }
@@ -564,8 +523,7 @@ impl ScannerStorage {
         &self,
         spent_commitments: &[(CompressedCommitment, u64, usize)],
     ) -> WalletResult<usize> {
-        self.mark_transactions_spent_batch_impl(spent_commitments)
-            .await
+        self.mark_transactions_spent_batch_impl(spent_commitments).await
     }
 
     /// Architecture-specific batch transaction spent marking (non-WASM32: background writer)
@@ -582,18 +540,14 @@ impl ScannerStorage {
                     commitments: spent_commitments.to_vec(),
                     response_tx,
                 })
-                .map_err(|_| {
-                    WalletError::StorageError("Background writer channel closed".to_string())
-                })?;
+                .map_err(|_| WalletError::StorageError("Background writer channel closed".to_string()))?;
 
-            response_rx.await.map_err(|_| {
-                WalletError::StorageError("Background writer response lost".to_string())
-            })?
+            response_rx
+                .await
+                .map_err(|_| WalletError::StorageError("Background writer response lost".to_string()))?
         } else if let Some(storage) = &self.database {
             // Fallback to direct storage if background writer not available
-            storage
-                .mark_transactions_spent_batch(spent_commitments)
-                .await
+            storage.mark_transactions_spent_batch(spent_commitments).await
         } else {
             Ok(0) // Memory-only mode
         }
@@ -606,9 +560,7 @@ impl ScannerStorage {
         spent_commitments: &[(CompressedCommitment, u64, usize)],
     ) -> WalletResult<usize> {
         if let Some(storage) = &self.database {
-            storage
-                .mark_transactions_spent_batch(spent_commitments)
-                .await
+            storage.mark_transactions_spent_batch(spent_commitments).await
         } else {
             Ok(0) // Memory-only mode
         }
@@ -632,13 +584,11 @@ impl ScannerStorage {
                     input_index,
                     response_tx,
                 })
-                .map_err(|_| {
-                    WalletError::StorageError("Background writer channel closed".to_string())
-                })?;
+                .map_err(|_| WalletError::StorageError("Background writer channel closed".to_string()))?;
 
-            response_rx.await.map_err(|_| {
-                WalletError::StorageError("Background writer response lost".to_string())
-            })?
+            response_rx
+                .await
+                .map_err(|_| WalletError::StorageError("Background writer response lost".to_string()))?
         } else if let Some(storage) = &self.database {
             // Fallback to direct storage if background writer not available
             storage
@@ -704,8 +654,7 @@ impl ScannerStorage {
 
 #[cfg(test)]
 mod tests {
-    use super::derive_entropy_from_seed_phrase;
-    use super::ScannerStorage;
+    use super::{derive_entropy_from_seed_phrase, ScannerStorage};
     use crate::scanning::BinaryScanConfig;
 
     #[cfg(feature = "storage")]
@@ -978,10 +927,7 @@ mod tests {
         let mut storage = ScannerStorage::new_memory();
         let config = BinaryScanConfig::new(100, 200);
 
-        let result = storage
-            .handle_wallet_operations(&config, None)
-            .await
-            .unwrap();
+        let result = storage.handle_wallet_operations(&config, None).await.unwrap();
         assert!(result.is_none()); // No database, should return None
     }
 

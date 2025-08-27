@@ -76,11 +76,15 @@
 //! # }
 //! ```
 
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
-use crate::events::listeners::{mock_listener::CapturedEvent, MockEventListener};
-use crate::events::EventDispatcher;
+use crate::events::{
+    listeners::{mock_listener::CapturedEvent, MockEventListener},
+    EventDispatcher,
+};
 
 /// Result type for event testing operations
 pub type EventTestResult<T> = Result<T, EventTestError>;
@@ -111,31 +115,28 @@ impl std::fmt::Display for EventTestError {
         match self {
             EventTestError::CountMismatch { expected, actual } => {
                 write!(f, "Event count mismatch: expected {expected}, got {actual}")
-            }
+            },
             EventTestError::TypeNotFound(event_type) => {
                 write!(f, "Event type '{event_type}' not found")
-            }
+            },
             EventTestError::SequenceMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "Event sequence mismatch: expected '{expected}', got '{actual}'"
-                )
-            }
+                write!(f, "Event sequence mismatch: expected '{expected}', got '{actual}'")
+            },
             EventTestError::ContentNotFound(content) => {
                 write!(f, "Content '{content}' not found in any events")
-            }
+            },
             EventTestError::Timeout(message) => {
                 write!(f, "Timeout: {message}")
-            }
+            },
             EventTestError::PatternFailed(message) => {
                 write!(f, "Pattern validation failed: {message}")
-            }
+            },
             EventTestError::PerformanceFailed(message) => {
                 write!(f, "Performance assertion failed: {message}")
-            }
+            },
             EventTestError::AssertionFailed(message) => {
                 write!(f, "Assertion failed: {message}")
-            }
+            },
         }
     }
 }
@@ -320,11 +321,9 @@ impl EventPattern {
 
         // Check content patterns
         for pattern in &self.content_patterns {
-            let found = events.iter().any(|e| {
-                e.content
-                    .as_ref()
-                    .is_some_and(|content| content.contains(pattern))
-            });
+            let found = events
+                .iter()
+                .any(|e| e.content.as_ref().is_some_and(|content| content.contains(pattern)));
             if !found {
                 return Err(EventTestError::ContentNotFound(pattern.clone()));
             }
@@ -574,9 +573,7 @@ impl TestScenario {
         if let Some((start, end)) = self.block_range {
             let events = mock.find_events_with_content(&format!("\"block_range\":[{start},{end}]"));
             if events.is_empty() {
-                return Err(EventTestError::ContentNotFound(format!(
-                    "block range {start}-{end}"
-                )));
+                return Err(EventTestError::ContentNotFound(format!("block range {start}-{end}")));
             }
         }
 
@@ -652,11 +649,7 @@ impl EventCapture {
     /// This method supports deterministic async testing by using Tokio's time
     /// infrastructure when available (in tests with `tokio::test(start_paused = true)`).
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn wait_for_pattern(
-        &self,
-        pattern: EventPattern,
-        timeout: Duration,
-    ) -> EventTestResult<()> {
+    pub async fn wait_for_pattern(&self, pattern: EventPattern, timeout: Duration) -> EventTestResult<()> {
         self.wait_for_pattern_with_interval(pattern, timeout, Duration::from_millis(10))
             .await
     }
@@ -882,314 +875,312 @@ macro_rules! assert_first_event_type {
 // Tests removed due to API compatibility issues with event constructors
 #[cfg(test)]
 mod tests {
-    /*
-    use super::*;
-
-    use std::time::Duration;
-
-    #[test]
-    fn test_event_pattern_creation() {
-        let pattern = EventPattern::sequence()
-            .starts_with("ScanStarted")
-            .contains("BlockProcessed")
-            .ends_with("ScanCompleted")
-            .min_events(3);
-
-        assert_eq!(pattern.start_patterns, vec!["ScanStarted"]);
-        assert_eq!(pattern.end_patterns, vec!["ScanCompleted"]);
-        assert_eq!(pattern.required_patterns, vec!["BlockProcessed"]);
-        assert_eq!(pattern.min_count, Some(3));
-        assert!(pattern.ordered);
-    }
-
-    #[test]
-    fn test_event_pattern_unordered() {
-        let pattern = EventPattern::unordered()
-            .contains("ScanStarted")
-            .contains("ScanCompleted")
-            .does_not_contain("ScanError");
-
-        assert!(!pattern.ordered);
-        assert_eq!(
-            pattern.required_patterns,
-            vec!["ScanStarted", "ScanCompleted"]
-        );
-        assert_eq!(pattern.forbidden_patterns, vec!["ScanError"]);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_event_pattern_verification() {
-        let mock = MockEventListener::new();
-        let captured_events = mock.get_captured_events();
-
-        // Add test events
-        captured_events.lock().unwrap().extend(vec![
-            crate::events::listeners::mock_listener::CapturedEvent::new(
-                "ScanStarted".to_string(),
-                Some("test content".to_string()),
-                "id1".to_string(),
-                "test".to_string(),
-                None,
-            ),
-            crate::events::listeners::mock_listener::CapturedEvent::new(
-                "BlockProcessed".to_string(),
-                None,
-                "id2".to_string(),
-                "test".to_string(),
-                None,
-            ),
-            crate::events::listeners::mock_listener::CapturedEvent::new(
-                "ScanCompleted".to_string(),
-                None,
-                "id3".to_string(),
-                "test".to_string(),
-                None,
-            ),
-        ]);
-
-        // Test successful pattern matching
-        let pattern = EventPattern::sequence()
-            .starts_with("ScanStarted")
-            .ends_with("ScanCompleted")
-            .contains("BlockProcessed")
-            .exactly(3);
-
-        assert!(pattern.verify(&mock).is_ok());
-
-        // Test failed pattern matching
-        let bad_pattern = EventPattern::sequence().starts_with("ScanError").exactly(3);
-
-        assert!(bad_pattern.verify(&mock).is_err());
-    }
-
-    #[test]
-    fn test_performance_assertion() {
-        let perf = PerformanceAssertion::new()
-            .max_total_duration(Duration::from_secs(1))
-            .max_average_duration(Duration::from_millis(100))
-            .min_events_per_second(10.0);
-
-        assert_eq!(perf.max_total_duration, Some(Duration::from_secs(1)));
-        assert_eq!(perf.max_average_duration, Some(Duration::from_millis(100)));
-        assert_eq!(perf.min_events_per_second, Some(10.0));
-    }
-
-    #[test]
-    fn test_test_scenario_creation() {
-        let scenario = TestScenario::successful_scan()
-            .with_block_range(0, 100)
-            .with_outputs_found(5)
-            .with_duration_limit(Duration::from_secs(10));
-
-        assert_eq!(scenario.block_range, Some((0, 100)));
-        assert_eq!(scenario.expected_outputs, Some(5));
-        assert_eq!(scenario.duration_limit, Some(Duration::from_secs(10)));
-        assert!(scenario.should_succeed);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_test_scenario_setup() {
-        let scenario = TestScenario::successful_scan();
-        let dispatcher = scenario.setup().await.unwrap();
-
-        assert_eq!(dispatcher.listener_count(), 0);
-    }
-
-    #[test]
-    fn test_event_capture_creation() {
-        let capture = EventCapture::new();
-        assert_eq!(capture.mock_listener().event_count(), 0);
-        assert!(capture.elapsed() >= Duration::ZERO);
-    }
-
-    #[test]
-    fn test_event_capture_summary() {
-        let capture = EventCapture::new();
-        let summary = capture.create_summary();
-
-        assert_eq!(summary.total_events, 0);
-        assert!(summary.event_types.is_empty());
-        assert!(summary.timeline.is_empty());
-        assert!(summary.duration >= Duration::ZERO);
-    }
-
-    #[test]
-    fn test_event_capture_summary_methods() {
-        let capture = EventCapture::new();
-
-        // Add some mock events to test summary functionality
-        let mock = capture.mock_listener();
-        let captured_events = mock.get_captured_events();
-        captured_events.lock().unwrap().push(
-            crate::events::listeners::mock_listener::CapturedEvent::new(
-                "ScanStarted".to_string(),
-                None,
-                "id1".to_string(),
-                "test".to_string(),
-                None,
-            ),
-        );
-
-        let summary = capture.create_summary();
-        assert_eq!(summary.total_events, 1);
-        assert!(summary.has_event_type("ScanStarted"));
-        assert!(!summary.has_event_type("ScanCompleted"));
-        assert_eq!(summary.count_for_type("ScanStarted"), 1);
-        assert_eq!(summary.count_for_type("NonExistent"), 0);
-
-        // Test JSON export
-        let json = summary.to_json().unwrap();
-        assert!(json.contains("total_events"));
-        assert!(json.contains("ScanStarted"));
-    }
-
-    #[test]
-    fn test_event_test_error_display() {
-        let error = EventTestError::CountMismatch {
-            expected: 5,
-            actual: 3,
-        };
-        assert_eq!(error.to_string(), "Event count mismatch: expected 5, got 3");
-
-        let error = EventTestError::TypeNotFound("ScanStarted".to_string());
-        assert_eq!(error.to_string(), "Event type 'ScanStarted' not found");
-
-        let error = EventTestError::ContentNotFound("test content".to_string());
-        assert_eq!(
-            error.to_string(),
-            "Content 'test content' not found in any events"
-        );
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test(start_paused = true)]
-    async fn test_deterministic_event_pattern_waiting() {
-        use crate::events::types::WalletScanEvent;
-        use std::sync::Arc;
-        use tokio::sync::Mutex;
-
-        let test_capture = EventCapture::new();
-        let mut dispatcher = crate::events::EventDispatcher::new();
-
-        // Register the mock listener
-        dispatcher
-            .register(Box::new(test_capture.mock_listener().clone()))
-            .unwrap();
-
-        // Spawn a task that dispatches events at controlled intervals
-        let dispatcher = Arc::new(Mutex::new(dispatcher));
-        tokio::spawn({
-            let dispatcher = dispatcher.clone();
-            async move {
-                for i in 0..3 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-
-                    let event = WalletScanEvent::block_processed(
-                        i + 1,
-                        format!("0x{i:x}"),
-                        1697123456 + i,
-                        Duration::from_millis(50),
-                        2,
-                    );
-                    {
-                        let mut dispatcher_guard = dispatcher.lock().await;
-                        dispatcher_guard.dispatch(event).await;
-                    }
-                }
-            }
-        });
-
-        // Test deterministic pattern waiting
-        let pattern = EventPattern::sequence().exactly(3);
-        let wait_task = tokio::spawn({
-            let test_capture = test_capture.clone();
-            async move {
-                test_capture
-                    .wait_for_pattern_deterministic(pattern, 1000)
-                    .await
-            }
-        });
-
-        // Advance time in controlled chunks
-        for _ in 0..3 {
-            tokio::time::advance(Duration::from_millis(100)).await;
-            tokio::task::yield_now().await;
-        }
-
-        // The pattern should match
-        let result = wait_task.await.unwrap();
-        assert!(result.is_ok());
-        assert_eq!(test_capture.mock_listener().event_count(), 3);
-    }
-
-    #[tokio::test]
-    async fn test_capture_with_yields() {
-        use crate::events::types::WalletScanEvent;
-
-        let test_capture = EventCapture::new();
-        let mut dispatcher = crate::events::EventDispatcher::new();
-
-        // Register the mock listener
-        dispatcher
-            .register(Box::new(test_capture.mock_listener().clone()))
-            .unwrap();
-
-        // Add events directly to demonstrate yield-based capturing
-        for i in 0..5 {
-            let event = WalletScanEvent::block_processed(
-                i + 1,
-                format!("0x{i:x}"),
-                1697123456 + i,
-                Duration::from_millis(10),
-                1,
-            );
-            dispatcher.dispatch(event).await;
-        }
-
-        // Capture events using yield-based approach
-        let events = test_capture.capture_with_yields(10).await;
-        assert_eq!(events.len(), 5);
-
-        // Verify all events are BlockProcessed
-        for event in events {
-            assert_eq!(event.event_type, "BlockProcessed");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_deterministic_polling_intervals() {
-        use crate::events::types::{ScanConfig, WalletScanEvent};
-
-        let test_capture = EventCapture::new();
-        let mut dispatcher = crate::events::EventDispatcher::new();
-
-        // Register the mock listener
-        dispatcher
-            .register(Box::new(test_capture.mock_listener().clone()))
-            .unwrap();
-
-        // Add an event immediately
-        let event = WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (0, 100),
-            "test_wallet".to_string(),
-        );
-        dispatcher.dispatch(event).await;
-
-        // Test waiting with custom polling interval
-        let pattern = EventPattern::sequence().exactly(1);
-        let result = test_capture
-            .wait_for_pattern_with_interval(
-                pattern,
-                Duration::from_secs(1),
-                Duration::from_millis(50), // Custom polling interval
-            )
-            .await;
-
-        assert!(result.is_ok());
-        assert_eq!(test_capture.mock_listener().event_count(), 1);
-    }
-    */
+    // use super::*;
+    //
+    // use std::time::Duration;
+    //
+    // #[test]
+    // fn test_event_pattern_creation() {
+    // let pattern = EventPattern::sequence()
+    // .starts_with("ScanStarted")
+    // .contains("BlockProcessed")
+    // .ends_with("ScanCompleted")
+    // .min_events(3);
+    //
+    // assert_eq!(pattern.start_patterns, vec!["ScanStarted"]);
+    // assert_eq!(pattern.end_patterns, vec!["ScanCompleted"]);
+    // assert_eq!(pattern.required_patterns, vec!["BlockProcessed"]);
+    // assert_eq!(pattern.min_count, Some(3));
+    // assert!(pattern.ordered);
+    // }
+    //
+    // #[test]
+    // fn test_event_pattern_unordered() {
+    // let pattern = EventPattern::unordered()
+    // .contains("ScanStarted")
+    // .contains("ScanCompleted")
+    // .does_not_contain("ScanError");
+    //
+    // assert!(!pattern.ordered);
+    // assert_eq!(
+    // pattern.required_patterns,
+    // vec!["ScanStarted", "ScanCompleted"]
+    // );
+    // assert_eq!(pattern.forbidden_patterns, vec!["ScanError"]);
+    // }
+    //
+    // #[cfg(not(target_arch = "wasm32"))]
+    // #[tokio::test]
+    // async fn test_event_pattern_verification() {
+    // let mock = MockEventListener::new();
+    // let captured_events = mock.get_captured_events();
+    //
+    // Add test events
+    // captured_events.lock().unwrap().extend(vec![
+    // crate::events::listeners::mock_listener::CapturedEvent::new(
+    // "ScanStarted".to_string(),
+    // Some("test content".to_string()),
+    // "id1".to_string(),
+    // "test".to_string(),
+    // None,
+    // ),
+    // crate::events::listeners::mock_listener::CapturedEvent::new(
+    // "BlockProcessed".to_string(),
+    // None,
+    // "id2".to_string(),
+    // "test".to_string(),
+    // None,
+    // ),
+    // crate::events::listeners::mock_listener::CapturedEvent::new(
+    // "ScanCompleted".to_string(),
+    // None,
+    // "id3".to_string(),
+    // "test".to_string(),
+    // None,
+    // ),
+    // ]);
+    //
+    // Test successful pattern matching
+    // let pattern = EventPattern::sequence()
+    // .starts_with("ScanStarted")
+    // .ends_with("ScanCompleted")
+    // .contains("BlockProcessed")
+    // .exactly(3);
+    //
+    // assert!(pattern.verify(&mock).is_ok());
+    //
+    // Test failed pattern matching
+    // let bad_pattern = EventPattern::sequence().starts_with("ScanError").exactly(3);
+    //
+    // assert!(bad_pattern.verify(&mock).is_err());
+    // }
+    //
+    // #[test]
+    // fn test_performance_assertion() {
+    // let perf = PerformanceAssertion::new()
+    // .max_total_duration(Duration::from_secs(1))
+    // .max_average_duration(Duration::from_millis(100))
+    // .min_events_per_second(10.0);
+    //
+    // assert_eq!(perf.max_total_duration, Some(Duration::from_secs(1)));
+    // assert_eq!(perf.max_average_duration, Some(Duration::from_millis(100)));
+    // assert_eq!(perf.min_events_per_second, Some(10.0));
+    // }
+    //
+    // #[test]
+    // fn test_test_scenario_creation() {
+    // let scenario = TestScenario::successful_scan()
+    // .with_block_range(0, 100)
+    // .with_outputs_found(5)
+    // .with_duration_limit(Duration::from_secs(10));
+    //
+    // assert_eq!(scenario.block_range, Some((0, 100)));
+    // assert_eq!(scenario.expected_outputs, Some(5));
+    // assert_eq!(scenario.duration_limit, Some(Duration::from_secs(10)));
+    // assert!(scenario.should_succeed);
+    // }
+    //
+    // #[cfg(not(target_arch = "wasm32"))]
+    // #[tokio::test]
+    // async fn test_test_scenario_setup() {
+    // let scenario = TestScenario::successful_scan();
+    // let dispatcher = scenario.setup().await.unwrap();
+    //
+    // assert_eq!(dispatcher.listener_count(), 0);
+    // }
+    //
+    // #[test]
+    // fn test_event_capture_creation() {
+    // let capture = EventCapture::new();
+    // assert_eq!(capture.mock_listener().event_count(), 0);
+    // assert!(capture.elapsed() >= Duration::ZERO);
+    // }
+    //
+    // #[test]
+    // fn test_event_capture_summary() {
+    // let capture = EventCapture::new();
+    // let summary = capture.create_summary();
+    //
+    // assert_eq!(summary.total_events, 0);
+    // assert!(summary.event_types.is_empty());
+    // assert!(summary.timeline.is_empty());
+    // assert!(summary.duration >= Duration::ZERO);
+    // }
+    //
+    // #[test]
+    // fn test_event_capture_summary_methods() {
+    // let capture = EventCapture::new();
+    //
+    // Add some mock events to test summary functionality
+    // let mock = capture.mock_listener();
+    // let captured_events = mock.get_captured_events();
+    // captured_events.lock().unwrap().push(
+    // crate::events::listeners::mock_listener::CapturedEvent::new(
+    // "ScanStarted".to_string(),
+    // None,
+    // "id1".to_string(),
+    // "test".to_string(),
+    // None,
+    // ),
+    // );
+    //
+    // let summary = capture.create_summary();
+    // assert_eq!(summary.total_events, 1);
+    // assert!(summary.has_event_type("ScanStarted"));
+    // assert!(!summary.has_event_type("ScanCompleted"));
+    // assert_eq!(summary.count_for_type("ScanStarted"), 1);
+    // assert_eq!(summary.count_for_type("NonExistent"), 0);
+    //
+    // Test JSON export
+    // let json = summary.to_json().unwrap();
+    // assert!(json.contains("total_events"));
+    // assert!(json.contains("ScanStarted"));
+    // }
+    //
+    // #[test]
+    // fn test_event_test_error_display() {
+    // let error = EventTestError::CountMismatch {
+    // expected: 5,
+    // actual: 3,
+    // };
+    // assert_eq!(error.to_string(), "Event count mismatch: expected 5, got 3");
+    //
+    // let error = EventTestError::TypeNotFound("ScanStarted".to_string());
+    // assert_eq!(error.to_string(), "Event type 'ScanStarted' not found");
+    //
+    // let error = EventTestError::ContentNotFound("test content".to_string());
+    // assert_eq!(
+    // error.to_string(),
+    // "Content 'test content' not found in any events"
+    // );
+    // }
+    //
+    // #[cfg(not(target_arch = "wasm32"))]
+    // #[tokio::test(start_paused = true)]
+    // async fn test_deterministic_event_pattern_waiting() {
+    // use crate::events::types::WalletScanEvent;
+    // use std::sync::Arc;
+    // use tokio::sync::Mutex;
+    //
+    // let test_capture = EventCapture::new();
+    // let mut dispatcher = crate::events::EventDispatcher::new();
+    //
+    // Register the mock listener
+    // dispatcher
+    // .register(Box::new(test_capture.mock_listener().clone()))
+    // .unwrap();
+    //
+    // Spawn a task that dispatches events at controlled intervals
+    // let dispatcher = Arc::new(Mutex::new(dispatcher));
+    // tokio::spawn({
+    // let dispatcher = dispatcher.clone();
+    // async move {
+    // for i in 0..3 {
+    // tokio::time::sleep(Duration::from_millis(100)).await;
+    //
+    // let event = WalletScanEvent::block_processed(
+    // i + 1,
+    // format!("0x{i:x}"),
+    // 1697123456 + i,
+    // Duration::from_millis(50),
+    // 2,
+    // );
+    // {
+    // let mut dispatcher_guard = dispatcher.lock().await;
+    // dispatcher_guard.dispatch(event).await;
+    // }
+    // }
+    // }
+    // });
+    //
+    // Test deterministic pattern waiting
+    // let pattern = EventPattern::sequence().exactly(3);
+    // let wait_task = tokio::spawn({
+    // let test_capture = test_capture.clone();
+    // async move {
+    // test_capture
+    // .wait_for_pattern_deterministic(pattern, 1000)
+    // .await
+    // }
+    // });
+    //
+    // Advance time in controlled chunks
+    // for _ in 0..3 {
+    // tokio::time::advance(Duration::from_millis(100)).await;
+    // tokio::task::yield_now().await;
+    // }
+    //
+    // The pattern should match
+    // let result = wait_task.await.unwrap();
+    // assert!(result.is_ok());
+    // assert_eq!(test_capture.mock_listener().event_count(), 3);
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_capture_with_yields() {
+    // use crate::events::types::WalletScanEvent;
+    //
+    // let test_capture = EventCapture::new();
+    // let mut dispatcher = crate::events::EventDispatcher::new();
+    //
+    // Register the mock listener
+    // dispatcher
+    // .register(Box::new(test_capture.mock_listener().clone()))
+    // .unwrap();
+    //
+    // Add events directly to demonstrate yield-based capturing
+    // for i in 0..5 {
+    // let event = WalletScanEvent::block_processed(
+    // i + 1,
+    // format!("0x{i:x}"),
+    // 1697123456 + i,
+    // Duration::from_millis(10),
+    // 1,
+    // );
+    // dispatcher.dispatch(event).await;
+    // }
+    //
+    // Capture events using yield-based approach
+    // let events = test_capture.capture_with_yields(10).await;
+    // assert_eq!(events.len(), 5);
+    //
+    // Verify all events are BlockProcessed
+    // for event in events {
+    // assert_eq!(event.event_type, "BlockProcessed");
+    // }
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_deterministic_polling_intervals() {
+    // use crate::events::types::{ScanConfig, WalletScanEvent};
+    //
+    // let test_capture = EventCapture::new();
+    // let mut dispatcher = crate::events::EventDispatcher::new();
+    //
+    // Register the mock listener
+    // dispatcher
+    // .register(Box::new(test_capture.mock_listener().clone()))
+    // .unwrap();
+    //
+    // Add an event immediately
+    // let event = WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (0, 100),
+    // "test_wallet".to_string(),
+    // );
+    // dispatcher.dispatch(event).await;
+    //
+    // Test waiting with custom polling interval
+    // let pattern = EventPattern::sequence().exactly(1);
+    // let result = test_capture
+    // .wait_for_pattern_with_interval(
+    // pattern,
+    // Duration::from_secs(1),
+    // Duration::from_millis(50), // Custom polling interval
+    // )
+    // .await;
+    //
+    // assert!(result.is_ok());
+    // assert_eq!(test_capture.mock_listener().event_count(), 1);
+    // }
 }

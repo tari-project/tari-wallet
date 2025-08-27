@@ -5,17 +5,19 @@
 //! access and improves performance under load.
 
 #[cfg(feature = "storage")]
-use crate::events::types::{WalletEventError, WalletEventResult};
-#[cfg(feature = "storage")]
 use std::sync::Arc;
 #[cfg(feature = "storage")]
 use std::time::Duration;
+
 #[cfg(feature = "storage")]
 use tokio::sync::{Mutex, Semaphore};
 #[cfg(feature = "storage")]
 use tokio::time::timeout;
 #[cfg(feature = "storage")]
 use tokio_rusqlite::Connection;
+
+#[cfg(feature = "storage")]
+use crate::events::types::{WalletEventError, WalletEventResult};
 
 /// Configuration for SQLite connection pool
 #[cfg(feature = "storage")]
@@ -145,13 +147,10 @@ struct PooledConnection {
 
 #[cfg(feature = "storage")]
 impl PooledConnection {
-    async fn new(
-        database_path: &str,
-        options: &SqliteConnectionOptions,
-    ) -> WalletEventResult<Self> {
-        let connection = Connection::open(database_path).await.map_err(|e| {
-            WalletEventError::storage("connection_pool", format!("Failed to open database: {e}"))
-        })?;
+    async fn new(database_path: &str, options: &SqliteConnectionOptions) -> WalletEventResult<Self> {
+        let connection = Connection::open(database_path)
+            .await
+            .map_err(|e| WalletEventError::storage("connection_pool", format!("Failed to open database: {e}")))?;
 
         // Configure the connection with the specified options
         Self::configure_connection(&connection, options).await?;
@@ -164,10 +163,7 @@ impl PooledConnection {
         })
     }
 
-    async fn configure_connection(
-        connection: &Connection,
-        options: &SqliteConnectionOptions,
-    ) -> WalletEventResult<()> {
+    async fn configure_connection(connection: &Connection, options: &SqliteConnectionOptions) -> WalletEventResult<()> {
         let options_clone = options.clone();
         connection
             .call(move |conn| {
@@ -189,25 +185,15 @@ impl PooledConnection {
                 let _rows: Vec<rusqlite::Result<_>> = stmt.query_map([], |_| Ok(()))?.collect();
 
                 // Set cache size (negative value means KB) - returns the new cache size
-                let mut stmt = conn.prepare(&format!(
-                    "PRAGMA cache_size = -{}",
-                    options_clone.cache_size_kb
-                ))?;
+                let mut stmt = conn.prepare(&format!("PRAGMA cache_size = -{}", options_clone.cache_size_kb))?;
                 let _rows: Vec<rusqlite::Result<_>> = stmt.query_map([], |_| Ok(()))?.collect();
 
                 // Set busy timeout - returns the new timeout value
-                let mut stmt = conn.prepare(&format!(
-                    "PRAGMA busy_timeout = {}",
-                    options_clone.busy_timeout_ms
-                ))?;
+                let mut stmt = conn.prepare(&format!("PRAGMA busy_timeout = {}", options_clone.busy_timeout_ms))?;
                 let _rows: Vec<rusqlite::Result<_>> = stmt.query_map([], |_| Ok(()))?.collect();
 
                 // Enable/disable foreign keys - returns the new foreign key setting
-                let fk_setting = if options_clone.enable_foreign_keys {
-                    "ON"
-                } else {
-                    "OFF"
-                };
+                let fk_setting = if options_clone.enable_foreign_keys { "ON" } else { "OFF" };
                 let mut stmt = conn.prepare(&format!("PRAGMA foreign_keys = {fk_setting}"))?;
                 let _rows: Vec<rusqlite::Result<_>> = stmt.query_map([], |_| Ok(()))?.collect();
 
@@ -225,10 +211,7 @@ impl PooledConnection {
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage(
-                    "connection_config",
-                    format!("Failed to configure connection: {e}"),
-                )
+                WalletEventError::storage("connection_config", format!("Failed to configure connection: {e}"))
             })?;
 
         Ok(())
@@ -328,19 +311,14 @@ impl ConnectionPool {
         let start_time = std::time::Instant::now();
 
         // Wait for an available slot in the semaphore
-        let permit = match timeout(
-            self.config.connection_timeout,
-            self.semaphore.clone().acquire_owned(),
-        )
-        .await
-        {
+        let permit = match timeout(self.config.connection_timeout, self.semaphore.clone().acquire_owned()).await {
             Ok(Ok(permit)) => permit,
             Ok(Err(_)) => {
                 return Err(WalletEventError::storage(
                     "connection_pool",
                     "Connection pool semaphore closed",
                 ));
-            }
+            },
             Err(_) => {
                 // Update timeout statistics asynchronously
                 let mut stats = self.stats.lock().await;
@@ -350,7 +328,7 @@ impl ConnectionPool {
                     "connection_pool",
                     "Timeout waiting for available connection",
                 ));
-            }
+            },
         };
 
         // Try to get an existing connection or create a new one
@@ -407,9 +385,7 @@ impl ConnectionPool {
         let mut connections = self.connections.lock().await;
 
         while connections.len() < self.config.min_connections {
-            let connection =
-                PooledConnection::new(&self.config.database_path, &self.config.sqlite_options)
-                    .await?;
+            let connection = PooledConnection::new(&self.config.database_path, &self.config.sqlite_options).await?;
             connections.push(connection);
         }
 
@@ -460,20 +436,11 @@ impl<'a> PooledConnectionGuard<'a> {
 
     /// Execute an operation with timeout
     pub async fn execute_with_timeout<F, R>(&self, operation: F) -> WalletEventResult<R>
-    where
-        F: std::future::Future<Output = Result<R, tokio_rusqlite::Error>>,
-    {
+    where F: std::future::Future<Output = Result<R, tokio_rusqlite::Error>> {
         timeout(self.pool.config.operation_timeout, operation)
             .await
-            .map_err(|_| {
-                WalletEventError::storage("connection_pool", "Database operation timeout")
-            })?
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "connection_pool",
-                    format!("Database operation failed: {e}"),
-                )
-            })
+            .map_err(|_| WalletEventError::storage("connection_pool", "Database operation timeout"))?
+            .map_err(|e| WalletEventError::storage("connection_pool", format!("Database operation failed: {e}")))
     }
 }
 
@@ -518,8 +485,9 @@ impl std::fmt::Display for JournalMode {
 #[cfg(feature = "storage")]
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_connection_pool_creation() {
@@ -549,9 +517,7 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let database_path = temp_file.path().to_string_lossy().to_string();
 
-        let pool = ConnectionPool::with_database_path(database_path)
-            .await
-            .unwrap();
+        let pool = ConnectionPool::with_database_path(database_path).await.unwrap();
 
         {
             let conn = pool.acquire().await.unwrap();
@@ -575,11 +541,7 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let database_path = temp_file.path().to_string_lossy().to_string();
 
-        let pool = Arc::new(
-            ConnectionPool::with_database_path(database_path)
-                .await
-                .unwrap(),
-        );
+        let pool = Arc::new(ConnectionPool::with_database_path(database_path).await.unwrap());
 
         let mut handles = Vec::new();
 
@@ -613,9 +575,7 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let database_path = temp_file.path().to_string_lossy().to_string();
 
-        let pool = ConnectionPool::high_performance(database_path)
-            .await
-            .unwrap();
+        let pool = ConnectionPool::high_performance(database_path).await.unwrap();
         let config = pool.get_config();
 
         assert_eq!(config.max_connections, 20);

@@ -4,7 +4,6 @@
 //! maintains complete transaction history, and provides accurate running balances.
 
 #![cfg(not(target_arch = "wasm32"))]
-//!
 //! ## Features
 //! - Cross-block transaction tracking
 //! - Complete wallet state management
@@ -103,7 +102,12 @@
 
 #[cfg(feature = "grpc")]
 use clap::Parser;
-
+// Add conditional imports for non-storage feature
+#[cfg(all(feature = "grpc", not(feature = "storage")))]
+use lightweight_wallet_libs::scanning::MemoryDataProcessor;
+// Add conditional imports for storage feature
+#[cfg(all(feature = "grpc", feature = "storage"))]
+use lightweight_wallet_libs::scanning::ScannerStorage;
 #[cfg(feature = "grpc")]
 use lightweight_wallet_libs::{
     // Core library utilities
@@ -126,15 +130,6 @@ use lightweight_wallet_libs::{
     KeyManagementError,
     WalletError,
 };
-
-// Add conditional imports for storage feature
-#[cfg(all(feature = "grpc", feature = "storage"))]
-use lightweight_wallet_libs::scanning::ScannerStorage;
-
-// Add conditional imports for non-storage feature
-#[cfg(all(feature = "grpc", not(feature = "storage")))]
-use lightweight_wallet_libs::scanning::MemoryDataProcessor;
-
 #[cfg(feature = "grpc")]
 use tokio::signal;
 
@@ -144,17 +139,14 @@ use tokio::signal;
 #[command(author, version, about, long_about = None)]
 pub struct CliArgs {
     /// Seed phrase for the wallet (uses memory-only storage when provided)
-    #[arg(
-        short,
-        long,
-        help = "Seed phrase for the wallet (uses memory-only storage)"
-    )]
+    #[arg(short, long, help = "Seed phrase for the wallet (uses memory-only storage)")]
     seed_phrase: Option<String>,
 
     /// Private view key in hex format (alternative to seed phrase, uses memory-only storage)
     #[arg(
         long,
-        help = "Private view key in hex format (64 characters). Uses memory-only storage. Not required when resuming from database"
+        help = "Private view key in hex format (64 characters). Uses memory-only storage. Not required when resuming \
+                from database"
     )]
     view_key: Option<String>,
 
@@ -195,11 +187,7 @@ pub struct CliArgs {
     progress_frequency: usize,
 
     /// Timeout for blockchain operations in seconds
-    #[arg(
-        long,
-        default_value = "30",
-        help = "Timeout for blockchain operations in seconds"
-    )]
+    #[arg(long, default_value = "30", help = "Timeout for blockchain operations in seconds")]
     timeout: u64,
 
     /// Quiet mode - minimal output
@@ -207,11 +195,7 @@ pub struct CliArgs {
     quiet: bool,
 
     /// Output format
-    #[arg(
-        long,
-        default_value = "summary",
-        help = "Output format: detailed, summary, json"
-    )]
+    #[arg(long, default_value = "summary", help = "Output format: detailed, summary, json")]
     format: String,
 
     /// Database file path for storing transactions
@@ -238,10 +222,7 @@ pub struct CliArgs {
 
 /// Display storage configuration and existing data using library storage methods
 #[cfg(feature = "storage")]
-async fn display_storage_info(
-    storage_backend: &ScannerStorage,
-    config: &BinaryScanConfig,
-) -> WalletResult<()> {
+async fn display_storage_info(storage_backend: &ScannerStorage, config: &BinaryScanConfig) -> WalletResult<()> {
     if config.quiet {
         return Ok(());
     }
@@ -275,10 +256,7 @@ async fn display_storage_info(
 
 /// Display completion information using library storage methods
 #[cfg(feature = "storage")]
-async fn display_completion_info(
-    storage_backend: &ScannerStorage,
-    config: &BinaryScanConfig,
-) -> WalletResult<()> {
+async fn display_completion_info(storage_backend: &ScannerStorage, config: &BinaryScanConfig) -> WalletResult<()> {
     if config.quiet {
         return Ok(());
     }
@@ -311,11 +289,7 @@ async fn display_completion_info(
 // Progress display is now handled by the ConsoleLoggingListener in the event system
 
 #[cfg(feature = "grpc")]
-fn create_scan_config(
-    args: &CliArgs,
-    from_block: u64,
-    to_block: u64,
-) -> WalletResult<BinaryScanConfig> {
+fn create_scan_config(args: &CliArgs, from_block: u64, to_block: u64) -> WalletResult<BinaryScanConfig> {
     let output_format: OutputFormat = args
         .format
         .parse()
@@ -371,10 +345,7 @@ fn create_scanner_configs(
 
 /// Handle interactive wallet selection when multiple wallets exist in database
 #[cfg(feature = "storage")]
-async fn handle_interactive_wallet_selection(
-    storage_backend: &ScannerStorage,
-    args: &CliArgs,
-) -> WalletResult<u32> {
+async fn handle_interactive_wallet_selection(storage_backend: &ScannerStorage, args: &CliArgs) -> WalletResult<u32> {
     let wallets = storage_backend.get_wallet_selection_info().await?;
 
     if wallets.is_empty() {
@@ -402,13 +373,7 @@ async fn handle_interactive_wallet_selection(
                 "(never scanned)".to_string()
             };
 
-            println!(
-                "  {}: {} [{}] {}",
-                index + 1,
-                wallet.name,
-                wallet_type,
-                last_scanned
-            );
+            println!("  {}: {} [{}] {}", index + 1, wallet.name, wallet_type, last_scanned);
         }
         println!();
         print!("Enter wallet number (1-{}): ", wallets.len());
@@ -420,14 +385,11 @@ async fn handle_interactive_wallet_selection(
             .read_line(&mut input)
             .map_err(|e| WalletError::StorageError(format!("Failed to read user input: {e}")))?;
 
-        let choice: usize = input
-            .trim()
-            .parse()
-            .map_err(|_| WalletError::InvalidArgument {
-                argument: "wallet_selection".to_string(),
-                value: input.trim().to_string(),
-                message: "Invalid wallet number".to_string(),
-            })?;
+        let choice: usize = input.trim().parse().map_err(|_| WalletError::InvalidArgument {
+            argument: "wallet_selection".to_string(),
+            value: input.trim().to_string(),
+            message: "Invalid wallet number".to_string(),
+        })?;
 
         if choice == 0 || choice > wallets.len() {
             return Err(WalletError::InvalidArgument {
@@ -472,7 +434,7 @@ async fn main_unified() -> WalletResult<()> {
         (Some(_), Some(_)) => {
             eprintln!("❌ Error: Cannot specify both --seed-phrase and --view-key. Choose one.");
             std::process::exit(1);
-        }
+        },
         (None, None) => {
             // Handle no keys based on storage feature availability
             #[cfg(feature = "storage")]
@@ -483,12 +445,14 @@ async fn main_unified() -> WalletResult<()> {
             }
             #[cfg(not(feature = "storage"))]
             {
-                eprintln!("❌ Error: When storage feature is disabled, you must provide either --seed-phrase or --view-key");
+                eprintln!(
+                    "❌ Error: When storage feature is disabled, you must provide either --seed-phrase or --view-key"
+                );
                 eprintln!("💡 Run with: cargo run --bin scanner --features grpc-storage -- <your-options>");
                 std::process::exit(1);
             }
-        }
-        _ => {} // Valid: exactly one is provided
+        },
+        _ => {}, // Valid: exactly one is provided
     }
 
     if !args.quiet {
@@ -587,23 +551,20 @@ async fn main_unified() -> WalletResult<()> {
             .await
         {
             Ok(context) => context,
-            Err(WalletError::InvalidArgument {
-                argument, value, ..
-            }) if argument == "wallet_selection" && value == "multiple_wallets" => {
+            Err(WalletError::InvalidArgument { argument, value, .. })
+                if argument == "wallet_selection" && value == "multiple_wallets" =>
+            {
                 // Handle interactive wallet selection
                 if !args.quiet {
                     println!("📝 Multiple wallets found in database. Please select one:");
                 }
 
-                let wallet_id =
-                    handle_interactive_wallet_selection(&storage_backend, &args).await?;
+                let wallet_id = handle_interactive_wallet_selection(&storage_backend, &args).await?;
                 storage_backend.set_wallet_id(Some(wallet_id));
 
                 // Now load the scan context
-                storage_backend
-                    .load_scan_context_from_wallet(args.quiet)
-                    .await?
-            }
+                storage_backend.load_scan_context_from_wallet(args.quiet).await?
+            },
             Err(e) => return Err(e),
         };
 
@@ -649,9 +610,7 @@ async fn main_unified() -> WalletResult<()> {
         return Err(WalletError::InvalidArgument {
             argument: "block_range".to_string(),
             value: format!("{from_block}-{to_block}"),
-            message: format!(
-                "Starting block ({from_block}) cannot be greater than ending block ({to_block})"
-            ),
+            message: format!("Starting block ({from_block}) cannot be greater than ending block ({to_block})"),
         });
     }
 
@@ -664,9 +623,7 @@ async fn main_unified() -> WalletResult<()> {
         if !args.quiet {
             println!("🚀 Starting background database writer...");
         }
-        storage_backend
-            .start_background_writer(&args.database)
-            .await?;
+        storage_backend.start_background_writer(&args.database).await?;
     }
 
     // Display storage info and existing data (only for storage builds)
@@ -702,11 +659,13 @@ async fn main_unified() -> WalletResult<()> {
     // Create wallet scanner with event system instead of progress callback
 
     // Create event system components
-    use lightweight_wallet_libs::events::{
-        listeners::{AsciiProgressBarListener, ProgressTrackingListener},
-        EventDispatcher,
+    use lightweight_wallet_libs::{
+        events::{
+            listeners::{AsciiProgressBarListener, ProgressTrackingListener},
+            EventDispatcher,
+        },
+        scanning::event_emitter::ScanEventEmitter,
     };
-    use lightweight_wallet_libs::scanning::event_emitter::ScanEventEmitter;
 
     let mut event_dispatcher = EventDispatcher::new();
 
@@ -743,28 +702,25 @@ async fn main_unified() -> WalletResult<()> {
                             "🔗 High-performance database event listener configured for wallet ID: {:?}",
                             storage_backend.wallet_id
                         );
-                        println!(
-                            "📝 Event auditing enabled - storing scan events in wallet_events table"
-                        );
+                        println!("📝 Event auditing enabled - storing scan events in wallet_events table");
                     }
                     let _ = event_dispatcher.register(Box::new(db_listener));
-                }
+                },
                 Err(e) => {
                     if !args.quiet {
                         eprintln!("⚠️  Warning: Could not create database event listener: {e}");
                         eprintln!("   Continuing with memory-only event handling...");
                     }
-                }
+                },
             }
         }
     }
 
     // Create event emitter and wallet scanner with optimized fire_and_forget setting
     // fire_and_forget(true) is FASTER for database writes as it doesn't block on event processing
-    let event_emitter = ScanEventEmitter::new(event_dispatcher, "wallet_scanner".to_string())
-        .with_fire_and_forget(true);
-    let mut wallet_scanner =
-        WalletScannerStruct::from_config(scanner_config).with_event_emitter(event_emitter);
+    let event_emitter =
+        ScanEventEmitter::new(event_dispatcher, "wallet_scanner".to_string()).with_fire_and_forget(true);
+    let mut wallet_scanner = WalletScannerStruct::from_config(scanner_config).with_event_emitter(event_emitter);
 
     // Perform the scan with cancellation support using unified event system
     let scan_result = tokio::select! {
@@ -808,11 +764,9 @@ async fn main_unified() -> WalletResult<()> {
                 if !args.quiet {
                     println!("⚠️  Scan was interrupted but collected partial data:\n");
                     #[cfg(feature = "storage")]
-                    let resume_template =
-                        "cargo run --bin scanner --features grpc-storage -- <your-options>";
+                    let resume_template = "cargo run --bin scanner --features grpc-storage -- <your-options>";
                     #[cfg(not(feature = "storage"))]
-                    let resume_template =
-                        "cargo run --bin scanner --features grpc -- <your-options>";
+                    let resume_template = "cargo run --bin scanner --features grpc -- <your-options>";
 
                     if let Some(resume_cmd) = result.resume_command(resume_template) {
                         println!("   {resume_cmd}");
@@ -831,25 +785,23 @@ async fn main_unified() -> WalletResult<()> {
             if !args.quiet {
                 println!("💭 Scan completed using in-memory storage");
             }
-        }
+        },
         Some(Err(e)) => {
             if !args.quiet {
                 eprintln!("❌ Scan failed: {e}");
             }
             return Err(e);
-        }
+        },
         None => {
             if !args.quiet {
                 println!("💡 Scan was interrupted before completion.");
                 #[cfg(feature = "storage")]
-                println!(
-                    "⚡ To resume, use the same command with appropriate --from-block parameter."
-                );
+                println!("⚡ To resume, use the same command with appropriate --from-block parameter.");
                 #[cfg(not(feature = "storage"))]
                 println!("⚡ To resume, re-run the same command with appropriate --from-block parameter.");
             }
             std::process::exit(130); // Standard exit code for SIGINT
-        }
+        },
     }
 
     // Stop background writer gracefully

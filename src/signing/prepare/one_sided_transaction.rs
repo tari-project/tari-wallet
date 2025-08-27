@@ -1,20 +1,5 @@
-use crate::{
-    key_manager::TransactionKeyManager,
-    models::{
-        marshal_output_pair::{MarshalOutputPair, OutputPair},
-        transaction_metadata::TransactionMetadata,
-        types::{
-            get_supported_version, OneSidedTransactionInfo, PaymentRecipient,
-            PrepareOneSidedTransactionForSigningResult,
-        },
-    },
-    prepare::{
-        input_selector::{InputSelector, UtxoSelection},
-        output_converter::OutputConverter,
-    },
-    util::key_id::make_key_id_export_safe,
-    Wallet, WalletError, WalletResult, WalletStorage,
-};
+use std::sync::Arc;
+
 use tari_common_types::{
     key_branches::TransactionKeyManagerBranch,
     tari_address::{TariAddress, TariAddressFeatures},
@@ -28,11 +13,35 @@ use tari_transaction_components::{
     transaction_components::{
         covenants::Covenant,
         memo_field::{MemoField, TxType},
-        OutputFeatures, TransactionOutput, TransactionOutputVersion, WalletOutput,
+        OutputFeatures,
+        TransactionOutput,
+        TransactionOutputVersion,
+        WalletOutput,
     },
 };
 
-use std::sync::Arc;
+use crate::{
+    key_manager::TransactionKeyManager,
+    models::{
+        marshal_output_pair::{MarshalOutputPair, OutputPair},
+        transaction_metadata::TransactionMetadata,
+        types::{
+            get_supported_version,
+            OneSidedTransactionInfo,
+            PaymentRecipient,
+            PrepareOneSidedTransactionForSigningResult,
+        },
+    },
+    prepare::{
+        input_selector::{InputSelector, UtxoSelection},
+        output_converter::OutputConverter,
+    },
+    util::key_id::make_key_id_export_safe,
+    Wallet,
+    WalletError,
+    WalletResult,
+    WalletStorage,
+};
 
 pub struct OneSidedTransaction {
     database: Arc<dyn WalletStorage>,
@@ -60,15 +69,13 @@ impl OneSidedTransaction {
     }
 
     pub async fn build(database: Arc<dyn WalletStorage>, wallet_id: u32) -> WalletResult<Self> {
-        let stored_wallet = database.get_wallet_by_id(wallet_id).await?.ok_or_else(|| {
-            WalletError::ResourceNotFound(format!("Wallet with ID {} not found", wallet_id,))
-        })?;
+        let stored_wallet = database
+            .get_wallet_by_id(wallet_id)
+            .await?
+            .ok_or_else(|| WalletError::ResourceNotFound(format!("Wallet with ID {} not found", wallet_id,)))?;
         // TODO: we need to be able to create a wallet (to get dual address) from view key only
         let seed_phrase = stored_wallet.seed_phrase.ok_or_else(|| {
-            WalletError::InternalError(format!(
-                "Wallet with ID {} does not have a seed phrase",
-                wallet_id,
-            ))
+            WalletError::InternalError(format!("Wallet with ID {} does not have a seed phrase", wallet_id,))
         })?;
         let wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)?;
 
@@ -147,13 +154,13 @@ impl OneSidedTransaction {
         let sender_one_sided = true;
         let payment_id_recipient_address = match original_payment_id.get_type() {
             TxType::PaymentToOther => recipient.address.clone(),
-            TxType::PaymentToSelf
-            | TxType::CoinSplit
-            | TxType::CoinJoin
-            | TxType::ValidatorNodeRegistration
-            | TxType::CodeTemplateRegistration
-            | TxType::ClaimAtomicSwap
-            | TxType::HtlcAtomicSwapRefund => sender_address.clone(),
+            TxType::PaymentToSelf |
+            TxType::CoinSplit |
+            TxType::CoinJoin |
+            TxType::ValidatorNodeRegistration |
+            TxType::CodeTemplateRegistration |
+            TxType::ClaimAtomicSwap |
+            TxType::HtlcAtomicSwapRefund => sender_address.clone(),
             _ => TariAddress::default(),
         };
         let payment_id = MemoField::new_transaction_info(
@@ -167,8 +174,7 @@ impl OneSidedTransaction {
         )
         .map_err(|e| e.to_string())?;
 
-        let change_script =
-            script!(PushPubKey(Box::new(change_script_key.pub_key))).map_err(|e| e.to_string())?;
+        let change_script = script!(PushPubKey(Box::new(change_script_key.pub_key))).map_err(|e| e.to_string())?;
 
         let encrypted_data = self
             .transaction_key_manager
@@ -207,8 +213,7 @@ impl OneSidedTransaction {
             .map_err(|e| e.to_string())?;
 
         let export_safe_change_script_key_id =
-            make_key_id_export_safe(&self.transaction_key_manager, &change_script_key.key_id)
-                .await?;
+            make_key_id_export_safe(&self.transaction_key_manager, &change_script_key.key_id).await?;
         let change_wallet_output = WalletOutput::new_current_version(
             change_amount,
             change_commitment_mask_key.key_id,
@@ -234,16 +239,10 @@ impl OneSidedTransaction {
         ))
     }
 
-    async fn get_inputs(
-        &self,
-        unspent_outputs: &UtxoSelection,
-    ) -> WalletResult<Vec<MarshalOutputPair>> {
+    async fn get_inputs(&self, unspent_outputs: &UtxoSelection) -> WalletResult<Vec<MarshalOutputPair>> {
         let mut result = vec![];
         for utxo in &unspent_outputs.utxos {
-            let wallet_output = self
-                .output_converter
-                .convert_to_wallet_output(utxo.clone())
-                .await?;
+            let wallet_output = self.output_converter.convert_to_wallet_output(utxo.clone()).await?;
             let input = self.build_marshal_output_pair(wallet_output, None).await?;
             result.push(input);
         }
@@ -276,14 +275,11 @@ impl OneSidedTransaction {
             )?
             .into();
 
-        let payment_id =
-            self.get_payment_id(&sender_address, &dest_address, fee_per_gram, payment_id);
+        let payment_id = self.get_payment_id(&sender_address, &dest_address, fee_per_gram, payment_id);
         let tx_id = TxId::new_random();
 
         let input_selector = InputSelector::new(self.wallet_id, self.database.clone());
-        let unspent_outputs = input_selector
-            .fetch_unspent_outputs(amount, fee_per_gram)
-            .await?;
+        let unspent_outputs = input_selector.fetch_unspent_outputs(amount, fee_per_gram).await?;
 
         let inputs = self.get_inputs(&unspent_outputs).await?;
 
@@ -319,14 +315,8 @@ impl OneSidedTransaction {
         payment_id: MemoField,
     ) -> MemoField {
         let mut payment_id = payment_id.clone();
-        if dest_address
-            .features()
-            .contains(TariAddressFeatures::PAYMENT_ID)
-        {
-            payment_id = MemoField::open(
-                dest_address.get_memo_field_payment_id_bytes(),
-                TxType::PaymentToOther,
-            );
+        if dest_address.features().contains(TariAddressFeatures::PAYMENT_ID) {
+            payment_id = MemoField::open(dest_address.get_memo_field_payment_id_bytes(), TxType::PaymentToOther);
         }
         payment_id
             .clone()

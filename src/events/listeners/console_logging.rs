@@ -4,14 +4,22 @@
 //! with configurable formatting, verbosity levels, and color support for enhanced
 //! development and debugging experience.
 
-use async_trait::async_trait;
-use std::collections::HashMap;
-use std::error::Error;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    error::Error,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use crate::events::types::{BlockInfo, EventType, OutputData, SpentOutputData};
-use crate::events::{EventListener, SerializableEvent, SharedEvent, WalletScanEvent};
+use async_trait::async_trait;
+
+use crate::events::{
+    types::{BlockInfo, EventType, OutputData, SpentOutputData},
+    EventListener,
+    SerializableEvent,
+    SharedEvent,
+    WalletScanEvent,
+};
 
 /// Verbosity levels for console logging
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -320,8 +328,7 @@ impl ConsoleLoggingListener {
             Ok(duration) => {
                 let secs = duration.as_secs();
                 let millis = duration.subsec_millis();
-                let dt = chrono::DateTime::from_timestamp(secs as i64, 0)
-                    .unwrap_or_else(chrono::Utc::now);
+                let dt = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(chrono::Utc::now);
                 format!(
                     "{}{}[{}]{} ",
                     self.colors.dim,
@@ -329,10 +336,10 @@ impl ConsoleLoggingListener {
                     millis,
                     self.colors.reset
                 )
-            }
+            },
             Err(_) => {
                 format!("{}[INVALID_TIME]{} ", self.colors.dim, self.colors.reset)
-            }
+            },
         }
     }
 
@@ -354,12 +361,7 @@ impl ConsoleLoggingListener {
         if parts.is_empty() {
             String::new()
         } else {
-            format!(
-                "{}[{}]{} ",
-                self.colors.dim,
-                parts.join(","),
-                self.colors.reset
-            )
+            format!("{}[{}]{} ", self.colors.dim, parts.join(","), self.colors.reset)
         }
     }
 
@@ -368,19 +370,13 @@ impl ConsoleLoggingListener {
         match self.config.max_message_length {
             Some(max_len) if message.len() > max_len => {
                 format!("{}...", &message[..max_len.saturating_sub(3)])
-            }
+            },
             _ => message,
         }
     }
 
     /// Format and print a log message
-    fn log_message(
-        &self,
-        event: &WalletScanEvent,
-        level_color: &str,
-        level_name: &str,
-        message: String,
-    ) {
+    fn log_message(&self, event: &WalletScanEvent, level_color: &str, level_name: &str, message: String) {
         let timestamp = self.format_timestamp(event.metadata().timestamp);
         let metadata = self.format_metadata(event);
         let prefix = self.config.log_prefix.as_deref().unwrap_or("");
@@ -388,14 +384,7 @@ impl ConsoleLoggingListener {
 
         let formatted = format!(
             "{}{}{}[{}]{} {}{}{}",
-            timestamp,
-            prefix,
-            level_color,
-            level_name,
-            self.colors.reset,
-            metadata,
-            message,
-            self.colors.reset
+            timestamp, prefix, level_color, level_name, self.colors.reset, metadata, message, self.colors.reset
         );
 
         // Use appropriate output stream based on event type
@@ -420,16 +409,13 @@ impl ConsoleLoggingListener {
             stats.last_progress_percent = 0.0;
         }
 
-        let batch_size = config
-            .batch_size
-            .map_or("default".to_string(), |s| s.to_string());
-        let timeout = config
-            .timeout_seconds
-            .map_or("none".to_string(), |t| format!("{t}s"));
+        let batch_size = config.batch_size.map_or("default".to_string(), |s| s.to_string());
+        let timeout = config.timeout_seconds.map_or("none".to_string(), |t| format!("{t}s"));
         let block_count = block_range.1.saturating_sub(block_range.0) + 1;
 
         let message = format!(
-            "{bold}Starting scan{reset} for '{context}' - blocks {start}-{end} ({count} blocks) [batch: {batch}, timeout: {timeout}]",
+            "{bold}Starting scan{reset} for '{context}' - blocks {start}-{end} ({count} blocks) [batch: {batch}, \
+             timeout: {timeout}]",
             bold = self.colors.bold,
             reset = self.colors.reset,
             context = wallet_context,
@@ -479,10 +465,7 @@ impl ConsoleLoggingListener {
                     metadata: crate::events::types::EventMetadata::new("console_logger", "unknown"),
                     height,
                     hash: hash.to_string(),
-                    timestamp: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
+                    timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
                     processing_duration: *processing_duration,
                     outputs_count,
                     spent_outputs_count: 0,
@@ -505,9 +488,7 @@ impl ConsoleLoggingListener {
             stats.outputs_found += 1;
         }
 
-        let amount_str = output_data
-            .amount
-            .map_or("unknown".to_string(), |a| format!("{a}"));
+        let amount_str = output_data.amount.map_or("unknown".to_string(), |a| format!("{a}"));
         let mine_str = if output_data.is_mine { "MINE" } else { "OTHER" };
         let color = if output_data.is_mine {
             self.colors.success
@@ -547,11 +528,7 @@ impl ConsoleLoggingListener {
     /// Handle SpentOutputFound events
     ///
     /// Log information about spent outputs
-    fn handle_spent_output_found(
-        &mut self,
-        spent_output_data: &SpentOutputData,
-        spending_block_info: &BlockInfo,
-    ) {
+    fn handle_spent_output_found(&mut self, spent_output_data: &SpentOutputData, spending_block_info: &BlockInfo) {
         let amount_str = spent_output_data
             .spent_amount
             .map_or("unknown".to_string(), |a| format!("{a}"));
@@ -681,11 +658,7 @@ impl ConsoleLoggingListener {
         } else {
             self.colors.warning
         };
-        let status = if success {
-            "COMPLETED"
-        } else {
-            "FINISHED WITH ISSUES"
-        };
+        let status = if success { "COMPLETED" } else { "FINISHED WITH ISSUES" };
 
         let duration_str = {
             let secs = total_duration.as_secs();
@@ -712,10 +685,7 @@ impl ConsoleLoggingListener {
         }
 
         let stats_str = if stats_parts.is_empty() {
-            format!(
-                "{} blocks, {} outputs",
-                stats.blocks_processed, stats.outputs_found
-            )
+            format!("{} blocks, {} outputs", stats.blocks_processed, stats.outputs_found)
         } else {
             stats_parts.join(", ")
         };
@@ -750,24 +720,13 @@ impl ConsoleLoggingListener {
             stats.errors_encountered += 1;
         }
 
-        let recoverable_str = if is_recoverable {
-            "recoverable"
-        } else {
-            "fatal"
-        };
+        let recoverable_str = if is_recoverable { "recoverable" } else { "fatal" };
         let block_str = block_height.map_or(String::new(), |h| format!(" at block {h}"));
-        let code_str = error_code
-            .as_ref()
-            .map_or(String::new(), |c| format!(" [{c}]"));
+        let code_str = error_code.as_ref().map_or(String::new(), |c| format!(" [{c}]"));
 
         let message = format!(
             "{}Scan error{} ({}){}{}: {}",
-            self.colors.error,
-            self.colors.reset,
-            recoverable_str,
-            block_str,
-            code_str,
-            error_message
+            self.colors.error, self.colors.reset, recoverable_str, block_str, code_str, error_message
         );
 
         self.log_message(
@@ -792,8 +751,7 @@ impl ConsoleLoggingListener {
         final_statistics: &HashMap<String, u64>,
         partial_completion: &Option<f64>,
     ) {
-        let completion_str =
-            partial_completion.map_or(String::new(), |p| format!(" ({p:.1}% complete)"));
+        let completion_str = partial_completion.map_or(String::new(), |p| format!(" ({p:.1}% complete)"));
 
         let stats_summary = final_statistics
             .iter()
@@ -827,17 +785,14 @@ impl ConsoleLoggingListener {
 
         match event.to_debug_json() {
             Ok(json) => {
-                println!(
-                    "{}[JSON_DEBUG]{} {}",
-                    self.colors.dim, self.colors.reset, json
-                );
-            }
+                println!("{}[JSON_DEBUG]{} {}", self.colors.dim, self.colors.reset, json);
+            },
             Err(e) => {
                 eprintln!(
                     "{}[JSON_ERROR]{} Failed to serialize event: {}",
                     self.colors.error, self.colors.reset, e
                 );
-            }
+            },
         }
     }
 }
@@ -1173,10 +1128,7 @@ impl Default for ConsoleLoggingListenerBuilder {
 
 #[async_trait]
 impl EventListener for ConsoleLoggingListener {
-    async fn handle_event(
-        &mut self,
-        event: &SharedEvent,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Check if this event should be logged at the current level
         if !self.config.log_level.should_log(event) {
             return Ok(());
@@ -1191,7 +1143,7 @@ impl EventListener for ConsoleLoggingListener {
                 ..
             } => {
                 self.handle_scan_started(config, block_range, wallet_context);
-            }
+            },
             WalletScanEvent::BlockProcessed {
                 height,
                 hash,
@@ -1200,7 +1152,7 @@ impl EventListener for ConsoleLoggingListener {
                 ..
             } => {
                 self.handle_block_processed(*height, hash, processing_duration, *outputs_count);
-            }
+            },
             WalletScanEvent::OutputFound {
                 output_data,
                 block_info,
@@ -1208,14 +1160,14 @@ impl EventListener for ConsoleLoggingListener {
                 ..
             } => {
                 self.handle_output_found(output_data, block_info, address_info);
-            }
+            },
             WalletScanEvent::SpentOutputFound {
                 spent_output_data,
                 spending_block_info,
                 ..
             } => {
                 self.handle_spent_output_found(spent_output_data, spending_block_info);
-            }
+            },
             WalletScanEvent::ScanProgress {
                 current_block,
                 total_blocks,
@@ -1231,7 +1183,7 @@ impl EventListener for ConsoleLoggingListener {
                     *speed_blocks_per_second,
                     estimated_time_remaining,
                 );
-            }
+            },
             WalletScanEvent::ScanCompleted {
                 final_statistics,
                 success,
@@ -1239,7 +1191,7 @@ impl EventListener for ConsoleLoggingListener {
                 ..
             } => {
                 self.handle_scan_completed(final_statistics, *success, total_duration);
-            }
+            },
             WalletScanEvent::ScanError {
                 error_message,
                 error_code,
@@ -1248,7 +1200,7 @@ impl EventListener for ConsoleLoggingListener {
                 ..
             } => {
                 self.handle_scan_error(error_message, error_code, block_height, *is_recoverable);
-            }
+            },
             WalletScanEvent::ScanCancelled {
                 reason,
                 final_statistics,
@@ -1256,7 +1208,7 @@ impl EventListener for ConsoleLoggingListener {
                 ..
             } => {
                 self.handle_scan_cancelled(reason, final_statistics, partial_completion);
-            }
+            },
         }
 
         // Log JSON debug information if enabled
@@ -1268,11 +1220,14 @@ impl EventListener for ConsoleLoggingListener {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::HashMap,
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
+
     use super::*;
     use crate::events::types::{AddressInfo, BlockInfo, EventMetadata, OutputData, ScanConfig};
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use std::time::{Duration, SystemTime};
 
     #[test]
     fn test_console_logging_listener_creation() {
@@ -1391,13 +1346,8 @@ mod tests {
     async fn test_handle_output_found_event() {
         let mut listener = ConsoleLoggingListener::new();
 
-        let output_data = OutputData::new(
-            "commitment_123".to_string(),
-            "proof_456".to_string(),
-            1,
-            true,
-        )
-        .with_amount(1000);
+        let output_data =
+            OutputData::new("commitment_123".to_string(), "proof_456".to_string(), 1, true).with_amount(1000);
 
         let block_info = BlockInfo::new(12345, "block_hash_abc".to_string(), 1697123456, 0);
 
@@ -1469,9 +1419,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_log_level_filtering_in_handler() {
-        let mut minimal_listener = ConsoleLoggingListener::with_config(
-            ConsoleLoggingConfig::new().with_log_level(LogLevel::Minimal),
-        );
+        let mut minimal_listener =
+            ConsoleLoggingListener::with_config(ConsoleLoggingConfig::new().with_log_level(LogLevel::Minimal));
 
         // Progress event should be filtered out at minimal level
         let progress_event = Arc::new(WalletScanEvent::ScanProgress {
@@ -1526,12 +1475,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_console_logging_with_correlation_id() {
-        let mut listener = ConsoleLoggingListener::with_config(
-            ConsoleLoggingConfig::new().with_correlation_ids(true),
-        );
+        let mut listener = ConsoleLoggingListener::with_config(ConsoleLoggingConfig::new().with_correlation_ids(true));
 
-        let metadata =
-            EventMetadata::with_correlation("test", "test_wallet", "scan_123".to_string());
+        let metadata = EventMetadata::with_correlation("test", "test_wallet", "scan_123".to_string());
         let event = Arc::new(WalletScanEvent::ScanError {
             metadata,
             error_message: "Test error".to_string(),

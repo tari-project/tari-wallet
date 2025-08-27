@@ -6,6 +6,10 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
+use hex;
+use tari_utilities::ByteArray;
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
 use crate::{
     data_structures::types::PrivateKey,
     errors::{KeyManagementError, WalletResult},
@@ -15,9 +19,6 @@ use crate::{
     },
     wallet::Wallet,
 };
-use hex;
-use tari_utilities::ByteArray;
-use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Output format options for scanner results
 ///
@@ -234,12 +235,8 @@ impl ScanContext {
             .try_into()
             .map_err(|_| KeyManagementError::key_derivation_failed("Invalid entropy length"))?;
 
-        let mut view_key_raw =
-            key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)?;
-        let view_key_bytes = view_key_raw
-            .as_bytes()
-            .try_into()
-            .expect("Should convert to array");
+        let mut view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)?;
+        let view_key_bytes = view_key_raw.as_bytes().try_into().expect("Should convert to array");
         let view_key = PrivateKey::new(view_key_bytes);
 
         // Zeroize intermediate sensitive data
@@ -267,9 +264,8 @@ impl ScanContext {
     /// Returns an error if the hex string is invalid or not exactly 32 bytes
     pub fn from_view_key(view_key_hex: &str) -> WalletResult<Self> {
         // Parse the hex view key
-        let mut view_key_bytes = hex::decode(view_key_hex).map_err(|_| {
-            KeyManagementError::key_derivation_failed("Invalid hex format for view key")
-        })?;
+        let mut view_key_bytes = hex::decode(view_key_hex)
+            .map_err(|_| KeyManagementError::key_derivation_failed("Invalid hex format for view key"))?;
 
         if view_key_bytes.len() != 32 {
             view_key_bytes.zeroize(); // Clear the invalid data
@@ -279,9 +275,9 @@ impl ScanContext {
             .into());
         }
 
-        let view_key_array: [u8; 32] = view_key_bytes.try_into().map_err(|_| {
-            KeyManagementError::key_derivation_failed("Failed to convert view key to array")
-        })?;
+        let view_key_array: [u8; 32] = view_key_bytes
+            .try_into()
+            .map_err(|_| KeyManagementError::key_derivation_failed("Failed to convert view key to array"))?;
 
         let view_key = PrivateKey::new(view_key_array);
 
@@ -304,30 +300,19 @@ impl ScanContext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
+
+    use super::*;
 
     #[test]
     fn test_output_format_from_str_valid() {
-        assert_eq!(
-            OutputFormat::from_str("detailed").unwrap(),
-            OutputFormat::Detailed
-        );
-        assert_eq!(
-            OutputFormat::from_str("summary").unwrap(),
-            OutputFormat::Summary
-        );
+        assert_eq!(OutputFormat::from_str("detailed").unwrap(), OutputFormat::Detailed);
+        assert_eq!(OutputFormat::from_str("summary").unwrap(), OutputFormat::Summary);
         assert_eq!(OutputFormat::from_str("json").unwrap(), OutputFormat::Json);
 
         // Case insensitive
-        assert_eq!(
-            OutputFormat::from_str("DETAILED").unwrap(),
-            OutputFormat::Detailed
-        );
-        assert_eq!(
-            OutputFormat::from_str("Summary").unwrap(),
-            OutputFormat::Summary
-        );
+        assert_eq!(OutputFormat::from_str("DETAILED").unwrap(), OutputFormat::Detailed);
+        assert_eq!(OutputFormat::from_str("Summary").unwrap(), OutputFormat::Summary);
         assert_eq!(OutputFormat::from_str("JSON").unwrap(), OutputFormat::Json);
     }
 
@@ -335,9 +320,7 @@ mod tests {
     fn test_output_format_from_str_invalid() {
         let result = OutputFormat::from_str("invalid");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Invalid output format: invalid"));
+        assert!(result.unwrap_err().contains("Invalid output format: invalid"));
 
         let result = OutputFormat::from_str("");
         assert!(result.is_err());

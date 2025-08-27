@@ -1,5 +1,7 @@
-use std::fmt;
-use std::ops::{Add, Mul, Sub};
+use std::{
+    fmt,
+    ops::{Add, Mul, Sub},
+};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use curve25519_dalek::{
@@ -11,28 +13,24 @@ use hex::ToHex;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tari_crypto::ristretto::RistrettoSecretKey;
+use tari_utilities::ByteArray;
 use zeroize::Zeroize;
 
 use crate::hex_utils::{HexEncodable, HexError, HexValidatable};
-use tari_utilities::ByteArray;
 
 /// Custom serde module for Scalar
 mod scalar_serde {
     use super::*;
 
     pub fn serialize<S>(scalar: &Scalar, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    where S: Serializer {
         let bytes = scalar.to_bytes();
         let hex_string = hex::encode(bytes);
         serializer.serialize_str(&hex_string)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Scalar, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    where D: Deserializer<'de> {
         let hex_string = <String as serde::Deserialize>::deserialize(deserializer)?;
         let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
         if bytes.len() != 32 {
@@ -49,18 +47,14 @@ mod compressed_ristretto_serde {
     use super::*;
 
     pub fn serialize<S>(compressed: &CompressedRistretto, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    where S: Serializer {
         let bytes = compressed.to_bytes();
         let hex_string = hex::encode(bytes);
         serializer.serialize_str(&hex_string)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<CompressedRistretto, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    where D: Deserializer<'de> {
         let hex_string = <String as serde::Deserialize>::deserialize(deserializer)?;
         let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
         if bytes.len() != 32 {
@@ -104,16 +98,17 @@ impl BorshSerialize for PrivateKey {
 impl BorshDeserialize for PrivateKey {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let bytes = <[u8; 32]>::deserialize_reader(reader)?;
-        Ok(Self(Scalar::from_canonical_bytes(bytes).unwrap_or_else(
-            || {
-                // Fallback to zero scalar if bytes are not canonical
-                Scalar::from_bytes_mod_order([0u8; 32])
-            },
-        )))
+        Ok(Self(Scalar::from_canonical_bytes(bytes).unwrap_or_else(|| {
+            // Fallback to zero scalar if bytes are not canonical
+            Scalar::from_bytes_mod_order([0u8; 32])
+        })))
     }
 }
 
 impl PrivateKey {
+    /// Get the key length
+    pub const KEY_LEN: usize = 32;
+
     /// Create a new private key from bytes
     pub fn new(bytes: [u8; 32]) -> Self {
         Self(Scalar::from_bytes_mod_order(bytes))
@@ -159,9 +154,6 @@ impl PrivateKey {
         key_bytes.copy_from_slice(bytes);
         Ok(Self::new(key_bytes))
     }
-
-    /// Get the key length
-    pub const KEY_LEN: usize = 32;
 }
 
 impl Zeroize for PrivateKey {
@@ -184,6 +176,7 @@ impl HexEncodable for PrivateKey {
     fn to_hex(&self) -> String {
         self.to_hex()
     }
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         Self::from_hex(hex)
     }
@@ -193,6 +186,7 @@ impl HexValidatable for PrivateKey {}
 
 impl Add for PrivateKey {
     type Output = PrivateKey;
+
     fn add(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
     }
@@ -200,6 +194,7 @@ impl Add for PrivateKey {
 
 impl<'a> Add<&'a PrivateKey> for PrivateKey {
     type Output = PrivateKey;
+
     fn add(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
     }
@@ -207,6 +202,7 @@ impl<'a> Add<&'a PrivateKey> for PrivateKey {
 
 impl Add<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
+
     fn add(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
     }
@@ -214,6 +210,7 @@ impl Add<PrivateKey> for &PrivateKey {
 
 impl<'a> Add<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
+
     fn add(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
     }
@@ -221,6 +218,7 @@ impl<'a> Add<&'a PrivateKey> for &PrivateKey {
 
 impl Sub for PrivateKey {
     type Output = PrivateKey;
+
     fn sub(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
     }
@@ -228,6 +226,7 @@ impl Sub for PrivateKey {
 
 impl<'a> Sub<&'a PrivateKey> for PrivateKey {
     type Output = PrivateKey;
+
     fn sub(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
     }
@@ -235,6 +234,7 @@ impl<'a> Sub<&'a PrivateKey> for PrivateKey {
 
 impl Sub<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
+
     fn sub(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
     }
@@ -242,6 +242,7 @@ impl Sub<PrivateKey> for &PrivateKey {
 
 impl<'a> Sub<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
+
     fn sub(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
     }
@@ -249,6 +250,7 @@ impl<'a> Sub<&'a PrivateKey> for &PrivateKey {
 
 impl Mul for PrivateKey {
     type Output = PrivateKey;
+
     fn mul(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
     }
@@ -256,6 +258,7 @@ impl Mul for PrivateKey {
 
 impl<'a> Mul<&'a PrivateKey> for PrivateKey {
     type Output = PrivateKey;
+
     fn mul(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
     }
@@ -263,6 +266,7 @@ impl<'a> Mul<&'a PrivateKey> for PrivateKey {
 
 impl Mul<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
+
     fn mul(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
     }
@@ -270,6 +274,7 @@ impl Mul<PrivateKey> for &PrivateKey {
 
 impl<'a> Mul<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
+
     fn mul(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
     }
@@ -293,18 +298,7 @@ impl TryFrom<&RistrettoSecretKey> for PrivateKey {
 
 /// Micro Minotari amount (smallest unit)
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize,
 )]
 pub struct MicroMinotari(u64);
 
@@ -349,9 +343,7 @@ impl From<MicroMinotari> for u64 {
 }
 
 /// Compressed commitment (32 bytes)
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct CompressedCommitment {
     /// The commitment bytes
     #[serde(
@@ -415,9 +407,7 @@ impl HexValidatable for CompressedCommitment {}
 
 /// Compressed public key (Ristretto)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub struct CompressedPublicKey(
-    #[serde(with = "compressed_ristretto_serde")] pub CompressedRistretto,
-);
+pub struct CompressedPublicKey(#[serde(with = "compressed_ristretto_serde")] pub CompressedRistretto);
 
 impl BorshSerialize for CompressedPublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
@@ -492,6 +482,7 @@ impl HexEncodable for CompressedPublicKey {
     fn to_hex(&self) -> String {
         self.to_hex()
     }
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         Self::from_hex(hex)
     }
@@ -636,9 +627,7 @@ impl From<SafeArray<32>> for EncryptedDataKey {
 }
 
 /// Fixed hash type (32 bytes) used for transaction hashes and outputs
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct FixedHash {
     /// The hash bytes
     #[serde(
@@ -1057,7 +1046,7 @@ mod test {
     fn test_hex_error_variants() {
         // Test different error types for comprehensive coverage
         match PrivateKey::from_hex("invalid") {
-            Err(HexError::InvalidHex(_)) => {}
+            Err(HexError::InvalidHex(_)) => {},
             _ => panic!("Expected InvalidHex error"),
         }
 
@@ -1065,7 +1054,7 @@ mod test {
             Err(HexError::InvalidLength { expected, actual }) => {
                 assert_eq!(expected, 32);
                 assert_eq!(actual, 4);
-            }
+            },
             _ => panic!("Expected InvalidLength error"),
         }
     }
@@ -1102,38 +1091,32 @@ mod test {
         // Test PrivateKey borsh serialization
         let private_key = PrivateKey::new([42u8; 32]);
         let serialized = borsh::to_vec(&private_key).unwrap();
-        let deserialized =
-            <PrivateKey as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
+        let deserialized = <PrivateKey as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
         assert_eq!(private_key.as_bytes(), deserialized.as_bytes());
 
         // Test CompressedPublicKey borsh serialization
         let public_key = CompressedPublicKey::new([99u8; 32]);
         let serialized = borsh::to_vec(&public_key).unwrap();
-        let deserialized =
-            <CompressedPublicKey as borsh::BorshDeserialize>::deserialize(&mut &serialized[..])
-                .unwrap();
+        let deserialized = <CompressedPublicKey as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
         assert_eq!(public_key.as_bytes(), deserialized.as_bytes());
 
         // Test CompressedCommitment borsh serialization
         let commitment = CompressedCommitment::new([77u8; 32]);
         let serialized = borsh::to_vec(&commitment).unwrap();
         let deserialized =
-            <CompressedCommitment as borsh::BorshDeserialize>::deserialize(&mut &serialized[..])
-                .unwrap();
+            <CompressedCommitment as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
         assert_eq!(commitment.as_bytes(), deserialized.as_bytes());
 
         // Test SafeArray borsh serialization
         let safe_array: SafeArray<8> = SafeArray::new([1, 2, 3, 4, 5, 6, 7, 8]);
         let serialized = borsh::to_vec(&safe_array).unwrap();
-        let deserialized =
-            <SafeArray<8> as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
+        let deserialized = <SafeArray<8> as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
         assert_eq!(safe_array.as_bytes(), deserialized.as_bytes());
 
         // Test FixedHash borsh serialization
         let hash = FixedHash::new([88u8; 32]);
         let serialized = borsh::to_vec(&hash).unwrap();
-        let deserialized =
-            <FixedHash as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
+        let deserialized = <FixedHash as borsh::BorshDeserialize>::deserialize(&mut &serialized[..]).unwrap();
         assert_eq!(hash.as_bytes(), deserialized.as_bytes());
     }
 

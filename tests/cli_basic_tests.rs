@@ -161,8 +161,7 @@ async fn test_scanner_invalid_seed_phrase() {
 
     // Should mention seed phrase in error
     assert!(
-        combined_output.to_lowercase().contains("seed")
-            || combined_output.to_lowercase().contains("phrase"),
+        combined_output.to_lowercase().contains("seed") || combined_output.to_lowercase().contains("phrase"),
         "Error should mention seed phrase issue"
     );
 }
@@ -196,10 +195,10 @@ async fn test_wallet_generate_basic() {
 
         // Should contain expected wallet generation output
         assert!(
-            stdout.contains("Wallet")
-                || stdout.contains("generated")
-                || stdout.contains("Seed")
-                || stdout.contains("Address"),
+            stdout.contains("Wallet") ||
+                stdout.contains("generated") ||
+                stdout.contains("Seed") ||
+                stdout.contains("Address"),
             "Wallet generate should produce expected output"
         );
     } else {

@@ -5,30 +5,28 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use clap::{Parser, Subcommand};
-use rand::rngs::OsRng;
 use std::fs;
-use tari_crypto::keys::{PublicKey, SecretKey};
-use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
-use tari_utilities::hex::Hex;
 
-use lightweight_wallet_libs::crypto::signing::{
-    sign_message_with_hex_output, verify_message_from_hex,
-};
-
+use clap::{Parser, Subcommand};
+use lightweight_wallet_libs::crypto::signing::{sign_message_with_hex_output, verify_message_from_hex};
 #[cfg(feature = "storage")]
 use lightweight_wallet_libs::{
-    key_management::{
-        derive_view_and_spend_keys_from_entropy, mnemonic_to_bytes, seed_phrase::CipherSeed,
-    },
+    key_management::{derive_view_and_spend_keys_from_entropy, mnemonic_to_bytes, seed_phrase::CipherSeed},
     storage::{SqliteStorage, WalletStorage},
 };
+use rand::rngs::OsRng;
+use tari_crypto::{
+    keys::{PublicKey, SecretKey},
+    ristretto::{RistrettoPublicKey, RistrettoSecretKey},
+};
+use tari_utilities::hex::Hex;
 
 #[derive(Parser)]
 #[command(name = "signing")]
 #[command(about = "Tari-compatible message signing and verification tool")]
 #[command(
-    long_about = "A CLI tool for signing and verifying messages using Schnorr signatures with Tari wallet-compatible domain separation"
+    long_about = "A CLI tool for signing and verifying messages using Schnorr signatures with Tari wallet-compatible \
+                  domain separation"
 )]
 #[command(version)]
 struct Cli {
@@ -163,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Public Key: {public_hex}");
                 }
             }
-        }
+        },
 
         Commands::Sign {
             secret_key,
@@ -196,8 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // Sign the message
-            let (signature_hex, nonce_hex) =
-                sign_message_with_hex_output(&secret_key, &message_text)?;
+            let (signature_hex, nonce_hex) = sign_message_with_hex_output(&secret_key, &message_text)?;
 
             let output = match format.as_str() {
                 "compact" => format!("{signature_hex}:{nonce_hex}"),
@@ -215,7 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 println!("{output}");
             }
-        }
+        },
 
         Commands::Verify {
             public_key,
@@ -234,8 +231,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => return Err("Must provide either --public-key or --public-key-file".into()),
             };
 
-            let public_key = RistrettoPublicKey::from_hex(&public_key_hex)
-                .map_err(|e| format!("Invalid public key hex: {e}"))?;
+            let public_key =
+                RistrettoPublicKey::from_hex(&public_key_hex).map_err(|e| format!("Invalid public key hex: {e}"))?;
 
             // Get message
             let message_text = match (message, message_file) {
@@ -260,23 +257,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .as_str()
                             .ok_or("Missing 'signature' field in JSON")?
                             .trim();
-                        let n = parsed["nonce"]
-                            .as_str()
-                            .ok_or("Missing 'nonce' field in JSON")?
-                            .trim();
+                        let n = parsed["nonce"].as_str().ok_or("Missing 'nonce' field in JSON")?.trim();
                         (sig.to_string(), n.to_string())
                     }
-                }
-                _ => {
-                    return Err(
-                        "Must provide either (--signature and --nonce) or --signature-file".into(),
-                    )
-                }
+                },
+                _ => return Err("Must provide either (--signature and --nonce) or --signature-file".into()),
             };
 
             // Verify the signature
-            let is_valid =
-                verify_message_from_hex(&public_key, &message_text, &sig_hex, &nonce_hex)?;
+            let is_valid = verify_message_from_hex(&public_key, &message_text, &sig_hex, &nonce_hex)?;
 
             if verbose {
                 println!("Message: \"{message_text}\"");
@@ -291,7 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !is_valid {
                 std::process::exit(1);
             }
-        }
+        },
     }
 
     Ok(())
@@ -307,15 +296,13 @@ async fn get_secret_key_for_signing(
     // Try different sources in order of preference
     if let Some(key) = secret_key {
         // Direct hex string
-        return Ok(RistrettoSecretKey::from_hex(&key)
-            .map_err(|e| format!("Invalid secret key hex: {e}"))?);
+        return Ok(RistrettoSecretKey::from_hex(&key).map_err(|e| format!("Invalid secret key hex: {e}"))?);
     }
 
     if let Some(file) = secret_key_file {
         // Read from file
         let key_hex = fs::read_to_string(&file)?.trim().to_string();
-        return Ok(RistrettoSecretKey::from_hex(&key_hex)
-            .map_err(|e| format!("Invalid secret key hex in file: {e}"))?);
+        return Ok(RistrettoSecretKey::from_hex(&key_hex).map_err(|e| format!("Invalid secret key hex in file: {e}"))?);
     }
 
     #[cfg(feature = "storage")]
@@ -369,9 +356,7 @@ async fn get_secret_key_from_database(
     let (_, comms_key) = derive_view_and_spend_keys_from_entropy(entropy_array)
         .map_err(|e| format!("Failed to derive communication key: {e}"))?;
 
-    println!(
-        "Using communication key from wallet '{wallet_name}' in database (Tari message signing key)"
-    );
+    println!("Using communication key from wallet '{wallet_name}' in database (Tari message signing key)");
     Ok(comms_key)
 }
 

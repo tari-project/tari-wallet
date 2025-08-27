@@ -95,11 +95,9 @@ impl MinimumValuePromiseValidator {
         // Check maximum allowed value if specified
         if let Some(max_allowed) = options.max_allowed_value {
             if value > max_allowed {
-                return Err(ValidationError::minimum_value_promise_validation_failed(
-                    &format!(
-                        "Minimum value promise {value} exceeds maximum allowed value {max_allowed}"
-                    ),
-                ));
+                return Err(ValidationError::minimum_value_promise_validation_failed(&format!(
+                    "Minimum value promise {value} exceeds maximum allowed value {max_allowed}"
+                )));
             }
         }
 
@@ -114,12 +112,12 @@ impl MinimumValuePromiseValidator {
                 if options.validate_revealed_value_consistency {
                     self.validate_revealed_value_consistency(minimum_value_promise, range_proof)?;
                 }
-            }
+            },
             RangeProofType::BulletProofPlus => {
                 if options.validate_bulletproof_consistency {
                     self.validate_bulletproof_consistency(minimum_value_promise, range_proof)?;
                 }
-            }
+            },
         }
 
         Ok(())
@@ -159,9 +157,7 @@ impl MinimumValuePromiseValidator {
         // Verify the RevealedValue proof using the metadata signature
         // This is the same logic as in the RevealedValue validator
         let e = PrivateKey::from_canonical_bytes(metadata_signature_challenge).map_err(|_| {
-            ValidationError::minimum_value_promise_validation_failed(
-                "Invalid metadata signature challenge",
-            )
+            ValidationError::minimum_value_promise_validation_failed("Invalid metadata signature challenge")
         })?;
 
         // Convert the minimum value promise to a private key
@@ -250,17 +246,13 @@ impl MinimumValuePromiseValidator {
         range_proof_type: &RangeProofType,
     ) -> Result<(), ValidationError> {
         let value = minimum_value_promise.as_u64();
-        let max_value = 1u64
-            .checked_shl(self.default_bit_length as u32)
-            .unwrap_or(u64::MAX);
+        let max_value = 1u64.checked_shl(self.default_bit_length as u32).unwrap_or(u64::MAX);
 
         if value >= max_value {
-            return Err(ValidationError::minimum_value_promise_validation_failed(
-                &format!(
-                    "Minimum value promise {} exceeds range proof bit length {} for {:?}",
-                    value, self.default_bit_length, range_proof_type
-                ),
-            ));
+            return Err(ValidationError::minimum_value_promise_validation_failed(&format!(
+                "Minimum value promise {} exceeds range proof bit length {} for {:?}",
+                value, self.default_bit_length, range_proof_type
+            )));
         }
 
         Ok(())
@@ -439,10 +431,7 @@ mod tests {
 
         // Invalid: BulletProofPlus with empty proof
         assert!(validator
-            .validate_bulletproof_consistency(
-                MicroMinotari::new(1000),
-                Some(&RangeProof { bytes: vec![] })
-            )
+            .validate_bulletproof_consistency(MicroMinotari::new(1000), Some(&RangeProof { bytes: vec![] }))
             .is_err());
     }
 
@@ -453,12 +442,7 @@ mod tests {
 
         // Valid RevealedValue
         assert!(validator
-            .validate_minimum_value_promise(
-                MicroMinotari::new(1000),
-                None,
-                &RangeProofType::RevealedValue,
-                &options
-            )
+            .validate_minimum_value_promise(MicroMinotari::new(1000), None, &RangeProofType::RevealedValue, &options)
             .is_ok());
 
         // Valid BulletProofPlus
@@ -507,12 +491,7 @@ mod tests {
         };
 
         assert!(validator
-            .validate_minimum_value_promise(
-                MicroMinotari::new(0),
-                None,
-                &RangeProofType::RevealedValue,
-                &options
-            )
+            .validate_minimum_value_promise(MicroMinotari::new(0), None, &RangeProofType::RevealedValue, &options)
             .is_err());
 
         // Test with max allowed value
@@ -522,21 +501,11 @@ mod tests {
         };
 
         assert!(validator
-            .validate_minimum_value_promise(
-                MicroMinotari::new(500),
-                None,
-                &RangeProofType::RevealedValue,
-                &options
-            )
+            .validate_minimum_value_promise(MicroMinotari::new(500), None, &RangeProofType::RevealedValue, &options)
             .is_ok());
 
         assert!(validator
-            .validate_minimum_value_promise(
-                MicroMinotari::new(1500),
-                None,
-                &RangeProofType::RevealedValue,
-                &options
-            )
+            .validate_minimum_value_promise(MicroMinotari::new(1500), None, &RangeProofType::RevealedValue, &options)
             .is_err());
     }
 
@@ -559,12 +528,7 @@ mod tests {
         let commit_nonce_a = PrivateKey::new([0u8; 32]);
         let expected_u_a = commit_nonce_a + e * value_as_private_key;
 
-        let result = validator.validate_revealed_value_minimum_promise(
-            minimum_value,
-            None,
-            &expected_u_a,
-            &challenge,
-        );
+        let result = validator.validate_revealed_value_minimum_promise(minimum_value, None, &expected_u_a, &challenge);
         assert!(result.is_ok());
     }
 
@@ -577,11 +541,7 @@ mod tests {
             bytes: vec![1, 2, 3, 4, 5],
         };
 
-        let result = validator.validate_bulletproof_minimum_promise(
-            minimum_value,
-            &range_proof,
-            &commitment,
-        );
+        let result = validator.validate_bulletproof_minimum_promise(minimum_value, &range_proof, &commitment);
         assert!(result.is_ok());
     }
 
@@ -595,8 +555,7 @@ mod tests {
         assert!(!invalid.is_valid());
         assert_eq!(invalid.error_message(), Some("test error"));
 
-        let unsupported =
-            MinimumValuePromiseValidationResult::Unsupported("unsupported".to_string());
+        let unsupported = MinimumValuePromiseValidationResult::Unsupported("unsupported".to_string());
         assert!(!unsupported.is_valid());
         assert_eq!(unsupported.error_message(), Some("unsupported"));
     }

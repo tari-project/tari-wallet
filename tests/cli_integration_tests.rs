@@ -5,10 +5,13 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+use std::{
+    path::PathBuf,
+    process::{Command, Stdio},
+};
+
 #[cfg(feature = "grpc-storage")]
 use serde_json::Value;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use tempfile::TempDir;
 
 /// Test utility for running CLI commands
@@ -123,8 +126,8 @@ mod signing_tests {
 
         result.assert_success();
         assert!(
-            result.contains_stdout("CLI tool for signing and verifying messages")
-                || result.contains_stdout("Tari-compatible")
+            result.contains_stdout("CLI tool for signing and verifying messages") ||
+                result.contains_stdout("Tari-compatible")
         );
         assert!(result.contains_stdout("generate"));
         assert!(result.contains_stdout("sign"));
@@ -284,11 +287,7 @@ mod signing_tests {
         ]);
 
         // Should fail or indicate invalid signature
-        assert!(
-            result.contains_stdout("invalid")
-                || result.contains_stderr("invalid")
-                || !result.success
-        );
+        assert!(result.contains_stdout("invalid") || result.contains_stderr("invalid") || !result.success);
     }
 
     #[test]
@@ -301,8 +300,7 @@ mod signing_tests {
         assert!(result.contains_stderr("provide either") || result.contains_stderr("secret-key"));
 
         // Test invalid hex key
-        let result =
-            runner.run_signing(&["sign", "--secret-key", "invalid_hex", "--message", "test"]);
+        let result = runner.run_signing(&["sign", "--secret-key", "invalid_hex", "--message", "test"]);
         result.assert_failure();
     }
 }
@@ -341,14 +339,12 @@ mod wallet_tests {
 
         result.assert_success();
         assert!(
-            result.contains_stdout("Seed:")
-                || result.contains_stdout("seed phrase")
-                || result.contains_stdout("Seed phrase")
+            result.contains_stdout("Seed:") ||
+                result.contains_stdout("seed phrase") ||
+                result.contains_stdout("Seed phrase")
         );
         assert!(
-            result.contains_stdout("Base58:")
-                || result.contains_stdout("address")
-                || result.contains_stdout("Address")
+            result.contains_stdout("Base58:") || result.contains_stdout("address") || result.contains_stdout("Address")
         );
     }
 
@@ -410,10 +406,7 @@ mod scanner_tests {
         let result = runner.run_scanner(&["--help"]);
 
         result.assert_success();
-        assert!(
-            result.contains_stdout("Enhanced Tari Wallet Scanner")
-                || result.contains_stdout("scanner")
-        );
+        assert!(result.contains_stdout("Enhanced Tari Wallet Scanner") || result.contains_stdout("scanner"));
         assert!(result.contains_stdout("seed-phrase") || result.contains_stdout("view-key"));
     }
 
@@ -430,18 +423,13 @@ mod scanner_tests {
     fn test_conflicting_key_arguments() {
         let runner = CliTestRunner::new();
         // Test providing both seed phrase and view key (should fail immediately)
-        let result = runner.run_scanner(&[
-            "--seed-phrase",
-            "test seed phrase",
-            "--view-key",
-            &"a".repeat(64),
-        ]);
+        let result = runner.run_scanner(&["--seed-phrase", "test seed phrase", "--view-key", &"a".repeat(64)]);
 
         result.assert_failure();
         assert!(
-            result.contains_stderr("Cannot specify both")
-                || result.contains_stderr("seed-phrase")
-                || result.contains_stderr("view-key")
+            result.contains_stderr("Cannot specify both") ||
+                result.contains_stderr("seed-phrase") ||
+                result.contains_stderr("view-key")
         );
     }
 
@@ -593,8 +581,7 @@ mod integration_tests {
 
     #[test]
     fn test_concurrent_binary_execution() {
-        use std::sync::Arc;
-        use std::thread;
+        use std::{sync::Arc, thread};
 
         let runner = Arc::new(CliTestRunner::new());
         let mut handles = vec![];

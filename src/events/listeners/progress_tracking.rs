@@ -4,10 +4,13 @@
 //! by handling scan events and providing customizable progress tracking with callbacks.
 //! It tracks scan statistics, calculates ETA, and reports progress at configurable intervals.
 
+use std::{
+    error::Error,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
 use async_trait::async_trait;
-use std::error::Error;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use crate::events::{EventListener, SharedEvent, WalletScanEvent};
 
@@ -50,8 +53,7 @@ pub struct ScanProgressInfo {
 impl ScanProgressInfo {
     /// Check if this progress update should be displayed based on frequency
     pub fn should_display(&self, frequency: usize) -> bool {
-        frequency > 0
-            && (self.blocks_processed % frequency == 0 || self.is_completed || self.is_cancelled)
+        frequency > 0 && (self.blocks_processed % frequency == 0 || self.is_completed || self.is_cancelled)
     }
 
     /// Get a human-readable summary of the progress
@@ -71,12 +73,10 @@ impl ScanProgressInfo {
                 elapsed = self.elapsed
             )
         } else {
-            let eta_str = self
-                .eta
-                .map(|eta| format!(", ETA: {eta:?}"))
-                .unwrap_or_default();
+            let eta_str = self.eta.map(|eta| format!(", ETA: {eta:?}")).unwrap_or_default();
             format!(
-                "Progress: {progress_percent:.1}% ({blocks_processed}/{total_blocks}), {outputs_found} outputs found, {blocks_per_sec:.1} blocks/sec{eta_str}",
+                "Progress: {progress_percent:.1}% ({blocks_processed}/{total_blocks}), {outputs_found} outputs found, \
+                 {blocks_per_sec:.1} blocks/sec{eta_str}",
                 progress_percent = self.progress_percent,
                 blocks_processed = self.blocks_processed,
                 total_blocks = self.total_blocks,
@@ -243,27 +243,21 @@ impl ProgressTrackingListener {
 
     /// Set a progress callback function
     pub fn with_progress_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&ScanProgressInfo) + Send + Sync + 'static,
-    {
+    where F: Fn(&ScanProgressInfo) + Send + Sync + 'static {
         self.progress_callback = Some(Arc::new(callback));
         self
     }
 
     /// Set a completion callback function
     pub fn with_completion_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&ScanProgressInfo) + Send + Sync + 'static,
-    {
+    where F: Fn(&ScanProgressInfo) + Send + Sync + 'static {
         self.completion_callback = Some(Arc::new(callback));
         self
     }
 
     /// Set an error callback function
     pub fn with_error_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&str, Option<u64>) + Send + Sync + 'static,
-    {
+    where F: Fn(&str, Option<u64>) + Send + Sync + 'static {
         self.error_callback = Some(Arc::new(callback));
         self
     }
@@ -498,13 +492,10 @@ impl ProgressTrackingListener {
         }
 
         if self.verbose {
-            self.log(&format!(
-                "Scan error at block {block_height:?}: {error_message}"
-            ));
+            self.log(&format!("Scan error at block {block_height:?}: {error_message}"));
         }
 
-        self.trigger_error_callback(error_message, block_height)
-            .await;
+        self.trigger_error_callback(error_message, block_height).await;
 
         Ok(())
     }
@@ -563,10 +554,10 @@ impl ProgressTrackingListener {
         };
 
         // Calculate ETA if enabled and we have meaningful data
-        let eta = if self.config.calculate_eta
-            && state.blocks_processed > 0
-            && blocks_per_sec > 0.0
-            && state.blocks_processed < state.total_blocks as usize
+        let eta = if self.config.calculate_eta &&
+            state.blocks_processed > 0 &&
+            blocks_per_sec > 0.0 &&
+            state.blocks_processed < state.total_blocks as usize
         {
             let remaining_blocks = state.total_blocks as usize - state.blocks_processed;
             let eta_seconds = remaining_blocks as f64 / blocks_per_sec;
@@ -661,20 +652,14 @@ impl Default for ProgressTrackingListener {
 
 #[async_trait]
 impl EventListener for ProgressTrackingListener {
-    async fn handle_event(
-        &mut self,
-        event: &SharedEvent,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
         match event.as_ref() {
             WalletScanEvent::ScanStarted {
                 config,
                 block_range,
                 wallet_context,
                 ..
-            } => {
-                self.handle_scan_started(config, *block_range, wallet_context)
-                    .await
-            }
+            } => self.handle_scan_started(config, *block_range, wallet_context).await,
             WalletScanEvent::BlockProcessed {
                 height,
                 hash,
@@ -683,31 +668,22 @@ impl EventListener for ProgressTrackingListener {
                 outputs_count,
                 ..
             } => {
-                self.handle_block_processed(
-                    *height,
-                    hash,
-                    *timestamp,
-                    *processing_duration,
-                    *outputs_count,
-                )
-                .await
-            }
+                self.handle_block_processed(*height, hash, *timestamp, *processing_duration, *outputs_count)
+                    .await
+            },
             WalletScanEvent::OutputFound {
                 output_data,
                 block_info,
                 address_info,
                 ..
-            } => {
-                self.handle_output_found(output_data, block_info, address_info)
-                    .await
-            }
+            } => self.handle_output_found(output_data, block_info, address_info).await,
             WalletScanEvent::SpentOutputFound { .. } => {
                 // Track spent outputs in inputs_found counter
                 if let Ok(mut state) = self.state.lock() {
                     state.inputs_found += 1;
                 }
                 Ok(())
-            }
+            },
             WalletScanEvent::ScanProgress {
                 current_block,
                 total_blocks,
@@ -724,7 +700,7 @@ impl EventListener for ProgressTrackingListener {
                     *estimated_time_remaining,
                 )
                 .await
-            }
+            },
             WalletScanEvent::ScanCompleted {
                 final_statistics,
                 success,
@@ -733,7 +709,7 @@ impl EventListener for ProgressTrackingListener {
             } => {
                 self.handle_scan_completed(final_statistics, *success, *total_duration)
                     .await
-            }
+            },
             WalletScanEvent::ScanError {
                 error_message,
                 error_code,
@@ -750,7 +726,7 @@ impl EventListener for ProgressTrackingListener {
                     *is_recoverable,
                 )
                 .await
-            }
+            },
             WalletScanEvent::ScanCancelled {
                 reason,
                 final_statistics,
@@ -759,7 +735,7 @@ impl EventListener for ProgressTrackingListener {
             } => {
                 self.handle_scan_cancelled(reason, final_statistics, *partial_completion)
                     .await
-            }
+            },
         }
     }
 
@@ -770,14 +746,14 @@ impl EventListener for ProgressTrackingListener {
     /// Only handle events that are relevant to progress tracking
     fn wants_event(&self, event: &SharedEvent) -> bool {
         match event.as_ref() {
-            WalletScanEvent::ScanStarted { .. }
-            | WalletScanEvent::BlockProcessed { .. }
-            | WalletScanEvent::OutputFound { .. }
-            | WalletScanEvent::SpentOutputFound { .. }
-            | WalletScanEvent::ScanProgress { .. }
-            | WalletScanEvent::ScanCompleted { .. }
-            | WalletScanEvent::ScanError { .. }
-            | WalletScanEvent::ScanCancelled { .. } => true,
+            WalletScanEvent::ScanStarted { .. } |
+            WalletScanEvent::BlockProcessed { .. } |
+            WalletScanEvent::OutputFound { .. } |
+            WalletScanEvent::SpentOutputFound { .. } |
+            WalletScanEvent::ScanProgress { .. } |
+            WalletScanEvent::ScanCompleted { .. } |
+            WalletScanEvent::ScanError { .. } |
+            WalletScanEvent::ScanCancelled { .. } => true,
         }
     }
 }
@@ -835,27 +811,21 @@ impl ProgressTrackingListenerBuilder {
 
     /// Set a progress callback function
     pub fn with_progress_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&ScanProgressInfo) + Send + Sync + 'static,
-    {
+    where F: Fn(&ScanProgressInfo) + Send + Sync + 'static {
         self.progress_callback = Some(Arc::new(callback));
         self
     }
 
     /// Set a completion callback function
     pub fn with_completion_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&ScanProgressInfo) + Send + Sync + 'static,
-    {
+    where F: Fn(&ScanProgressInfo) + Send + Sync + 'static {
         self.completion_callback = Some(Arc::new(callback));
         self
     }
 
     /// Set an error callback function
     pub fn with_error_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&str, Option<u64>) + Send + Sync + 'static,
-    {
+    where F: Fn(&str, Option<u64>) + Send + Sync + 'static {
         self.error_callback = Some(Arc::new(callback));
         self
     }
@@ -1016,8 +986,7 @@ impl ProgressTrackingListenerBuilder {
 
     /// Build the configured ProgressTrackingListener
     pub fn build(self) -> ProgressTrackingListener {
-        let mut listener =
-            ProgressTrackingListener::with_config(self.config).with_verbose(self.verbose);
+        let mut listener = ProgressTrackingListener::with_config(self.config).with_verbose(self.verbose);
 
         if let Some(callback) = self.progress_callback {
             listener.progress_callback = Some(callback);
@@ -1044,485 +1013,483 @@ impl Default for ProgressTrackingListenerBuilder {
 // Tests removed due to API compatibility issues with event constructors
 #[cfg(test)]
 mod tests {
-    /*
-    use super::*;
-    use crate::events::types::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    #[tokio::test]
-    async fn test_progress_tracking_listener_creation() {
-        let listener = ProgressTrackingListener::new();
-        assert_eq!(listener.name(), "ProgressTrackingListener");
-        assert!(listener.get_progress_info().is_none()); // No scan started yet
-    }
-
-    #[tokio::test]
-    async fn test_progress_tracking_listener_builder() {
-        let callback_invoked = Arc::new(AtomicUsize::new(0));
-        let callback_invoked_clone = callback_invoked.clone();
-
-        let listener = ProgressTrackingListener::builder()
-            .frequency(5)
-            .quiet(false)
-            .calculate_eta(true)
-            .verbose(true)
-            .with_progress_callback(move |_progress| {
-                callback_invoked_clone.fetch_add(1, Ordering::SeqCst);
-            })
-            .build();
-
-        assert_eq!(listener.config.frequency, 5);
-        assert!(!listener.config.quiet);
-        assert!(listener.config.calculate_eta);
-        assert!(listener.verbose);
-        assert!(listener.progress_callback.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_scan_started_event() {
-        let listener = ProgressTrackingListener::new();
-
-        let event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 2000),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let result = listener_mut.handle_event(&event).await;
-        assert!(result.is_ok());
-
-        let progress_info = listener_mut.get_progress_info().unwrap();
-        assert_eq!(progress_info.current_block, 1000);
-        assert_eq!(progress_info.total_blocks, 1001); // 2000 - 1000 + 1
-        assert_eq!(progress_info.blocks_processed, 0);
-        assert!(!progress_info.is_completed);
-    }
-
-    #[tokio::test]
-    async fn test_block_processed_event() {
-        let listener = ProgressTrackingListener::new();
-
-        // Start scan first
-        let start_event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 1100),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let _ = listener_mut.handle_event(&start_event).await;
-
-        // Process a block
-        let block_event = Arc::new(WalletScanEvent::block_processed(
-            1001,
-            "block_hash".to_string(),
-            1697123456,
-            Duration::from_millis(100),
-            5,
-        ));
-
-        let result = listener_mut.handle_event(&block_event).await;
-        assert!(result.is_ok());
-
-        let progress_info = listener_mut.get_progress_info().unwrap();
-        assert_eq!(progress_info.current_block, 1001);
-        assert_eq!(progress_info.blocks_processed, 1);
-        assert_eq!(progress_info.last_block_height, 1001);
-    }
-
-    #[tokio::test]
-    async fn test_output_found_event() {
-        let listener = ProgressTrackingListener::new();
-
-        // Start scan first
-        let start_event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 1100),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let _ = listener_mut.handle_event(&start_event).await;
-
-        // Process an output found event
-        let output_data = OutputData::new(
-            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string(),
-            "range_proof_data".to_string(),
-            1,
-            true,
-        )
-        .with_amount(1000);
-
-        let block_info = BlockInfo::new(1001, "block_hash".to_string(), 1697123456, 0);
-
-        let address_info = AddressInfo::new(
-            "tari1xyz123...".to_string(),
-            "stealth".to_string(),
-            "mainnet".to_string(),
-        );
-
-        let transaction_data = crate::events::types::TransactionData::new(
-            2000,
-            "MinedConfirmed".to_string(),
-            "Inbound".to_string(),
-            1697123456,
-        );
-
-        let output_event = Arc::new(WalletScanEvent::output_found(
-            output_data,
-            block_info,
-            address_info,
-            transaction_data,
-        ));
-
-        let result = listener_mut.handle_event(&output_event).await;
-        assert!(result.is_ok());
-
-        let progress_info = listener_mut.get_progress_info().unwrap();
-        assert_eq!(progress_info.outputs_found, 1);
-    }
-
-    #[tokio::test]
-    async fn test_scan_progress_event() {
-        let listener = ProgressTrackingListener::new();
-
-        // Start scan first
-        let start_event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 1100),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let _ = listener_mut.handle_event(&start_event).await;
-
-        // Send progress event
-        let progress_event = Arc::new(WalletScanEvent::scan_progress(
-            1050,
-            101,
-            2050,
-            50.0,
-            10.5,
-            Some(Duration::from_secs(30)),
-        ));
-
-        let result = listener_mut.handle_event(&progress_event).await;
-        assert!(result.is_ok());
-
-        let progress_info = listener_mut.get_progress_info().unwrap();
-        assert_eq!(progress_info.current_block, 1050);
-        assert_eq!(progress_info.total_blocks, 101);
-        assert_eq!(progress_info.blocks_processed, 50); // Based on 50% progress
-    }
-
-    #[tokio::test]
-    async fn test_scan_completed_event() {
-        let listener = ProgressTrackingListener::new();
-
-        // Start scan first
-        let start_event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 1100),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let _ = listener_mut.handle_event(&start_event).await;
-
-        // Complete the scan
-        let mut final_stats = std::collections::HashMap::new();
-        final_stats.insert("blocks_processed".to_string(), 101);
-        final_stats.insert("outputs_found".to_string(), 25);
-
-        let completed_event = Arc::new(WalletScanEvent::scan_completed(
-            final_stats,
-            true,
-            Duration::from_secs(60),
-        ));
-
-        let result = listener_mut.handle_event(&completed_event).await;
-        assert!(result.is_ok());
-
-        let progress_info = listener_mut.get_progress_info().unwrap();
-        assert_eq!(progress_info.blocks_processed, 101);
-        assert_eq!(progress_info.outputs_found, 25);
-        assert!(progress_info.is_completed);
-        assert!(!progress_info.is_cancelled);
-    }
-
-    #[tokio::test]
-    async fn test_scan_cancelled_event() {
-        let listener = ProgressTrackingListener::new();
-
-        // Start scan first
-        let start_event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 1100),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let _ = listener_mut.handle_event(&start_event).await;
-
-        // Cancel the scan
-        let mut final_stats = std::collections::HashMap::new();
-        final_stats.insert("blocks_processed".to_string(), 50);
-        final_stats.insert("outputs_found".to_string(), 10);
-
-        let cancelled_event = Arc::new(WalletScanEvent::scan_cancelled(
-            "User cancelled".to_string(),
-            final_stats,
-            Some(0.5),
-        ));
-
-        let result = listener_mut.handle_event(&cancelled_event).await;
-        assert!(result.is_ok());
-
-        let progress_info = listener_mut.get_progress_info().unwrap();
-        assert_eq!(progress_info.blocks_processed, 50);
-        assert_eq!(progress_info.outputs_found, 10);
-        assert!(!progress_info.is_completed);
-        assert!(progress_info.is_cancelled);
-    }
-
-    #[tokio::test]
-    async fn test_scan_error_event() {
-        let error_count = Arc::new(AtomicUsize::new(0));
-        let error_count_clone = error_count.clone();
-
-        let listener =
-            ProgressTrackingListener::new().with_error_callback(move |_error, _block| {
-                error_count_clone.fetch_add(1, Ordering::SeqCst);
-            });
-
-        let error_event = Arc::new(WalletScanEvent::scan_error(
-            "Test error".to_string(),
-            Some("ERR001".to_string()),
-            Some(1050),
-            None,
-            true,
-        ));
-
-        let mut listener_mut = listener;
-        let result = listener_mut.handle_event(&error_event).await;
-        assert!(result.is_ok());
-        assert_eq!(error_count.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn test_progress_callback_frequency() {
-        let callback_count = Arc::new(AtomicUsize::new(0));
-        let callback_count_clone = callback_count.clone();
-
-        let listener = ProgressTrackingListener::builder()
-            .frequency(3) // Every 3 blocks
-            .min_update_interval_ms(0) // No time throttling for test
-            .with_progress_callback(move |_progress| {
-                callback_count_clone.fetch_add(1, Ordering::SeqCst);
-            })
-            .build();
-
-        // Start scan
-        let start_event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 1010),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let _ = listener_mut.handle_event(&start_event).await;
-
-        // Process 5 blocks - should trigger callback twice (at blocks 3 and 6)
-        for i in 1..=5 {
-            let block_event = Arc::new(WalletScanEvent::block_processed(
-                1000 + i,
-                format!("block_hash_{i}"),
-                1697123456,
-                Duration::from_millis(100),
-                0,
-            ));
-            let _ = listener_mut.handle_event(&block_event).await;
-        }
-
-        assert_eq!(callback_count.load(Ordering::SeqCst), 1); // Only at blocks_processed=3
-    }
-
-    #[tokio::test]
-    async fn test_event_filtering() {
-        let listener = ProgressTrackingListener::new();
-
-        // All relevant events should be wanted
-        let scan_started = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (0, 100),
-            "test_wallet".to_string(),
-        ));
-        assert!(listener.wants_event(&scan_started));
-
-        let block_processed = Arc::new(WalletScanEvent::block_processed(
-            100,
-            "block_hash".to_string(),
-            1234567890,
-            Duration::from_millis(100),
-            5,
-        ));
-        assert!(listener.wants_event(&block_processed));
-    }
-
-    #[tokio::test]
-    async fn test_progress_info_summary() {
-        let progress_info = ScanProgressInfo {
-            current_block: 1050,
-            total_blocks: 2000,
-            blocks_processed: 500,
-            outputs_found: 25,
-            inputs_found: 10,
-            start_time: Instant::now(),
-            progress_percent: 25.0,
-            blocks_per_sec: 10.5,
-            elapsed: Duration::from_secs(60),
-            eta: Some(Duration::from_secs(180)),
-            last_block_height: 1050,
-            is_completed: false,
-            is_cancelled: false,
-            has_errors: false,
-        };
-
-        let summary = progress_info.summary();
-        assert!(summary.contains("25.0%"));
-        assert!(summary.contains("500/2000"));
-        assert!(summary.contains("25 outputs"));
-        assert!(summary.contains("10.5 blocks/sec"));
-        assert!(summary.contains("ETA"));
-    }
-
-    #[tokio::test]
-    async fn test_reset_functionality() {
-        let listener = ProgressTrackingListener::new();
-
-        // Start scan and process some blocks
-        let start_event = Arc::new(WalletScanEvent::scan_started(
-            ScanConfig::default(),
-            (1000, 1100),
-            "test_wallet".to_string(),
-        ));
-
-        let mut listener_mut = listener;
-        let _ = listener_mut.handle_event(&start_event).await;
-
-        // Verify state is set
-        assert!(listener_mut.get_progress_info().is_some());
-
-        // Reset and verify state is cleared
-        listener_mut.reset();
-        assert!(listener_mut.get_progress_info().is_none());
-    }
-
-    #[test]
-    fn test_progress_tracking_listener_builder_presets() {
-        // Test silent preset
-        let silent_listener = ProgressTrackingListener::builder().silent_preset().build();
-        assert!(silent_listener.config.quiet);
-        assert_eq!(silent_listener.config.frequency, 100);
-        assert!(!silent_listener.config.calculate_eta);
-        assert!(!silent_listener.config.track_detailed_stats);
-        assert!(!silent_listener.verbose);
-
-        // Test console preset
-        let console_listener = ProgressTrackingListener::builder().console_preset().build();
-        assert!(!console_listener.config.quiet);
-        assert_eq!(console_listener.config.frequency, 10);
-        assert!(console_listener.config.calculate_eta);
-        assert!(console_listener.config.track_detailed_stats);
-        assert_eq!(console_listener.config.min_update_interval_ms, 500);
-        assert!(console_listener.verbose);
-
-        // Test performance preset
-        let performance_listener = ProgressTrackingListener::builder()
-            .performance_preset()
-            .build();
-        assert!(performance_listener.config.quiet);
-        assert_eq!(performance_listener.config.frequency, 500);
-        assert!(!performance_listener.config.calculate_eta);
-        assert!(!performance_listener.config.track_detailed_stats);
-        assert_eq!(performance_listener.config.min_update_interval_ms, 2000);
-        assert!(!performance_listener.verbose);
-
-        // Test detailed preset
-        let detailed_listener = ProgressTrackingListener::builder()
-            .detailed_preset()
-            .build();
-        assert!(!detailed_listener.config.quiet);
-        assert_eq!(detailed_listener.config.frequency, 5);
-        assert!(detailed_listener.config.calculate_eta);
-        assert!(detailed_listener.config.track_detailed_stats);
-        assert_eq!(detailed_listener.config.min_update_interval_ms, 250);
-        assert!(detailed_listener.verbose);
-
-        // Test CI preset
-        let ci_listener = ProgressTrackingListener::builder().ci_preset().build();
-        assert!(!ci_listener.config.quiet);
-        assert_eq!(ci_listener.config.frequency, 50);
-        assert!(ci_listener.config.calculate_eta);
-        assert!(ci_listener.config.track_detailed_stats);
-        assert_eq!(ci_listener.config.min_update_interval_ms, 5000);
-        assert!(!ci_listener.verbose);
-    }
-
-    #[test]
-    fn test_progress_tracking_listener_builder_preset_chaining() {
-        let listener = ProgressTrackingListener::builder()
-            .performance_preset() // Start with performance preset
-            .frequency(25) // Override frequency
-            .verbose(true) // Override verbose
-            .build();
-
-        // Should have the overridden values
-        assert_eq!(listener.config.frequency, 25);
-        assert!(listener.verbose);
-
-        // Should retain other preset values
-        assert!(listener.config.quiet);
-        assert!(!listener.config.calculate_eta);
-        assert!(!listener.config.track_detailed_stats);
-    }
-
-    #[test]
-    fn test_progress_tracking_listener_builder_with_callbacks() {
-        let progress_called = Arc::new(AtomicUsize::new(0));
-        let progress_called_clone = progress_called.clone();
-
-        let completion_called = Arc::new(AtomicUsize::new(0));
-        let completion_called_clone = completion_called.clone();
-
-        let error_called = Arc::new(AtomicUsize::new(0));
-        let error_called_clone = error_called.clone();
-
-        let listener = ProgressTrackingListener::builder()
-            .console_preset()
-            .with_progress_callback(move |_info| {
-                progress_called_clone.fetch_add(1, Ordering::Relaxed);
-            })
-            .with_completion_callback(move |_info| {
-                completion_called_clone.fetch_add(1, Ordering::Relaxed);
-            })
-            .with_error_callback(move |_error, _block| {
-                error_called_clone.fetch_add(1, Ordering::Relaxed);
-            })
-            .build();
-
-        // Verify the listener was configured correctly
-        assert!(!listener.config.quiet);
-        assert_eq!(listener.config.frequency, 10);
-        assert!(listener.verbose);
-
-        // Verify callbacks are set (we can't easily test execution without async setup)
-        assert!(listener.progress_callback.is_some());
-        assert!(listener.completion_callback.is_some());
-        assert!(listener.error_callback.is_some());
-    }
-    */
+    // use super::*;
+    // use crate::events::types::*;
+    // use std::sync::atomic::{AtomicUsize, Ordering};
+    // use std::sync::Arc;
+    // use std::time::Duration;
+    //
+    // #[tokio::test]
+    // async fn test_progress_tracking_listener_creation() {
+    // let listener = ProgressTrackingListener::new();
+    // assert_eq!(listener.name(), "ProgressTrackingListener");
+    // assert!(listener.get_progress_info().is_none()); // No scan started yet
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_progress_tracking_listener_builder() {
+    // let callback_invoked = Arc::new(AtomicUsize::new(0));
+    // let callback_invoked_clone = callback_invoked.clone();
+    //
+    // let listener = ProgressTrackingListener::builder()
+    // .frequency(5)
+    // .quiet(false)
+    // .calculate_eta(true)
+    // .verbose(true)
+    // .with_progress_callback(move |_progress| {
+    // callback_invoked_clone.fetch_add(1, Ordering::SeqCst);
+    // })
+    // .build();
+    //
+    // assert_eq!(listener.config.frequency, 5);
+    // assert!(!listener.config.quiet);
+    // assert!(listener.config.calculate_eta);
+    // assert!(listener.verbose);
+    // assert!(listener.progress_callback.is_some());
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_scan_started_event() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // let event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 2000),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let result = listener_mut.handle_event(&event).await;
+    // assert!(result.is_ok());
+    //
+    // let progress_info = listener_mut.get_progress_info().unwrap();
+    // assert_eq!(progress_info.current_block, 1000);
+    // assert_eq!(progress_info.total_blocks, 1001); // 2000 - 1000 + 1
+    // assert_eq!(progress_info.blocks_processed, 0);
+    // assert!(!progress_info.is_completed);
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_block_processed_event() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // Start scan first
+    // let start_event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 1100),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let _ = listener_mut.handle_event(&start_event).await;
+    //
+    // Process a block
+    // let block_event = Arc::new(WalletScanEvent::block_processed(
+    // 1001,
+    // "block_hash".to_string(),
+    // 1697123456,
+    // Duration::from_millis(100),
+    // 5,
+    // ));
+    //
+    // let result = listener_mut.handle_event(&block_event).await;
+    // assert!(result.is_ok());
+    //
+    // let progress_info = listener_mut.get_progress_info().unwrap();
+    // assert_eq!(progress_info.current_block, 1001);
+    // assert_eq!(progress_info.blocks_processed, 1);
+    // assert_eq!(progress_info.last_block_height, 1001);
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_output_found_event() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // Start scan first
+    // let start_event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 1100),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let _ = listener_mut.handle_event(&start_event).await;
+    //
+    // Process an output found event
+    // let output_data = OutputData::new(
+    // "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string(),
+    // "range_proof_data".to_string(),
+    // 1,
+    // true,
+    // )
+    // .with_amount(1000);
+    //
+    // let block_info = BlockInfo::new(1001, "block_hash".to_string(), 1697123456, 0);
+    //
+    // let address_info = AddressInfo::new(
+    // "tari1xyz123...".to_string(),
+    // "stealth".to_string(),
+    // "mainnet".to_string(),
+    // );
+    //
+    // let transaction_data = crate::events::types::TransactionData::new(
+    // 2000,
+    // "MinedConfirmed".to_string(),
+    // "Inbound".to_string(),
+    // 1697123456,
+    // );
+    //
+    // let output_event = Arc::new(WalletScanEvent::output_found(
+    // output_data,
+    // block_info,
+    // address_info,
+    // transaction_data,
+    // ));
+    //
+    // let result = listener_mut.handle_event(&output_event).await;
+    // assert!(result.is_ok());
+    //
+    // let progress_info = listener_mut.get_progress_info().unwrap();
+    // assert_eq!(progress_info.outputs_found, 1);
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_scan_progress_event() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // Start scan first
+    // let start_event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 1100),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let _ = listener_mut.handle_event(&start_event).await;
+    //
+    // Send progress event
+    // let progress_event = Arc::new(WalletScanEvent::scan_progress(
+    // 1050,
+    // 101,
+    // 2050,
+    // 50.0,
+    // 10.5,
+    // Some(Duration::from_secs(30)),
+    // ));
+    //
+    // let result = listener_mut.handle_event(&progress_event).await;
+    // assert!(result.is_ok());
+    //
+    // let progress_info = listener_mut.get_progress_info().unwrap();
+    // assert_eq!(progress_info.current_block, 1050);
+    // assert_eq!(progress_info.total_blocks, 101);
+    // assert_eq!(progress_info.blocks_processed, 50); // Based on 50% progress
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_scan_completed_event() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // Start scan first
+    // let start_event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 1100),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let _ = listener_mut.handle_event(&start_event).await;
+    //
+    // Complete the scan
+    // let mut final_stats = std::collections::HashMap::new();
+    // final_stats.insert("blocks_processed".to_string(), 101);
+    // final_stats.insert("outputs_found".to_string(), 25);
+    //
+    // let completed_event = Arc::new(WalletScanEvent::scan_completed(
+    // final_stats,
+    // true,
+    // Duration::from_secs(60),
+    // ));
+    //
+    // let result = listener_mut.handle_event(&completed_event).await;
+    // assert!(result.is_ok());
+    //
+    // let progress_info = listener_mut.get_progress_info().unwrap();
+    // assert_eq!(progress_info.blocks_processed, 101);
+    // assert_eq!(progress_info.outputs_found, 25);
+    // assert!(progress_info.is_completed);
+    // assert!(!progress_info.is_cancelled);
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_scan_cancelled_event() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // Start scan first
+    // let start_event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 1100),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let _ = listener_mut.handle_event(&start_event).await;
+    //
+    // Cancel the scan
+    // let mut final_stats = std::collections::HashMap::new();
+    // final_stats.insert("blocks_processed".to_string(), 50);
+    // final_stats.insert("outputs_found".to_string(), 10);
+    //
+    // let cancelled_event = Arc::new(WalletScanEvent::scan_cancelled(
+    // "User cancelled".to_string(),
+    // final_stats,
+    // Some(0.5),
+    // ));
+    //
+    // let result = listener_mut.handle_event(&cancelled_event).await;
+    // assert!(result.is_ok());
+    //
+    // let progress_info = listener_mut.get_progress_info().unwrap();
+    // assert_eq!(progress_info.blocks_processed, 50);
+    // assert_eq!(progress_info.outputs_found, 10);
+    // assert!(!progress_info.is_completed);
+    // assert!(progress_info.is_cancelled);
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_scan_error_event() {
+    // let error_count = Arc::new(AtomicUsize::new(0));
+    // let error_count_clone = error_count.clone();
+    //
+    // let listener =
+    // ProgressTrackingListener::new().with_error_callback(move |_error, _block| {
+    // error_count_clone.fetch_add(1, Ordering::SeqCst);
+    // });
+    //
+    // let error_event = Arc::new(WalletScanEvent::scan_error(
+    // "Test error".to_string(),
+    // Some("ERR001".to_string()),
+    // Some(1050),
+    // None,
+    // true,
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let result = listener_mut.handle_event(&error_event).await;
+    // assert!(result.is_ok());
+    // assert_eq!(error_count.load(Ordering::SeqCst), 1);
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_progress_callback_frequency() {
+    // let callback_count = Arc::new(AtomicUsize::new(0));
+    // let callback_count_clone = callback_count.clone();
+    //
+    // let listener = ProgressTrackingListener::builder()
+    // .frequency(3) // Every 3 blocks
+    // .min_update_interval_ms(0) // No time throttling for test
+    // .with_progress_callback(move |_progress| {
+    // callback_count_clone.fetch_add(1, Ordering::SeqCst);
+    // })
+    // .build();
+    //
+    // Start scan
+    // let start_event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 1010),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let _ = listener_mut.handle_event(&start_event).await;
+    //
+    // Process 5 blocks - should trigger callback twice (at blocks 3 and 6)
+    // for i in 1..=5 {
+    // let block_event = Arc::new(WalletScanEvent::block_processed(
+    // 1000 + i,
+    // format!("block_hash_{i}"),
+    // 1697123456,
+    // Duration::from_millis(100),
+    // 0,
+    // ));
+    // let _ = listener_mut.handle_event(&block_event).await;
+    // }
+    //
+    // assert_eq!(callback_count.load(Ordering::SeqCst), 1); // Only at blocks_processed=3
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_event_filtering() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // All relevant events should be wanted
+    // let scan_started = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (0, 100),
+    // "test_wallet".to_string(),
+    // ));
+    // assert!(listener.wants_event(&scan_started));
+    //
+    // let block_processed = Arc::new(WalletScanEvent::block_processed(
+    // 100,
+    // "block_hash".to_string(),
+    // 1234567890,
+    // Duration::from_millis(100),
+    // 5,
+    // ));
+    // assert!(listener.wants_event(&block_processed));
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_progress_info_summary() {
+    // let progress_info = ScanProgressInfo {
+    // current_block: 1050,
+    // total_blocks: 2000,
+    // blocks_processed: 500,
+    // outputs_found: 25,
+    // inputs_found: 10,
+    // start_time: Instant::now(),
+    // progress_percent: 25.0,
+    // blocks_per_sec: 10.5,
+    // elapsed: Duration::from_secs(60),
+    // eta: Some(Duration::from_secs(180)),
+    // last_block_height: 1050,
+    // is_completed: false,
+    // is_cancelled: false,
+    // has_errors: false,
+    // };
+    //
+    // let summary = progress_info.summary();
+    // assert!(summary.contains("25.0%"));
+    // assert!(summary.contains("500/2000"));
+    // assert!(summary.contains("25 outputs"));
+    // assert!(summary.contains("10.5 blocks/sec"));
+    // assert!(summary.contains("ETA"));
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_reset_functionality() {
+    // let listener = ProgressTrackingListener::new();
+    //
+    // Start scan and process some blocks
+    // let start_event = Arc::new(WalletScanEvent::scan_started(
+    // ScanConfig::default(),
+    // (1000, 1100),
+    // "test_wallet".to_string(),
+    // ));
+    //
+    // let mut listener_mut = listener;
+    // let _ = listener_mut.handle_event(&start_event).await;
+    //
+    // Verify state is set
+    // assert!(listener_mut.get_progress_info().is_some());
+    //
+    // Reset and verify state is cleared
+    // listener_mut.reset();
+    // assert!(listener_mut.get_progress_info().is_none());
+    // }
+    //
+    // #[test]
+    // fn test_progress_tracking_listener_builder_presets() {
+    // Test silent preset
+    // let silent_listener = ProgressTrackingListener::builder().silent_preset().build();
+    // assert!(silent_listener.config.quiet);
+    // assert_eq!(silent_listener.config.frequency, 100);
+    // assert!(!silent_listener.config.calculate_eta);
+    // assert!(!silent_listener.config.track_detailed_stats);
+    // assert!(!silent_listener.verbose);
+    //
+    // Test console preset
+    // let console_listener = ProgressTrackingListener::builder().console_preset().build();
+    // assert!(!console_listener.config.quiet);
+    // assert_eq!(console_listener.config.frequency, 10);
+    // assert!(console_listener.config.calculate_eta);
+    // assert!(console_listener.config.track_detailed_stats);
+    // assert_eq!(console_listener.config.min_update_interval_ms, 500);
+    // assert!(console_listener.verbose);
+    //
+    // Test performance preset
+    // let performance_listener = ProgressTrackingListener::builder()
+    // .performance_preset()
+    // .build();
+    // assert!(performance_listener.config.quiet);
+    // assert_eq!(performance_listener.config.frequency, 500);
+    // assert!(!performance_listener.config.calculate_eta);
+    // assert!(!performance_listener.config.track_detailed_stats);
+    // assert_eq!(performance_listener.config.min_update_interval_ms, 2000);
+    // assert!(!performance_listener.verbose);
+    //
+    // Test detailed preset
+    // let detailed_listener = ProgressTrackingListener::builder()
+    // .detailed_preset()
+    // .build();
+    // assert!(!detailed_listener.config.quiet);
+    // assert_eq!(detailed_listener.config.frequency, 5);
+    // assert!(detailed_listener.config.calculate_eta);
+    // assert!(detailed_listener.config.track_detailed_stats);
+    // assert_eq!(detailed_listener.config.min_update_interval_ms, 250);
+    // assert!(detailed_listener.verbose);
+    //
+    // Test CI preset
+    // let ci_listener = ProgressTrackingListener::builder().ci_preset().build();
+    // assert!(!ci_listener.config.quiet);
+    // assert_eq!(ci_listener.config.frequency, 50);
+    // assert!(ci_listener.config.calculate_eta);
+    // assert!(ci_listener.config.track_detailed_stats);
+    // assert_eq!(ci_listener.config.min_update_interval_ms, 5000);
+    // assert!(!ci_listener.verbose);
+    // }
+    //
+    // #[test]
+    // fn test_progress_tracking_listener_builder_preset_chaining() {
+    // let listener = ProgressTrackingListener::builder()
+    // .performance_preset() // Start with performance preset
+    // .frequency(25) // Override frequency
+    // .verbose(true) // Override verbose
+    // .build();
+    //
+    // Should have the overridden values
+    // assert_eq!(listener.config.frequency, 25);
+    // assert!(listener.verbose);
+    //
+    // Should retain other preset values
+    // assert!(listener.config.quiet);
+    // assert!(!listener.config.calculate_eta);
+    // assert!(!listener.config.track_detailed_stats);
+    // }
+    //
+    // #[test]
+    // fn test_progress_tracking_listener_builder_with_callbacks() {
+    // let progress_called = Arc::new(AtomicUsize::new(0));
+    // let progress_called_clone = progress_called.clone();
+    //
+    // let completion_called = Arc::new(AtomicUsize::new(0));
+    // let completion_called_clone = completion_called.clone();
+    //
+    // let error_called = Arc::new(AtomicUsize::new(0));
+    // let error_called_clone = error_called.clone();
+    //
+    // let listener = ProgressTrackingListener::builder()
+    // .console_preset()
+    // .with_progress_callback(move |_info| {
+    // progress_called_clone.fetch_add(1, Ordering::Relaxed);
+    // })
+    // .with_completion_callback(move |_info| {
+    // completion_called_clone.fetch_add(1, Ordering::Relaxed);
+    // })
+    // .with_error_callback(move |_error, _block| {
+    // error_called_clone.fetch_add(1, Ordering::Relaxed);
+    // })
+    // .build();
+    //
+    // Verify the listener was configured correctly
+    // assert!(!listener.config.quiet);
+    // assert_eq!(listener.config.frequency, 10);
+    // assert!(listener.verbose);
+    //
+    // Verify callbacks are set (we can't easily test execution without async setup)
+    // assert!(listener.progress_callback.is_some());
+    // assert!(listener.completion_callback.is_some());
+    // assert!(listener.error_callback.is_some());
+    // }
 }

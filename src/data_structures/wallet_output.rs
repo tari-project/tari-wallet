@@ -1,31 +1,24 @@
-use crate::data_structures::{
-    encrypted_data::EncryptedData,
-    payment_id::PaymentId,
-    types::{CompressedPublicKey, MicroMinotari},
-};
-use crate::hex_utils::{HexEncodable, HexError, HexValidatable};
-use borsh::{BorshDeserialize, BorshSerialize};
-use hex::ToHex;
-use primitive_types::U256;
-use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     fmt::{Debug, Formatter},
 };
 
+use borsh::{BorshDeserialize, BorshSerialize};
+use hex::ToHex;
+use primitive_types::U256;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    data_structures::{
+        encrypted_data::EncryptedData,
+        payment_id::PaymentId,
+        types::{CompressedPublicKey, MicroMinotari},
+    },
+    hex_utils::{HexEncodable, HexError, HexValidatable},
+};
+
 /// Simplified key identifier for lightweight wallet operations
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub enum KeyId {
     /// A simple string identifier for keys
     String(String),
@@ -47,9 +40,7 @@ impl std::fmt::Display for KeyId {
 }
 
 /// Simplified output features for lightweight wallet operations
-#[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
 pub struct OutputFeatures {
     /// Output type (payment, coinbase, burn, etc.)
     pub output_type: OutputType,
@@ -77,18 +68,7 @@ impl Default for OutputFeatures {
 }
 
 /// Simplified output types
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub enum OutputType {
     #[default]
     Payment,
@@ -99,18 +79,7 @@ pub enum OutputType {
 }
 
 /// Simplified range proof types
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub enum RangeProofType {
     #[default]
     BulletProofPlus,
@@ -118,54 +87,21 @@ pub enum RangeProofType {
 }
 
 /// Simplified script for lightweight wallet operations
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub struct Script {
     /// Script bytes
     pub bytes: Vec<u8>,
 }
 
 /// Simplified covenant for lightweight wallet operations
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub struct Covenant {
     /// Covenant bytes
     pub bytes: Vec<u8>,
 }
 
 /// Simplified execution stack for lightweight wallet operations
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub struct ExecutionStack {
     /// Stack items as bytes
     pub items: Vec<Vec<u8>>,
@@ -180,18 +116,7 @@ impl ExecutionStack {
 
 // TODO: Replace with tari_crypto::ristretto::CompressedRistrettoComAndPubSig
 /// Simplified signature for lightweight wallet operations
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub struct Signature {
     pub ephemeral_commitment: Vec<u8>,
     pub ephemeral_pubkey: Vec<u8>,
@@ -201,18 +126,7 @@ pub struct Signature {
 }
 
 /// Simplified range proof for lightweight wallet operations
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Hash,
-    BorshSerialize,
-    BorshDeserialize,
-    Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default)]
 pub struct RangeProof {
     /// Range proof bytes
     pub bytes: Vec<u8>,
@@ -566,8 +480,7 @@ impl HexEncodable for ExecutionStack {
 
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
-        let items: Vec<Vec<u8>> =
-            borsh::from_slice(&bytes).map_err(|e| HexError::InvalidHex(e.to_string()))?;
+        let items: Vec<Vec<u8>> = borsh::from_slice(&bytes).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         Ok(Self { items })
     }
 }
@@ -576,9 +489,10 @@ impl HexValidatable for ExecutionStack {}
 
 #[cfg(test)]
 mod test {
+    use primitive_types::U256;
+
     use super::*;
     use crate::hex_utils::HexEncodable;
-    use primitive_types::U256;
 
     #[test]
     fn test_lightweight_wallet_output_creation() {
@@ -963,10 +877,7 @@ mod test {
         let default_features = OutputFeatures::default();
         assert_eq!(default_features.output_type, OutputType::Payment);
         assert_eq!(default_features.maturity, 0);
-        assert_eq!(
-            default_features.range_proof_type,
-            RangeProofType::BulletProofPlus
-        );
+        assert_eq!(default_features.range_proof_type, RangeProofType::BulletProofPlus);
 
         let default_script = Script::default();
         assert!(default_script.bytes.is_empty());

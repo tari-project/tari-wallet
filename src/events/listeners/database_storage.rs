@@ -5,45 +5,44 @@
 //! It supports both memory-only and file-based databases, with automatic wallet
 //! management and transaction storage.
 
-use async_trait::async_trait;
+#[cfg(feature = "storage")]
+use std::collections::{hash_map::Entry, HashMap};
 use std::error::Error;
+#[cfg(feature = "storage")]
+use std::sync::Arc;
 
+use async_trait::async_trait;
+#[cfg(feature = "storage")]
+use tari_crypto::ristretto::RistrettoSecretKey;
+#[cfg(feature = "storage")]
+use tari_transaction_components::key_manager::{
+    KeyManagerBranch,
+    SerializedKeyString,
+    TariKeyId,
+    TransactionKeyManagerInterface,
+};
+#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+use tokio::sync::{mpsc, oneshot};
+
+#[cfg(feature = "storage")]
+use crate::events::types::{AddressInfo, BlockInfo, OutputData, SpentOutputData, TransactionData};
+#[cfg(feature = "storage")]
+use crate::events::{ErrorRecord, ErrorRecoveryConfig, ErrorRecoveryManager, WalletScanEvent};
 use crate::events::{EventListener, SharedEvent};
 #[cfg(feature = "storage")]
 use crate::key_manager::TransactionKeyManager;
-
-#[cfg(feature = "storage")]
-use std::collections::{hash_map::Entry, HashMap};
-
-#[cfg(feature = "storage")]
-use crate::events::{ErrorRecord, ErrorRecoveryConfig, ErrorRecoveryManager, WalletScanEvent};
-
+#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+use crate::scanning::background_writer::{BackgroundWriter, BackgroundWriterCommand};
 #[cfg(feature = "storage")]
 use crate::{
     data_structures::types::CompressedCommitment,
     errors::WalletResult,
     storage::{
         event_storage::{EventStorage, StoredEvent},
-        SqliteStorage, StoredOutput, WalletStorage,
+        SqliteStorage,
+        StoredOutput,
+        WalletStorage,
     },
-};
-
-#[cfg(feature = "storage")]
-use crate::events::types::{AddressInfo, BlockInfo, OutputData, SpentOutputData, TransactionData};
-
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-use crate::scanning::background_writer::{BackgroundWriter, BackgroundWriterCommand};
-
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-use tokio::sync::{mpsc, oneshot};
-
-#[cfg(feature = "storage")]
-use std::sync::Arc;
-#[cfg(feature = "storage")]
-use tari_crypto::ristretto::RistrettoSecretKey;
-#[cfg(feature = "storage")]
-use tari_transaction_components::key_manager::{
-    KeyManagerBranch, SerializedKeyString, TariKeyId, TransactionKeyManagerInterface,
 };
 
 /// Database storage listener that persists scan results to SQLite
@@ -239,8 +238,7 @@ impl DatabaseStorageListener {
         let (command_tx, mut command_rx) = mpsc::unbounded_channel::<BackgroundWriterCommand>();
 
         // Create a new database connection for the background writer
-        let background_database: Box<dyn WalletStorage> =
-            Box::new(SqliteStorage::new(&self.database_path).await?);
+        let background_database: Box<dyn WalletStorage> = Box::new(SqliteStorage::new(&self.database_path).await?);
 
         // Initialize the background database
         background_database.initialize().await?;
@@ -299,16 +297,9 @@ impl DatabaseStorageListener {
         match self.key_managers.entry(wallet_id) {
             Entry::Occupied(entry) => Ok(entry.get().clone()),
             Entry::Vacant(entry) => {
-                let stored_wallet = self
-                    .database
-                    .get_wallet_by_id(wallet_id)
-                    .await?
-                    .ok_or_else(|| {
-                        crate::WalletError::ResourceNotFound(format!(
-                            "Wallet with ID {} not found",
-                            wallet_id,
-                        ))
-                    })?;
+                let stored_wallet = self.database.get_wallet_by_id(wallet_id).await?.ok_or_else(|| {
+                    crate::WalletError::ResourceNotFound(format!("Wallet with ID {} not found", wallet_id,))
+                })?;
 
                 let transaction_key_manager = TransactionKeyManager::build(
                     self.database.clone(),
@@ -319,7 +310,7 @@ impl DatabaseStorageListener {
                 .await?;
 
                 Ok(entry.insert(Arc::new(transaction_key_manager)).clone())
-            }
+            },
         }
     }
 
@@ -351,43 +342,32 @@ impl DatabaseStorageListener {
         if let Some(wallet_id) = self.wallet_id {
             // Save the output
             let output_result = self
-                .save_output_with_recovery(
-                    wallet_id,
-                    output_data,
-                    block_info,
-                    address_info,
-                    transaction_data,
-                )
+                .save_output_with_recovery(wallet_id, output_data, block_info, address_info, transaction_data)
                 .await;
 
             // Save the transaction
             let transaction_result = self
-                .save_transaction_with_recovery(
-                    wallet_id,
-                    transaction_data,
-                    output_data,
-                    block_info,
-                )
+                .save_transaction_with_recovery(wallet_id, transaction_data, output_data, block_info)
                 .await;
 
             match (output_result, transaction_result) {
                 (Ok(_), Ok(_)) => {
                     // No-op
-                }
+                },
                 (Err(e), _) => {
                     self.log(&format!(
                         "Failed to save output at block {} after retries: {}",
                         block_info.height, e
                     ));
                     return Err(e);
-                }
+                },
                 (_, Err(e)) => {
                     self.log(&format!(
                         "Failed to save transaction at block {} after retries: {}",
                         block_info.height, e
                     ));
                     return Err(e);
-                }
+                },
             }
         }
 
@@ -416,10 +396,7 @@ impl DatabaseStorageListener {
                 // Mark the output as spent using the database ID
                 // Note: Using block height as pseudo-transaction ID since we don't have actual spending transaction IDs
                 // This will set outputs.status=1 and outputs.spent_in_tx_id=block_height
-                if let Err(e) = storage
-                    .mark_output_spent(output_id, spending_block_info.height)
-                    .await
-                {
+                if let Err(e) = storage.mark_output_spent(output_id, spending_block_info.height).await {
                     return Err(e.into());
                 }
 
@@ -447,44 +424,37 @@ impl DatabaseStorageListener {
                 {
                     // Don't return error here as the spent marking succeeded
                 }
-            }
+            },
             Ok(None) => {
                 // No-op
-            }
+            },
             Err(e) => {
                 return Err(e);
-            }
+            },
         }
 
         Ok(())
     }
 
     /// Find an output in the database by its commitment
-    async fn find_output_by_commitment(
-        &self,
-        commitment: &str,
-    ) -> Result<Option<u32>, Box<dyn Error + Send + Sync>> {
+    async fn find_output_by_commitment(&self, commitment: &str) -> Result<Option<u32>, Box<dyn Error + Send + Sync>> {
         // Convert hex commitment to bytes
         let commitment_bytes = match hex::decode(commitment) {
             Ok(bytes) => bytes,
             Err(e) => {
                 return Err(format!("Invalid hex commitment: {e}").into());
-            }
+            },
         };
 
         // Use the storage method to find the output by commitment
-        match self
-            .database
-            .get_output_by_commitment(&commitment_bytes)
-            .await
-        {
+        match self.database.get_output_by_commitment(&commitment_bytes).await {
             Ok(Some(stored_output)) => {
                 if let Some(output_id) = stored_output.id {
                     Ok(Some(output_id))
                 } else {
                     Ok(None)
                 }
-            }
+            },
             Ok(None) => Ok(None),
             Err(e) => Err(e.into()),
         }
@@ -507,8 +477,8 @@ impl DatabaseStorageListener {
 
         if let Some(wallet_id) = self.wallet_id {
             // Parse the commitment
-            let commitment = CompressedCommitment::from_hex(commitment_hex)
-                .map_err(|e| format!("Invalid commitment hex: {e}"))?;
+            let commitment =
+                CompressedCommitment::from_hex(commitment_hex).map_err(|e| format!("Invalid commitment hex: {e}"))?;
 
             // Create an outbound transaction record
             let outbound_transaction = WalletTransaction::new(
@@ -518,20 +488,16 @@ impl DatabaseStorageListener {
                 commitment,
                 None, // No output hash for outbound transaction
                 value,
-                PaymentId::Empty, // No payment ID for spending transaction
+                PaymentId::Empty,                  // No payment ID for spending transaction
                 TransactionStatus::MinedConfirmed, // Spending is confirmed since it's in a block
-                TransactionDirection::Outbound, // This is an outbound transaction (spending)
-                true,             // Always mature for spending transactions
-                None,             // Spending key
-                None,             // Script key
+                TransactionDirection::Outbound,    // This is an outbound transaction (spending)
+                true,                              // Always mature for spending transactions
+                None,                              // Spending key
+                None,                              // Script key
             );
 
             // Save the outbound transaction to the database
-            if let Err(e) = self
-                .database
-                .save_transaction(wallet_id, &outbound_transaction)
-                .await
-            {
+            if let Err(e) = self.database.save_transaction(wallet_id, &outbound_transaction).await {
                 return Err(format!("Failed to save outbound transaction: {e}").into());
             }
         }
@@ -551,7 +517,7 @@ impl DatabaseStorageListener {
             Ok(bytes) => bytes,
             Err(e) => {
                 return Err(format!("Invalid hex commitment: {e}").into());
-            }
+            },
         };
 
         // Create CompressedCommitment from bytes (assuming 32-byte commitment)
@@ -572,7 +538,7 @@ impl DatabaseStorageListener {
             Ok(true) => Ok(()),
             Ok(false) => {
                 Ok(()) // Not an error if transaction doesn't exist or is already spent
-            }
+            },
             Err(e) => Err(e.into()),
         }
     }
@@ -609,9 +575,7 @@ impl DatabaseStorageListener {
         _is_recoverable: bool,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if self.verbose {
-            self.log(&format!(
-                "Scan error at block {block_height:?}: {error_message}"
-            ));
+            self.log(&format!("Scan error at block {block_height:?}: {error_message}"));
         }
 
         // Could implement error logging to database here
@@ -627,9 +591,7 @@ impl DatabaseStorageListener {
         _partial_completion: Option<f64>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if self.verbose {
-            self.log(&format!(
-                "Scan cancelled: reason={reason}, stats={final_statistics:?}"
-            ));
+            self.log(&format!("Scan cancelled: reason={reason}, stats={final_statistics:?}"));
         }
 
         // Perform any cleanup operations
@@ -647,19 +609,13 @@ impl DatabaseStorageListener {
         key_manager: &Arc<TransactionKeyManager>,
     ) -> Result<StoredOutput, Box<dyn Error + Send + Sync>> {
         // Parse commitment from hex string
-        use crate::hex_utils::HexEncodable;
-        use crate::{data_structures::PaymentId, wallet_scanner::extract_script_data};
+        use crate::{data_structures::PaymentId, hex_utils::HexEncodable, wallet_scanner::extract_script_data};
         let commitment_hex = output_data.commitment.trim_start_matches("0x");
-        let commitment_bytes =
-            hex::decode(commitment_hex).map_err(|e| format!("Invalid commitment hex: {e}"))?;
+        let commitment_bytes = hex::decode(commitment_hex).map_err(|e| format!("Invalid commitment hex: {e}"))?;
 
         // Convert to fixed-size array for CompressedCommitment
         if commitment_bytes.len() != 32 {
-            return Err(format!(
-                "Invalid commitment length: {} (expected 32)",
-                commitment_bytes.len()
-            )
-            .into());
+            return Err(format!("Invalid commitment length: {} (expected 32)", commitment_bytes.len()).into());
         }
         let mut commitment_array = [0u8; 32];
         commitment_array.copy_from_slice(&commitment_bytes);
@@ -672,15 +628,13 @@ impl DatabaseStorageListener {
             (vec![], 0)
         };
 
-        let commitment_mask_private_key = output_data.commitment_mask_private_key.as_ref().ok_or(
-            crate::WalletError::StorageError("No spending key found".to_string()),
-        )?;
-        let core_commitment_mask_private_key =
-            RistrettoSecretKey::try_from(commitment_mask_private_key)
-                .map_err(|e| crate::WalletError::ConversionError(e.to_string()))?;
-        let commitment_mask_private_key = key_manager
-            .import_key(core_commitment_mask_private_key)
-            .await?;
+        let commitment_mask_private_key = output_data
+            .commitment_mask_private_key
+            .as_ref()
+            .ok_or(crate::WalletError::StorageError("No spending key found".to_string()))?;
+        let core_commitment_mask_private_key = RistrettoSecretKey::try_from(commitment_mask_private_key)
+            .map_err(|e| crate::WalletError::ConversionError(e.to_string()))?;
+        let commitment_mask_private_key = key_manager.import_key(core_commitment_mask_private_key).await?;
 
         let script_key = match &output_data.script_key {
             // UTXO of a normal transaction
@@ -735,14 +689,8 @@ impl DatabaseStorageListener {
 
             // Metadata signature components - would need wallet context
             sender_offset_public_key: output_data.sender_offset_public_key.as_bytes().into(),
-            metadata_signature_ephemeral_commitment: output_data
-                .metadata_signature
-                .ephemeral_commitment
-                .clone(),
-            metadata_signature_ephemeral_pubkey: output_data
-                .metadata_signature
-                .ephemeral_pubkey
-                .clone(),
+            metadata_signature_ephemeral_commitment: output_data.metadata_signature.ephemeral_commitment.clone(),
+            metadata_signature_ephemeral_pubkey: output_data.metadata_signature.ephemeral_pubkey.clone(),
             metadata_signature_u_a: output_data.metadata_signature.u_a.clone(),
             metadata_signature_u_x: output_data.metadata_signature.u_x.clone(),
             metadata_signature_u_y: output_data.metadata_signature.u_y.clone(),
@@ -781,15 +729,11 @@ impl DatabaseStorageListener {
                         outputs: outputs.to_vec(),
                         response_tx,
                     })
-                    .map_err(|_| {
-                        crate::WalletError::StorageError(
-                            "Background writer channel closed".to_string(),
-                        )
-                    })?;
+                    .map_err(|_| crate::WalletError::StorageError("Background writer channel closed".to_string()))?;
 
-                return response_rx.await.map_err(|_| {
-                    crate::WalletError::StorageError("Background writer response lost".to_string())
-                })?;
+                return response_rx
+                    .await
+                    .map_err(|_| crate::WalletError::StorageError("Background writer response lost".to_string()))?;
             }
         }
 
@@ -798,11 +742,7 @@ impl DatabaseStorageListener {
     }
 
     /// Update wallet's latest scanned block using architecture-specific method
-    async fn update_wallet_scanned_block(
-        &self,
-        wallet_id: u32,
-        block_height: u64,
-    ) -> WalletResult<()> {
+    async fn update_wallet_scanned_block(&self, wallet_id: u32, block_height: u64) -> WalletResult<()> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(writer) = &self.background_writer {
@@ -814,22 +754,16 @@ impl DatabaseStorageListener {
                         block_height,
                         response_tx,
                     })
-                    .map_err(|_| {
-                        crate::WalletError::StorageError(
-                            "Background writer channel closed".to_string(),
-                        )
-                    })?;
+                    .map_err(|_| crate::WalletError::StorageError("Background writer channel closed".to_string()))?;
 
-                return response_rx.await.map_err(|_| {
-                    crate::WalletError::StorageError("Background writer response lost".to_string())
-                })?;
+                return response_rx
+                    .await
+                    .map_err(|_| crate::WalletError::StorageError("Background writer response lost".to_string()))?;
             }
         }
 
         // Fallback to direct storage
-        self.database
-            .update_wallet_scanned_block(wallet_id, block_height)
-            .await
+        self.database.update_wallet_scanned_block(wallet_id, block_height).await
     }
 
     /// Log a message (platform-specific)
@@ -899,11 +833,9 @@ impl DatabaseStorageListener {
         loop {
             // Check circuit breaker
             if !self.error_recovery.is_operation_allowed() {
-                let error_record = ErrorRecord::new(
-                    "Output save operation blocked by circuit breaker".to_string(),
-                    false,
-                )
-                .with_error_code("CIRCUIT_BREAKER_OPEN".to_string());
+                let error_record =
+                    ErrorRecord::new("Output save operation blocked by circuit breaker".to_string(), false)
+                        .with_error_code("CIRCUIT_BREAKER_OPEN".to_string());
 
                 self.error_recovery.record_error(error_record);
                 return Err("Circuit breaker is open for database operations".into());
@@ -911,19 +843,13 @@ impl DatabaseStorageListener {
 
             // Attempt the operation
             match self
-                .try_save_output(
-                    wallet_id,
-                    output_data,
-                    block_info,
-                    address_info,
-                    transaction_data,
-                )
+                .try_save_output(wallet_id, output_data, block_info, address_info, transaction_data)
                 .await
             {
                 Ok(result) => {
                     self.error_recovery.record_success();
                     return Ok(result);
-                }
+                },
                 Err(e) => {
                     let error_message = e.to_string();
                     let is_recoverable = self.is_error_recoverable(&error_message);
@@ -945,9 +871,9 @@ impl DatabaseStorageListener {
 
                     let should_retry = self.error_recovery.record_error(error_record);
 
-                    if !should_retry
-                        || !self.error_recovery.should_retry(attempt, is_recoverable)
-                        || attempt >= max_attempts
+                    if !should_retry ||
+                        !self.error_recovery.should_retry(attempt, is_recoverable) ||
+                        attempt >= max_attempts
                     {
                         return Err(e);
                     }
@@ -960,7 +886,7 @@ impl DatabaseStorageListener {
                     tokio::time::sleep(delay).await;
 
                     attempt += 1;
-                }
+                },
             }
         }
     }
@@ -997,7 +923,7 @@ impl DatabaseStorageListener {
                 Ok(_) => {
                     self.error_recovery.record_success();
                     return Ok(());
-                }
+                },
                 Err(e) => {
                     let error_message = e.to_string();
                     let is_recoverable = self.is_error_recoverable(&error_message);
@@ -1012,18 +938,16 @@ impl DatabaseStorageListener {
                     if error_message.contains("database is locked") {
                         error_record = error_record.with_error_code("DATABASE_LOCKED".to_string());
                     } else if error_message.contains("UNIQUE constraint") {
-                        error_record =
-                            error_record.with_error_code("DUPLICATE_TRANSACTION".to_string());
+                        error_record = error_record.with_error_code("DUPLICATE_TRANSACTION".to_string());
                     } else {
-                        error_record =
-                            error_record.with_error_code("TRANSACTION_SAVE_FAILED".to_string());
+                        error_record = error_record.with_error_code("TRANSACTION_SAVE_FAILED".to_string());
                     }
 
                     let should_retry = self.error_recovery.record_error(error_record);
 
-                    if !should_retry
-                        || !self.error_recovery.should_retry(attempt, is_recoverable)
-                        || attempt >= max_attempts
+                    if !should_retry ||
+                        !self.error_recovery.should_retry(attempt, is_recoverable) ||
+                        attempt >= max_attempts
                     {
                         return Err(e);
                     }
@@ -1036,7 +960,7 @@ impl DatabaseStorageListener {
                     tokio::time::sleep(delay).await;
 
                     attempt += 1;
-                }
+                },
             }
         }
     }
@@ -1050,12 +974,8 @@ impl DatabaseStorageListener {
         block_info: &BlockInfo,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Convert event data to WalletTransaction
-        let wallet_transaction = self.convert_to_wallet_transaction(
-            wallet_id,
-            transaction_data,
-            output_data,
-            block_info,
-        )?;
+        let wallet_transaction =
+            self.convert_to_wallet_transaction(wallet_id, transaction_data, output_data, block_info)?;
 
         // Save the transaction to database
         self.database
@@ -1071,16 +991,15 @@ impl DatabaseStorageListener {
         transaction_data: &crate::events::types::TransactionData,
         output_data: &OutputData,
         block_info: &BlockInfo,
-    ) -> Result<
-        crate::data_structures::wallet_transaction::WalletTransaction,
-        Box<dyn Error + Send + Sync>,
-    > {
-        use crate::data_structures::{
-            payment_id::PaymentId,
-            transaction::{TransactionDirection, TransactionStatus},
-            types::CompressedCommitment,
+    ) -> Result<crate::data_structures::wallet_transaction::WalletTransaction, Box<dyn Error + Send + Sync>> {
+        use crate::{
+            data_structures::{
+                payment_id::PaymentId,
+                transaction::{TransactionDirection, TransactionStatus},
+                types::CompressedCommitment,
+            },
+            hex_utils::HexEncodable,
         };
-        use crate::hex_utils::HexEncodable;
 
         // Parse the commitment from hex
         let commitment = CompressedCommitment::from_hex(&output_data.commitment)
@@ -1115,25 +1034,23 @@ impl DatabaseStorageListener {
             PaymentId::Empty
         };
 
-        Ok(
-            crate::data_structures::wallet_transaction::WalletTransaction {
-                block_height: block_info.height,
-                output_index: transaction_data.output_index,
-                input_index: None,
-                commitment,
-                output_hash: None,
-                value: transaction_data.value,
-                payment_id,
-                is_spent: false, // For new outputs found during scanning
-                spent_in_block: None,
-                spent_in_input: None,
-                transaction_status: status,
-                transaction_direction: direction,
-                is_mature: true, // Assume mature for now
-                commitment_mask_private_key: None,
-                script_key: None,
-            },
-        )
+        Ok(crate::data_structures::wallet_transaction::WalletTransaction {
+            block_height: block_info.height,
+            output_index: transaction_data.output_index,
+            input_index: None,
+            commitment,
+            output_hash: None,
+            value: transaction_data.value,
+            payment_id,
+            is_spent: false, // For new outputs found during scanning
+            spent_in_block: None,
+            spent_in_input: None,
+            transaction_status: status,
+            transaction_direction: direction,
+            is_mature: true, // Assume mature for now
+            commitment_mask_private_key: None,
+            script_key: None,
+        })
     }
 
     /// Try to save an output (single attempt)
@@ -1159,16 +1076,11 @@ impl DatabaseStorageListener {
             .await?;
 
         // Save the output to database
-        self.save_outputs(&[stored_output])
-            .await
-            .map_err(|e| e.into())
+        self.save_outputs(&[stored_output]).await.map_err(|e| e.into())
     }
 
     /// Store an event in the wallet_events table for auditing (if enabled)
-    async fn store_event_audit(
-        &self,
-        event: &WalletScanEvent,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn store_event_audit(&self, event: &WalletScanEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
         if !self.enable_event_auditing {
             return Ok(());
         }
@@ -1197,8 +1109,7 @@ impl DatabaseStorageListener {
             _ => return Ok(()), // Should not happen due to filter above
         };
 
-        let payload_json =
-            serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {e}"))?;
+        let payload_json = serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {e}"))?;
 
         let metadata = serde_json::json!({
             "listener": "DatabaseStorageListener",
@@ -1239,13 +1150,13 @@ impl DatabaseStorageListener {
                         .store_event(&stored_event)
                         .await
                         .map_err(|e| format!("Failed to store event: {e}"))?;
-                }
+                },
                 Err(e) => {
                     // Log error but don't fail the main operation
                     if self.verbose {
                         eprintln!("Warning: Failed to create event storage connection: {e}");
                     }
-                }
+                },
             }
         }
 
@@ -1256,20 +1167,14 @@ impl DatabaseStorageListener {
 #[cfg(feature = "storage")]
 #[async_trait]
 impl EventListener for DatabaseStorageListener {
-    async fn handle_event(
-        &mut self,
-        event: &SharedEvent,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
         match event.as_ref() {
             WalletScanEvent::ScanStarted {
                 config,
                 block_range,
                 wallet_context,
                 ..
-            } => {
-                self.handle_scan_started(config, *block_range, wallet_context)
-                    .await
-            }
+            } => self.handle_scan_started(config, *block_range, wallet_context).await,
             WalletScanEvent::BlockProcessed {
                 height,
                 hash,
@@ -1278,15 +1183,9 @@ impl EventListener for DatabaseStorageListener {
                 outputs_count,
                 ..
             } => {
-                self.handle_block_processed(
-                    *height,
-                    hash,
-                    *timestamp,
-                    *processing_duration,
-                    *outputs_count,
-                )
-                .await
-            }
+                self.handle_block_processed(*height, hash, *timestamp, *processing_duration, *outputs_count)
+                    .await
+            },
             WalletScanEvent::OutputFound {
                 output_data,
                 block_info,
@@ -1303,7 +1202,7 @@ impl EventListener for DatabaseStorageListener {
 
                 self.handle_output_found(output_data, block_info, address_info, transaction_data)
                     .await
-            }
+            },
             WalletScanEvent::SpentOutputFound {
                 spent_output_data,
                 spending_block_info,
@@ -1325,7 +1224,7 @@ impl EventListener for DatabaseStorageListener {
                     spending_transaction_data,
                 )
                 .await
-            }
+            },
             WalletScanEvent::ScanProgress {
                 current_block,
                 total_blocks,
@@ -1342,7 +1241,7 @@ impl EventListener for DatabaseStorageListener {
                     *estimated_time_remaining,
                 )
                 .await
-            }
+            },
             WalletScanEvent::ScanCompleted {
                 final_statistics,
                 success,
@@ -1351,7 +1250,7 @@ impl EventListener for DatabaseStorageListener {
             } => {
                 self.handle_scan_completed(final_statistics, *success, *total_duration)
                     .await
-            }
+            },
             WalletScanEvent::ScanError {
                 error_message,
                 error_code,
@@ -1368,7 +1267,7 @@ impl EventListener for DatabaseStorageListener {
                     *is_recoverable,
                 )
                 .await
-            }
+            },
             WalletScanEvent::ScanCancelled {
                 reason,
                 final_statistics,
@@ -1377,7 +1276,7 @@ impl EventListener for DatabaseStorageListener {
             } => {
                 self.handle_scan_cancelled(reason, final_statistics, *partial_completion)
                     .await
-            }
+            },
         }
     }
 
@@ -1388,14 +1287,14 @@ impl EventListener for DatabaseStorageListener {
     /// Only handle events that require database operations
     fn wants_event(&self, event: &SharedEvent) -> bool {
         match event.as_ref() {
-            WalletScanEvent::ScanStarted { .. }
-            | WalletScanEvent::BlockProcessed { .. }
-            | WalletScanEvent::OutputFound { .. }
-            | WalletScanEvent::SpentOutputFound { .. }
-            | WalletScanEvent::ScanProgress { .. }
-            | WalletScanEvent::ScanCompleted { .. }
-            | WalletScanEvent::ScanError { .. }
-            | WalletScanEvent::ScanCancelled { .. } => true,
+            WalletScanEvent::ScanStarted { .. } |
+            WalletScanEvent::BlockProcessed { .. } |
+            WalletScanEvent::OutputFound { .. } |
+            WalletScanEvent::SpentOutputFound { .. } |
+            WalletScanEvent::ScanProgress { .. } |
+            WalletScanEvent::ScanCompleted { .. } |
+            WalletScanEvent::ScanError { .. } |
+            WalletScanEvent::ScanCancelled { .. } => true,
         }
     }
 }
@@ -1645,10 +1544,7 @@ impl DatabaseStorageListener {
 #[cfg(not(feature = "storage"))]
 #[async_trait]
 impl EventListener for DatabaseStorageListener {
-    async fn handle_event(
-        &mut self,
-        _event: &SharedEvent,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn handle_event(&mut self, _event: &SharedEvent) -> Result<(), Box<dyn Error + Send + Sync>> {
         Err("Database storage requires 'storage' feature to be enabled".into())
     }
 
@@ -1663,10 +1559,10 @@ mod tests {
 
     #[cfg(feature = "storage")]
     mod storage_tests {
+        use std::{sync::Arc, time::Duration};
+
         use super::*;
         use crate::events::types::*;
-        use std::sync::Arc;
-        use std::time::Duration;
 
         #[tokio::test]
         async fn test_database_storage_listener_creation() {
@@ -1820,10 +1716,7 @@ mod tests {
         #[tokio::test]
         async fn test_database_storage_listener_builder_presets() {
             // Test memory preset
-            let memory_listener = DatabaseStorageListener::builder()
-                .memory_preset()
-                .build()
-                .await;
+            let memory_listener = DatabaseStorageListener::builder().memory_preset().build().await;
             assert!(memory_listener.is_ok());
             let listener = memory_listener.unwrap();
             assert_eq!(listener.batch_size, 25);

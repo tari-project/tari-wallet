@@ -153,10 +153,10 @@ impl ProgressTracker {
         };
 
         // Calculate ETA if enabled and we have meaningful data
-        let eta = if self.config.calculate_eta
-            && self.blocks_processed > 0
-            && blocks_per_sec > 0.0
-            && self.blocks_processed < self.total_blocks
+        let eta = if self.config.calculate_eta &&
+            self.blocks_processed > 0 &&
+            blocks_per_sec > 0.0 &&
+            self.blocks_processed < self.total_blocks
         {
             let remaining_blocks = self.total_blocks - self.blocks_processed;
             let eta_seconds = remaining_blocks as f64 / blocks_per_sec;
@@ -227,8 +227,9 @@ impl ProgressTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::{Arc, Mutex};
+
+    use super::*;
 
     #[test]
     fn test_progress_tracker_creation() {

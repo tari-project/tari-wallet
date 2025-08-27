@@ -9,50 +9,50 @@
 //! to a specific wallet. To use wallet functionality:
 //!
 //! ```rust,no_run
-//! use lightweight_wallet_libs::scanning::{HttpBlockchainScanner, ScanConfig, BlockchainScanner};
-//! use lightweight_wallet_libs::wallet::Wallet;
+//! use lightweight_wallet_libs::{
+//!     scanning::{BlockchainScanner, HttpBlockchainScanner, ScanConfig},
+//!     wallet::Wallet,
+//! };
 //!
 //! async fn scan_with_wallet() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut scanner = HttpBlockchainScanner::new("http://127.0.0.1:18142".to_string()).await?;
 //!     let wallet = Wallet::generate_new_with_seed_phrase(None)?;
-//!     
+//!
 //!     // Create scan config with wallet keys
 //!     let config = scanner.create_scan_config_with_wallet_keys(&wallet, 0, None)?;
-//!     
+//!
 //!     // Scan for blocks with wallet key integration
 //!     let results = scanner.scan_blocks(config).await?;
 //!     println!("Found {} blocks with wallet outputs", results.len());
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
 
 // Native targets use reqwest
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-use reqwest::Client;
-#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use std::time::Duration;
-
 // WASM targets use web-sys
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use std::time::Duration;
-#[cfg(all(feature = "http", target_arch = "wasm32"))]
-use web_sys::{window, Request, RequestInit, RequestMode, Response};
-
-#[cfg(all(feature = "http", target_arch = "wasm32"))]
-use serde_wasm_bindgen;
-#[cfg(all(feature = "http", target_arch = "wasm32"))]
-use wasm_bindgen::prelude::*;
-#[cfg(all(feature = "http", target_arch = "wasm32"))]
-use wasm_bindgen_futures::JsFuture;
 
 #[cfg(feature = "http")]
 use async_trait::async_trait;
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
+#[cfg(all(feature = "http", target_arch = "wasm32"))]
+use serde_wasm_bindgen;
 #[cfg(feature = "http")]
 use tari_utilities::ByteArray;
 #[cfg(all(feature = "http", feature = "tracing"))]
 use tracing::debug;
+#[cfg(all(feature = "http", target_arch = "wasm32"))]
+use wasm_bindgen::prelude::*;
+#[cfg(all(feature = "http", target_arch = "wasm32"))]
+use wasm_bindgen_futures::JsFuture;
+#[cfg(all(feature = "http", target_arch = "wasm32"))]
+use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
 use crate::{
     data_structures::{
@@ -165,11 +165,9 @@ impl HttpBlockchainScanner {
         {
             let timeout = Duration::from_secs(30);
             let client = Client::builder().timeout(timeout).build().map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to create HTTP client: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to create HTTP client: {e}"
+                )))
             })?;
 
             // Test the connection
@@ -205,30 +203,22 @@ impl HttpBlockchainScanner {
             let request = Request::new_with_str_and_init(&test_url, &opts)?;
 
             let window = window().ok_or_else(|| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "No window object available",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
             })?;
 
-            let resp_value = JsFuture::from(window.fetch_with_request(&request))
-                .await
-                .map_err(|_| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "Failed to connect to {}",
-                            base_url
-                        )),
-                    )
-                })?;
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to connect to {}",
+                    base_url
+                )))
+            })?;
 
             let _resp: Response = resp_value.dyn_into().map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Invalid response type",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
             })?;
 
             Ok(Self { base_url })
@@ -239,9 +229,9 @@ impl HttpBlockchainScanner {
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     pub async fn with_timeout(base_url: String, timeout: Duration) -> WalletResult<Self> {
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Failed to create HTTP client: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to create HTTP client: {e}"
+            )))
         })?;
 
         // Test the connection
@@ -249,9 +239,7 @@ impl HttpBlockchainScanner {
         let response = client.get(&test_url).send().await;
         if response.is_err() {
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Failed to connect to {base_url}"
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to connect to {base_url}")),
             ));
         }
 
@@ -283,11 +271,9 @@ impl HttpBlockchainScanner {
                 .send()
                 .await
                 .map_err(|e| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "HTTP request failed: {e}"
-                        )),
-                    )
+                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP request failed: {e}"
+                    )))
                 })?;
 
             if !response.status().is_success() {
@@ -300,11 +286,9 @@ impl HttpBlockchainScanner {
             }
 
             let header_response: HttpHeaderResponse = response.json().await.map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to parse response: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to parse response: {e}"
+                )))
             })?;
 
             Ok(header_response)
@@ -323,29 +307,21 @@ impl HttpBlockchainScanner {
             request.headers().set("Accept", "application/json")?;
 
             let window = window().ok_or_else(|| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "No window object available",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
             })?;
 
-            let resp_value = JsFuture::from(window.fetch_with_request(&request))
-                .await
-                .map_err(|_| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(
-                            "HTTP request failed",
-                        ),
-                    )
-                })?;
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "HTTP request failed",
+                ))
+            })?;
 
             let response: Response = resp_value.dyn_into().map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Invalid response type",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
             })?;
 
             if !response.ok() {
@@ -359,40 +335,30 @@ impl HttpBlockchainScanner {
 
             // Get JSON response
             let json_promise = response.json().map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Failed to get JSON response",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to get JSON response",
+                ))
             })?;
 
             let json_value = JsFuture::from(json_promise).await.map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Failed to parse JSON response",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to parse JSON response",
+                ))
             })?;
 
-            let header_response: HttpHeaderResponse = serde_wasm_bindgen::from_value(json_value)
-                .map_err(|e| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "Failed to deserialize response: {}",
-                            e
-                        )),
-                    )
-                })?;
+            let header_response: HttpHeaderResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to deserialize response: {}",
+                    e
+                )))
+            })?;
 
             Ok(header_response)
         }
     }
 
     /// Sync UTXOs by block - matches WASM example usage
-    async fn sync_utxos_by_block(
-        &self,
-        start_header_hash: &str,
-    ) -> WalletResult<HttpSyncUtxosResponse> {
+    async fn sync_utxos_by_block(&self, start_header_hash: &str) -> WalletResult<HttpSyncUtxosResponse> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
         let limit = 10u64;
         let page = 0u64;
@@ -411,11 +377,9 @@ impl HttpBlockchainScanner {
                 .send()
                 .await
                 .map_err(|e| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "HTTP request failed: {e}"
-                        )),
-                    )
+                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP request failed: {e}"
+                    )))
                 })?;
 
             if !response.status().is_success() {
@@ -428,11 +392,9 @@ impl HttpBlockchainScanner {
             }
 
             let sync_response: HttpSyncUtxosResponse = response.json().await.map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to parse response: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to parse response: {e}"
+                )))
             })?;
 
             Ok(sync_response)
@@ -454,29 +416,21 @@ impl HttpBlockchainScanner {
             request.headers().set("Accept", "application/json")?;
 
             let window = window().ok_or_else(|| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "No window object available",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
             })?;
 
-            let resp_value = JsFuture::from(window.fetch_with_request(&request))
-                .await
-                .map_err(|_| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(
-                            "HTTP request failed",
-                        ),
-                    )
-                })?;
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "HTTP request failed",
+                ))
+            })?;
 
             let response: Response = resp_value.dyn_into().map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Invalid response type",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
             })?;
 
             if !response.ok() {
@@ -490,29 +444,22 @@ impl HttpBlockchainScanner {
 
             // Get JSON response
             let json_promise = response.json().map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Failed to get JSON response",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to get JSON response",
+                ))
             })?;
 
             let json_value = JsFuture::from(json_promise).await.map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Failed to parse JSON response",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to parse JSON response",
+                ))
             })?;
 
-            let sync_response: HttpSyncUtxosResponse = serde_wasm_bindgen::from_value(json_value)
-                .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to deserialize response: {}",
-                        e
-                    )),
-                )
+            let sync_response: HttpSyncUtxosResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to deserialize response: {}",
+                    e
+                )))
             })?;
 
             Ok(sync_response)
@@ -525,19 +472,20 @@ impl HttpBlockchainScanner {
     }
 
     /// Convert HTTP output data to TransactionOutput
-    fn convert_http_output_to_lightweight(
-        http_output: &HttpOutputData,
-    ) -> WalletResult<TransactionOutput> {
+    fn convert_http_output_to_lightweight(http_output: &HttpOutputData) -> WalletResult<TransactionOutput> {
         // Parse commitment
         if http_output.commitment.len() != 32 {
             return Err(WalletError::ConversionError(
                 "Invalid commitment length, expected 32 bytes".to_string(),
             ));
         }
-        let commitment =
-            CompressedCommitment::new(http_output.commitment.clone().try_into().map_err(|_| {
-                WalletError::ConversionError("Failed to convert commitment".to_string())
-            })?);
+        let commitment = CompressedCommitment::new(
+            http_output
+                .commitment
+                .clone()
+                .try_into()
+                .map_err(|_| WalletError::ConversionError("Failed to convert commitment".to_string()))?,
+        );
 
         // Parse sender offset public key
         if http_output.sender_offset_public_key.len() != 32 {
@@ -545,21 +493,15 @@ impl HttpBlockchainScanner {
                 "Invalid sender offset public key length, expected 32 bytes".to_string(),
             ));
         }
-        let sender_offset_public_key = CompressedPublicKey::new(
-            http_output
-                .sender_offset_public_key
-                .clone()
-                .try_into()
-                .map_err(|_| {
-                    WalletError::ConversionError(
-                        "Failed to convert sender offset public key".to_string(),
-                    )
+        let sender_offset_public_key =
+            CompressedPublicKey::new(
+                http_output.sender_offset_public_key.clone().try_into().map_err(|_| {
+                    WalletError::ConversionError("Failed to convert sender offset public key".to_string())
                 })?,
-        );
+            );
 
         // Convert Encrypted Data - match GRPC approach exactly
-        let encrypted_data =
-            EncryptedData::from_bytes(&http_output.encrypted_data).unwrap_or_default();
+        let encrypted_data = EncryptedData::from_bytes(&http_output.encrypted_data).unwrap_or_default();
 
         // Convert OutputFeatures - match GRPC approach (HTTP API doesn't provide features, so use default)
         let features = OutputFeatures::default();
@@ -579,8 +521,7 @@ impl HttpBlockchainScanner {
         // Convert Minimum Value Promise - match GRPC approach exactly
         let minimum_value_promise = MicroMinotari::new(0);
 
-        let output_features =
-            tari_transaction_components::transaction_components::OutputFeatures::default();
+        let output_features = tari_transaction_components::transaction_components::OutputFeatures::default();
 
         // Use direct construction exactly like GRPC scanner
         Ok(TransactionOutput {
@@ -599,9 +540,7 @@ impl HttpBlockchainScanner {
     }
 
     /// Convert HTTP input data to TransactionInput - simplified version
-    fn convert_http_input_to_lightweight(
-        output_hash_bytes: &[u8],
-    ) -> WalletResult<TransactionInput> {
+    fn convert_http_input_to_lightweight(output_hash_bytes: &[u8]) -> WalletResult<TransactionInput> {
         // Parse output hash
         if output_hash_bytes.len() != 32 {
             return Err(WalletError::ConversionError(
@@ -615,16 +554,17 @@ impl HttpBlockchainScanner {
         Ok(TransactionInput::new(
             1,                                                                // version
             0,                                                                // features (default)
-            [0u8; 32],                      // commitment (not available from HTTP API)
+            [0u8; 32],                                                        /* commitment (not available from HTTP
+                                                                               * API) */
             [0u8; 64],                      // script_signature (not available)
             CompressedPublicKey::default(), // sender_offset_public_key (not available)
             Vec::new(),                     // covenant (not available)
             crate::data_structures::transaction_input::ExecutionStack::new(), // input_data (not available)
-            output_hash,           // output_hash (this is the actual data from HTTP API)
-            0,                     // output_features (not available)
-            [0u8; 64],             // output_metadata_signature (not available)
-            0,                     // maturity (not available)
-            MicroMinotari::new(0), // value (not available)
+            output_hash,                    // output_hash (this is the actual data from HTTP API)
+            0,                              // output_features (not available)
+            [0u8; 64],                      // output_metadata_signature (not available)
+            0,                              // maturity (not available)
+            MicroMinotari::new(0),          // value (not available)
         ))
     }
 
@@ -669,10 +609,8 @@ impl HttpBlockchainScanner {
 
         // Derive the proper view key using Tari's key derivation specification
         let (view_key, _spend_key) =
-            crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(
-                &entropy,
-            )
-            .map_err(WalletError::KeyManagementError)?;
+            crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
+                .map_err(WalletError::KeyManagementError)?;
 
         // Convert RistrettoSecretKey to PrivateKey
         let view_key_bytes = view_key.as_bytes();
@@ -783,11 +721,7 @@ impl HttpBlockchainScanner {
     }
 
     /// Fetch block range using the sync_utxos_by_block endpoint
-    async fn fetch_block_range(
-        &self,
-        start_height: u64,
-        end_height: u64,
-    ) -> WalletResult<Vec<HttpBlockData>> {
+    async fn fetch_block_range(&self, start_height: u64, end_height: u64) -> WalletResult<Vec<HttpBlockData>> {
         // Get the starting header hash
         let start_header = self.get_header_by_height(start_height).await?;
         let mut current_header_hash = Self::bytes_to_hex(&start_header.hash);
@@ -873,9 +807,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
         }
 
         // Fetch blocks using the new API
-        let http_blocks = self
-            .fetch_block_range(config.start_height, end_height)
-            .await?;
+        let http_blocks = self.fetch_block_range(config.start_height, end_height).await?;
 
         let mut results = Vec::new();
 
@@ -888,9 +820,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
 
                 // Strategy 1: Regular recoverable outputs
                 if !found_output {
-                    if let Some(wallet_output) =
-                        Self::scan_for_recoverable_output(output, &config.extraction_config)?
-                    {
+                    if let Some(wallet_output) = Self::scan_for_recoverable_output(output, &config.extraction_config)? {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
                     }
@@ -898,9 +828,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
 
                 // Strategy 2: One-sided payments
                 if !found_output {
-                    if let Some(wallet_output) =
-                        Self::scan_for_one_sided_payment(output, &config.extraction_config)?
-                    {
+                    if let Some(wallet_output) = Self::scan_for_one_sided_payment(output, &config.extraction_config)? {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
                     }
@@ -938,11 +866,9 @@ impl BlockchainScanner for HttpBlockchainScanner {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
         {
             let response = self.client.get(&url).send().await.map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP request failed: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP request failed: {e}"
+                )))
             })?;
 
             if !response.status().is_success() {
@@ -955,11 +881,9 @@ impl BlockchainScanner for HttpBlockchainScanner {
             }
 
             let tip_response: HttpTipInfoResponse = response.json().await.map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to parse response: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to parse response: {e}"
+                )))
             })?;
 
             Ok(TipInfo {
@@ -982,29 +906,21 @@ impl BlockchainScanner for HttpBlockchainScanner {
             request.headers().set("Accept", "application/json")?;
 
             let window = window().ok_or_else(|| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "No window object available",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
             })?;
 
-            let resp_value = JsFuture::from(window.fetch_with_request(&request))
-                .await
-                .map_err(|_| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(
-                            "HTTP request failed",
-                        ),
-                    )
-                })?;
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "HTTP request failed",
+                ))
+            })?;
 
             let response: Response = resp_value.dyn_into().map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Invalid response type",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
             })?;
 
             if !response.ok() {
@@ -1018,30 +934,23 @@ impl BlockchainScanner for HttpBlockchainScanner {
 
             // Get JSON response
             let json_promise = response.json().map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Failed to get JSON response",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to get JSON response",
+                ))
             })?;
 
             let json_value = JsFuture::from(json_promise).await.map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Failed to parse JSON response",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to parse JSON response",
+                ))
             })?;
 
-            let tip_response: HttpTipInfoResponse = serde_wasm_bindgen::from_value(json_value)
-                .map_err(|e| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "Failed to deserialize response: {}",
-                            e
-                        )),
-                    )
-                })?;
+            let tip_response: HttpTipInfoResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to deserialize response: {}",
+                    e
+                )))
+            })?;
 
             Ok(TipInfo {
                 best_block_height: tip_response.metadata.best_block_height,
@@ -1053,16 +962,11 @@ impl BlockchainScanner for HttpBlockchainScanner {
         }
     }
 
-    async fn search_utxos(
-        &mut self,
-        _commitments: Vec<Vec<u8>>,
-    ) -> WalletResult<Vec<BlockScanResult>> {
+    async fn search_utxos(&mut self, _commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
         // This endpoint is not implemented in the current HTTP API
         // It would require a different endpoint that searches for specific commitments
         Err(WalletError::ScanningError(
-            crate::errors::ScanningError::blockchain_connection_failed(
-                "search_utxos not implemented for HTTP scanner",
-            ),
+            crate::errors::ScanningError::blockchain_connection_failed("search_utxos not implemented for HTTP scanner"),
         ))
     }
 
@@ -1070,9 +974,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
         // This endpoint is not implemented in the current HTTP API
         // It would require a different endpoint that fetches specific UTXOs by hash
         Err(WalletError::ScanningError(
-            crate::errors::ScanningError::blockchain_connection_failed(
-                "fetch_utxos not implemented for HTTP scanner",
-            ),
+            crate::errors::ScanningError::blockchain_connection_failed("fetch_utxos not implemented for HTTP scanner"),
         ))
     }
 
@@ -1091,19 +993,11 @@ impl BlockchainScanner for HttpBlockchainScanner {
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
         let url = format!("{}/base_node/blocks/{}", self.base_url, height);
 
-        let response = self
-            .client
-            .get(&url)
-            .timeout(self.timeout)
-            .send()
-            .await
-            .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to fetch block {height}: {e}"
-                    )),
-                )
-            })?;
+        let response = self.client.get(&url).timeout(self.timeout).send().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to fetch block {height}: {e}"
+            )))
+        })?;
 
         if !response.status().is_success() {
             if response.status() == 404 {
@@ -1118,20 +1012,18 @@ impl BlockchainScanner for HttpBlockchainScanner {
         }
 
         let block_response: SingleBlockResponse = response.json().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Failed to parse block response for height {height}: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to parse block response for height {height}: {e}"
+            )))
         })?;
 
         let block = block_response.block;
         Ok(Some(BlockInfo {
             height: block.header.height,
             hash: hex::decode(&block.header.hash).map_err(|_| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(
-                        "Invalid block hash format",
-                    ),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid block hash format",
+                ))
             })?,
             outputs: block.body.outputs,
             inputs: Vec::new(),  // HTTP API doesn't provide input details
@@ -1143,11 +1035,10 @@ impl BlockchainScanner for HttpBlockchainScanner {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        data_structures::types::PrivateKey, extraction::ExtractionConfig, scanning::BlockScanResult,
-    };
     use serde::Deserialize;
+
+    use super::*;
+    use crate::{data_structures::types::PrivateKey, extraction::ExtractionConfig, scanning::BlockScanResult};
 
     #[derive(Deserialize)]
     struct TestBlockHeader {
@@ -1156,8 +1047,7 @@ mod tests {
         hash: Vec<u8>,
     }
 
-    const TEST_PRIVATE_KEY: &str =
-        "ab5ab1fdc94094ca1fc0ee46dc86ad5098b8ebf8e54c2a77eeb5b26334b8fa0d";
+    const TEST_PRIVATE_KEY: &str = "ab5ab1fdc94094ca1fc0ee46dc86ad5098b8ebf8e54c2a77eeb5b26334b8fa0d";
 
     // Load real block data from JSON files
     const BLOCK_32038_DATA: &str = include_str!("test_fixtures/block_32038.json");
@@ -1196,17 +1086,8 @@ mod tests {
         // Verify our test block header data is consistent
         let headers = load_test_block_headers();
         for header in &headers {
-            assert_eq!(
-                header.hash.len(),
-                32,
-                "Block {} hash should be 32 bytes",
-                header.name
-            );
-            assert!(
-                header.height > 0,
-                "Block {} height should be positive",
-                header.name
-            );
+            assert_eq!(header.hash.len(), 32, "Block {} hash should be 32 bytes", header.name);
+            assert!(header.height > 0, "Block {} height should be positive", header.name);
         }
     }
 
@@ -1256,19 +1137,13 @@ mod tests {
         match result {
             Ok(tx_output) => {
                 // Verify the conversion worked
-                assert_eq!(
-                    tx_output.commitment().as_bytes(),
-                    &http_output.commitment[..]
-                );
+                assert_eq!(tx_output.commitment().as_bytes(), &http_output.commitment[..]);
                 assert_eq!(
                     tx_output.sender_offset_public_key().as_bytes(),
                     &http_output.sender_offset_public_key[..]
                 );
-                assert_eq!(
-                    tx_output.encrypted_data().as_bytes(),
-                    &http_output.encrypted_data[..]
-                );
-            }
+                assert_eq!(tx_output.encrypted_data().as_bytes(), &http_output.encrypted_data[..]);
+            },
             Err(e) => panic!("Failed to convert HTTP output: {e}"),
         }
     }
@@ -1286,7 +1161,7 @@ mod tests {
                 // Verify the conversion worked - check that output hash matches
                 let output_hash = &tx_input.output_hash;
                 assert_eq!(output_hash.as_slice(), input_hash.as_slice());
-            }
+            },
             Err(e) => panic!("Failed to convert HTTP input: {e}"),
         }
     }
@@ -1304,7 +1179,7 @@ mod tests {
                 assert_eq!(block_info.timestamp, http_block.mined_timestamp);
                 assert_eq!(block_info.outputs.len(), http_block.outputs.len());
                 assert_eq!(block_info.inputs.len(), http_block.inputs.len());
-            }
+            },
             Err(e) => panic!("Failed to convert HTTP block: {e}"),
         }
     }
@@ -1316,8 +1191,8 @@ mod tests {
         let private_key = create_test_private_key();
 
         // Convert HTTP block to BlockInfo
-        let block_info = HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
-            .expect("Block conversion should work");
+        let block_info =
+            HttpBlockchainScanner::convert_http_block_to_block_info(http_block).expect("Block conversion should work");
 
         // Create extraction config with our test private key
         let extraction_config = ExtractionConfig::with_private_key(private_key);
@@ -1326,24 +1201,22 @@ mod tests {
         let mut wallet_outputs = Vec::new();
         for output in &block_info.outputs {
             // Test recoverable output scanning
-            if let Some(wallet_output) =
-                HttpBlockchainScanner::scan_for_recoverable_output(output, &extraction_config)
-                    .expect("Scan should not error")
+            if let Some(wallet_output) = HttpBlockchainScanner::scan_for_recoverable_output(output, &extraction_config)
+                .expect("Scan should not error")
             {
                 wallet_outputs.push(wallet_output);
             }
 
             // Test one-sided payment scanning
-            if let Some(wallet_output) =
-                HttpBlockchainScanner::scan_for_one_sided_payment(output, &extraction_config)
-                    .expect("Scan should not error")
+            if let Some(wallet_output) = HttpBlockchainScanner::scan_for_one_sided_payment(output, &extraction_config)
+                .expect("Scan should not error")
             {
                 wallet_outputs.push(wallet_output);
             }
 
             // Test coinbase output scanning (will be None for payment outputs)
-            if let Some(wallet_output) = HttpBlockchainScanner::scan_for_coinbase_output(output)
-                .expect("Scan should not error")
+            if let Some(wallet_output) =
+                HttpBlockchainScanner::scan_for_coinbase_output(output).expect("Scan should not error")
             {
                 wallet_outputs.push(wallet_output);
             }
@@ -1372,11 +1245,7 @@ mod tests {
 
             for block in &sync_response.blocks {
                 // Basic validation
-                assert!(
-                    !block.outputs.is_empty(),
-                    "Block {} should have outputs",
-                    header.name
-                );
+                assert!(!block.outputs.is_empty(), "Block {} should have outputs", header.name);
 
                 // Validate output structure for each output
                 for (j, output) in block.outputs.iter().enumerate() {
@@ -1409,8 +1278,7 @@ mod tests {
                     );
 
                     // Test conversion works for each output
-                    let conversion_result =
-                        HttpBlockchainScanner::convert_http_output_to_lightweight(output);
+                    let conversion_result = HttpBlockchainScanner::convert_http_output_to_lightweight(output);
                     assert!(
                         conversion_result.is_ok(),
                         "Block {} output {} should convert successfully",
@@ -1437,15 +1305,11 @@ mod tests {
         let extraction_config = ExtractionConfig::with_private_key(view_private_key);
 
         let http_block = &sync_response.blocks[0];
-        let block_info = HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
-            .expect("Block conversion should work");
+        let block_info =
+            HttpBlockchainScanner::convert_http_block_to_block_info(http_block).expect("Block conversion should work");
 
         // Verify block has expected number of outputs
-        assert_eq!(
-            block_info.outputs.len(),
-            199,
-            "Block 32038 should have 199 outputs"
-        );
+        assert_eq!(block_info.outputs.len(), 199, "Block 32038 should have 199 outputs");
 
         // Focus on output 92 (the one with the correct commitment)
         if block_info.outputs.len() > 92 {
@@ -1490,9 +1354,8 @@ mod tests {
             assert_eq!(value.as_u64(), 4011796, "Expected value 4011796 µT");
 
             // Test wallet output extraction
-            let wallet_output =
-                crate::extraction::extract_wallet_output(output_5, &extraction_config)
-                    .expect("Wallet output extraction should succeed");
+            let wallet_output = crate::extraction::extract_wallet_output(output_5, &extraction_config)
+                .expect("Wallet output extraction should succeed");
 
             assert_eq!(
                 wallet_output.value().as_u64(),
@@ -1529,9 +1392,8 @@ mod tests {
         for sync_response in all_blocks.iter() {
             for http_block in &sync_response.blocks {
                 // Convert HTTP block to BlockInfo
-                let block_info =
-                    HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
-                        .expect("Block conversion should work");
+                let block_info = HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
+                    .expect("Block conversion should work");
 
                 let mut wallet_outputs = Vec::new();
 
@@ -1539,11 +1401,9 @@ mod tests {
                 for (output_index, output) in block_info.outputs.iter().enumerate() {
                     total_outputs_scanned += 1;
 
-                    if let Some(wallet_output) = HttpBlockchainScanner::scan_for_recoverable_output(
-                        output,
-                        &extraction_config,
-                    )
-                    .expect("Scan should not error")
+                    if let Some(wallet_output) =
+                        HttpBlockchainScanner::scan_for_recoverable_output(output, &extraction_config)
+                            .expect("Scan should not error")
                     {
                         // Track successful outputs for validation
 
@@ -1590,22 +1450,10 @@ mod tests {
         }
 
         // Assert the expected values from test output
-        assert_eq!(
-            total_wallet_outputs_found, 24,
-            "Expected 24 wallet outputs found"
-        );
-        assert_eq!(
-            total_outputs_scanned, 495,
-            "Expected 495 total outputs scanned"
-        );
-        assert_eq!(
-            total_spent_wallet_inputs, 3,
-            "Expected 3 spent wallet inputs found"
-        );
-        assert_eq!(
-            total_inputs_scanned, 338,
-            "Expected 338 total inputs scanned"
-        );
+        assert_eq!(total_wallet_outputs_found, 24, "Expected 24 wallet outputs found");
+        assert_eq!(total_outputs_scanned, 495, "Expected 495 total outputs scanned");
+        assert_eq!(total_spent_wallet_inputs, 3, "Expected 3 spent wallet inputs found");
+        assert_eq!(total_inputs_scanned, 338, "Expected 338 total inputs scanned");
         assert_eq!(all_blocks.len(), 4, "Expected 4 blocks processed");
     }
 
@@ -1638,18 +1486,11 @@ mod tests {
                         .expect("Scan should not error")
                 {
                     // Store the output hash for later input matching (this is what inputs reference)
-                    let http_output = &http_block.outputs[block_info
-                        .outputs
-                        .iter()
-                        .position(|o| std::ptr::eq(o, output))
-                        .unwrap()];
+                    let http_output =
+                        &http_block.outputs[block_info.outputs.iter().position(|o| std::ptr::eq(o, output)).unwrap()];
                     let output_hash = http_output.output_hash.clone();
-                    let output_hash_key =
-                        format!("{}_{}", header.height, hex::encode(&output_hash[..8]));
-                    wallet_output_identifiers.insert(
-                        output_hash_key.clone(),
-                        (header.height, output_hash.clone()),
-                    );
+                    let output_hash_key = format!("{}_{}", header.height, hex::encode(&output_hash[..8]));
+                    wallet_output_identifiers.insert(output_hash_key.clone(), (header.height, output_hash.clone()));
 
                     // Track wallet output found
                 }
@@ -1683,20 +1524,9 @@ mod tests {
         }
 
         // Assert expected values from test output
-        assert_eq!(
-            wallet_output_identifiers.len(),
-            24,
-            "Expected 24 wallet outputs found"
-        );
-        assert_eq!(
-            spent_outputs_detected, 3,
-            "Expected 3 spent wallet outputs detected"
-        );
-        assert_eq!(
-            all_input_hashes.len(),
-            338,
-            "Expected 338 unique input hashes"
-        );
+        assert_eq!(wallet_output_identifiers.len(), 24, "Expected 24 wallet outputs found");
+        assert_eq!(spent_outputs_detected, 3, "Expected 3 spent wallet outputs detected");
+        assert_eq!(all_input_hashes.len(), 338, "Expected 338 unique input hashes");
 
         // Additional analysis: check if any inputs reference the actual output hashes from HTTP data
         let mut cross_referenced_inputs = 0;
@@ -1718,10 +1548,7 @@ mod tests {
         }
 
         // Assert expected cross-reference value
-        assert_eq!(
-            cross_referenced_inputs, 4,
-            "Expected 4 cross-referenced inputs"
-        );
+        assert_eq!(cross_referenced_inputs, 4, "Expected 4 cross-referenced inputs");
     }
 
     #[test]
@@ -1813,11 +1640,9 @@ mod tests {
 
                 // Strategy 1: Regular recoverable outputs
                 if !found_output {
-                    if let Some(wallet_output) = HttpBlockchainScanner::scan_for_recoverable_output(
-                        output,
-                        &extraction_config,
-                    )
-                    .expect("Scan should not error")
+                    if let Some(wallet_output) =
+                        HttpBlockchainScanner::scan_for_recoverable_output(output, &extraction_config)
+                            .expect("Scan should not error")
                     {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
@@ -1826,11 +1651,9 @@ mod tests {
 
                 // Strategy 2: One-sided payments
                 if !found_output {
-                    if let Some(wallet_output) = HttpBlockchainScanner::scan_for_one_sided_payment(
-                        output,
-                        &extraction_config,
-                    )
-                    .expect("Scan should not error")
+                    if let Some(wallet_output) =
+                        HttpBlockchainScanner::scan_for_one_sided_payment(output, &extraction_config)
+                            .expect("Scan should not error")
                     {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
@@ -1840,8 +1663,7 @@ mod tests {
                 // Strategy 3: Coinbase outputs
                 if !found_output {
                     if let Some(wallet_output) =
-                        HttpBlockchainScanner::scan_for_coinbase_output(output)
-                            .expect("Scan should not error")
+                        HttpBlockchainScanner::scan_for_coinbase_output(output).expect("Scan should not error")
                     {
                         wallet_outputs.push(wallet_output);
                     }
@@ -1867,10 +1689,6 @@ mod tests {
         assert!(!result.outputs.is_empty(), "Block should have outputs");
 
         // Verify the expected number of wallet outputs found
-        assert_eq!(
-            result.wallet_outputs.len(),
-            1,
-            "Expected 1 wallet output found"
-        );
+        assert_eq!(result.wallet_outputs.len(), 1, "Expected 1 wallet output found");
     }
 }

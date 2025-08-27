@@ -1,9 +1,11 @@
-use crate::data_structures::{
-    payment_id::PaymentId,
-    types::MicroMinotari,
-    wallet_output::{KeyId, WalletOutput},
+use crate::{
+    data_structures::{
+        payment_id::PaymentId,
+        types::MicroMinotari,
+        wallet_output::{KeyId, WalletOutput},
+    },
+    errors::WalletError,
 };
-use crate::errors::WalletError;
 
 /// Result of wallet output reconstruction
 #[derive(Debug, Clone)]

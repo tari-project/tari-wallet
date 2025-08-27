@@ -3,15 +3,18 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use crate::data_structures::{
-    address::TariAddress,
-    encrypted_data::{SIZE_U256, SIZE_VALUE},
-    types::{FixedHash, MicroMinotari},
-};
-use crate::hex_utils::{HexEncodable, HexError, HexValidatable};
 use borsh::{BorshDeserialize, BorshSerialize};
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    data_structures::{
+        address::TariAddress,
+        encrypted_data::{SIZE_U256, SIZE_VALUE},
+        types::{FixedHash, MicroMinotari},
+    },
+    hex_utils::{HexEncodable, HexError, HexValidatable},
+};
 
 // We pad the bytes to min this size, so that we can use the same size for AddressAndData and TransactionInfo
 const PADDING_SIZE: usize = 130;
@@ -181,59 +184,50 @@ impl PaymentId {
                 user_data,
                 ..
             } => {
-                let len = 1
-                    + 1
-                    + sender_address.get_size()
-                    + PaymentId::SIZE_META_DATA
-                    + 1
-                    + user_data.len();
+                let len = 1 + 1 + sender_address.get_size() + PaymentId::SIZE_META_DATA + 1 + user_data.len();
                 if len < PADDING_SIZE {
                     PADDING_SIZE
                 } else {
                     len
                 }
-            }
+            },
             PaymentId::TransactionInfo {
                 recipient_address,
                 user_data,
                 sent_output_hashes,
                 ..
             } => {
-                let len = 1
-                    + 1
-                    + recipient_address.get_size()
-                    + PaymentId::SIZE_VALUE_AND_META_DATA
-                    + 1
-                    + (sent_output_hashes.len() * FixedHash::byte_size())
-                    + 1
-                    + user_data.len();
+                let len = 1 +
+                    1 +
+                    recipient_address.get_size() +
+                    PaymentId::SIZE_VALUE_AND_META_DATA +
+                    1 +
+                    (sent_output_hashes.len() * FixedHash::byte_size()) +
+                    1 +
+                    user_data.len();
                 if len < PADDING_SIZE {
                     PADDING_SIZE
                 } else {
                     len
                 }
-            }
+            },
             PaymentId::Raw(bytes) => {
                 // We add 1 for the tag byte
                 1 + bytes.len()
-            }
+            },
         }
     }
 
     pub fn get_fee(&self) -> Option<MicroMinotari> {
         match self {
-            PaymentId::AddressAndData { fee, .. } | PaymentId::TransactionInfo { fee, .. } => {
-                Some(*fee)
-            }
+            PaymentId::AddressAndData { fee, .. } | PaymentId::TransactionInfo { fee, .. } => Some(*fee),
             _ => None,
         }
     }
 
     pub fn get_sent_hashes(&self) -> Option<Vec<FixedHash>> {
         match self {
-            PaymentId::TransactionInfo {
-                sent_output_hashes, ..
-            } => Some(sent_output_hashes.clone()),
+            PaymentId::TransactionInfo { sent_output_hashes, .. } => Some(sent_output_hashes.clone()),
             _ => None,
         }
     }
@@ -247,19 +241,16 @@ impl PaymentId {
 
     pub fn get_type(&self) -> TxType {
         match self {
-            PaymentId::Open { tx_type, .. }
-            | PaymentId::AddressAndData { tx_type, .. }
-            | PaymentId::TransactionInfo { tx_type, .. } => *tx_type,
+            PaymentId::Open { tx_type, .. } |
+            PaymentId::AddressAndData { tx_type, .. } |
+            PaymentId::TransactionInfo { tx_type, .. } => *tx_type,
             _ => TxType::default(),
         }
     }
 
     /// Helper function to set the 'recipient_address' of a 'PaymentId::TransactionInfo'
     pub fn transaction_info_set_address(&mut self, address: TariAddress) {
-        if let PaymentId::TransactionInfo {
-            recipient_address, ..
-        } = self
-        {
+        if let PaymentId::TransactionInfo { recipient_address, .. } = self {
             *recipient_address = address
         }
     }
@@ -310,8 +301,8 @@ impl PaymentId {
                 sender_one_sided,
                 tx_type,
                 ..
-            }
-            | PaymentId::AddressAndData {
+            } |
+            PaymentId::AddressAndData {
                 fee,
                 sender_one_sided,
                 tx_type,
@@ -331,7 +322,7 @@ impl PaymentId {
 
                 bytes.push(tx_type);
                 bytes
-            }
+            },
             _ => vec![],
         }
     }
@@ -352,7 +343,7 @@ impl PaymentId {
                 let bytes: &mut [u8] = &mut [0; SIZE_U256];
                 v.to_little_endian(bytes);
                 bytes.to_vec()
-            }
+            },
             PaymentId::Open { user_data, .. } => user_data.clone(),
             PaymentId::AddressAndData { user_data, .. } => user_data.clone(),
             PaymentId::TransactionInfo { user_data, .. } => user_data.clone(),
@@ -369,13 +360,13 @@ impl PaymentId {
                 v.to_little_endian(&mut value);
                 bytes.extend_from_slice(&value);
                 bytes
-            }
+            },
             PaymentId::Open { user_data, tx_type } => {
                 let mut bytes = self.to_tag();
                 bytes.extend_from_slice(&tx_type.as_bytes());
                 bytes.extend_from_slice(user_data);
                 bytes
-            }
+            },
             PaymentId::AddressAndData {
                 sender_address,
                 user_data,
@@ -384,20 +375,16 @@ impl PaymentId {
                 let mut bytes = self.to_tag();
                 bytes.extend_from_slice(&self.pack_meta_data());
                 let address_bytes = sender_address.to_vec();
-                bytes.push(
-                    u8::try_from(address_bytes.len()).expect("User data length should fit in a u8"),
-                );
+                bytes.push(u8::try_from(address_bytes.len()).expect("User data length should fit in a u8"));
                 bytes.extend_from_slice(&address_bytes);
-                bytes.push(
-                    u8::try_from(user_data.len()).expect("User data length should fit in a u8"),
-                );
+                bytes.push(u8::try_from(user_data.len()).expect("User data length should fit in a u8"));
                 bytes.extend_from_slice(user_data);
                 // Ensure we have enough padding to match the min size
                 while bytes.len() < PADDING_SIZE {
                     bytes.push(0);
                 }
                 bytes
-            }
+            },
             PaymentId::TransactionInfo {
                 recipient_address,
                 amount,
@@ -409,17 +396,12 @@ impl PaymentId {
                 bytes.extend_from_slice(&amount.as_u64().to_le_bytes());
                 bytes.extend_from_slice(&self.pack_meta_data());
                 let address_bytes = recipient_address.to_vec();
-                bytes.push(
-                    u8::try_from(address_bytes.len()).expect("User data length should fit in a u8"),
-                );
+                bytes.push(u8::try_from(address_bytes.len()).expect("User data length should fit in a u8"));
                 bytes.extend_from_slice(&address_bytes.to_vec());
-                bytes.push(
-                    u8::try_from(user_data.len()).expect("User data length should fit in a u8"),
-                );
+                bytes.push(u8::try_from(user_data.len()).expect("User data length should fit in a u8"));
                 bytes.extend_from_slice(user_data);
                 bytes.push(
-                    u8::try_from(sent_output_hashes.len())
-                        .expect("Sent output hashes length should fit in a u8"),
+                    u8::try_from(sent_output_hashes.len()).expect("Sent output hashes length should fit in a u8"),
                 );
                 for hash in sent_output_hashes {
                     bytes.extend_from_slice(hash.as_slice());
@@ -429,12 +411,12 @@ impl PaymentId {
                     bytes.push(0);
                 }
                 bytes
-            }
+            },
             PaymentId::Raw(bytes) => {
                 let mut result = self.to_tag();
                 result.extend_from_slice(bytes);
                 result
-            }
+            },
         }
     }
 
@@ -443,8 +425,7 @@ impl PaymentId {
         let raw_bytes = bytes.to_vec();
         // edge case for premine:
         if bytes.len() == SIZE_VALUE {
-            let bytes_array: [u8; SIZE_VALUE] =
-                bytes.try_into().expect("We already test the length");
+            let bytes_array: [u8; SIZE_VALUE] = bytes.try_into().expect("We already test the length");
             let v = u64::from_le_bytes(bytes_array);
             if v < 1000 {
                 return PaymentId::Open {
@@ -471,15 +452,15 @@ impl PaymentId {
                 }
                 let v = U256::from_little_endian(bytes);
                 return PaymentId::U256(v);
-            }
+            },
             PTag::Open => {
                 return PaymentId::Open {
                     tx_type: TxType::from_u8(*bytes.first().unwrap_or(&0)),
                     user_data: bytes.get(1..).unwrap_or_default().to_vec(),
                 }
-            }
+            },
             PTag::Raw => return PaymentId::Raw(bytes.to_vec()),
-            _ => {}
+            _ => {},
         }
 
         match PaymentId::try_deserialize_address_or_transaction_data(bytes, p_tag) {
@@ -487,15 +468,12 @@ impl PaymentId {
             Err(_e) => {
                 // Failed to parse PaymentId from bytes, returning Raw
                 PaymentId::Raw(raw_bytes)
-            }
+            },
         }
     }
 
     #[allow(clippy::too_many_lines)]
-    fn try_deserialize_address_or_transaction_data(
-        bytes: &[u8],
-        p_tag: PTag,
-    ) -> Result<PaymentId, String> {
+    fn try_deserialize_address_or_transaction_data(bytes: &[u8], p_tag: PTag) -> Result<PaymentId, String> {
         if bytes.len() < PaymentId::SIZE_VALUE_AND_META_DATA {
             // if the bytes are too short, we cannot parse it as AddressAndData or TransactionInfo
             return Err("Not enough bytes to parse AddressAndData or TransactionInfo".to_string());
@@ -506,18 +484,15 @@ impl PaymentId {
             amount_bytes.copy_from_slice(&bytes[0..SIZE_VALUE]);
             let amount = MicroMinotari::from(u64::from_le_bytes(amount_bytes));
             let mut meta_data_bytes = [0u8; PaymentId::SIZE_META_DATA];
-            meta_data_bytes
-                .copy_from_slice(&bytes[SIZE_VALUE..PaymentId::SIZE_VALUE_AND_META_DATA]);
-            let (fee, sender_one_sided, tx_meta_data) =
-                PaymentId::unpack_meta_data(meta_data_bytes);
-            let (address, size) = if let Ok((address, size)) =
-                Self::find_tari_address(&bytes[PaymentId::SIZE_VALUE_AND_META_DATA..])
-            {
-                (address, size)
-            } else {
-                // if we cannot find a valid TariAddress, we return the raw bytes
-                return Err("No valid TariAddress found in bytes".to_string());
-            };
+            meta_data_bytes.copy_from_slice(&bytes[SIZE_VALUE..PaymentId::SIZE_VALUE_AND_META_DATA]);
+            let (fee, sender_one_sided, tx_meta_data) = PaymentId::unpack_meta_data(meta_data_bytes);
+            let (address, size) =
+                if let Ok((address, size)) = Self::find_tari_address(&bytes[PaymentId::SIZE_VALUE_AND_META_DATA..]) {
+                    (address, size)
+                } else {
+                    // if we cannot find a valid TariAddress, we return the raw bytes
+                    return Err("No valid TariAddress found in bytes".to_string());
+                };
 
             // legacy support for AddressAndDataV1
             if p_tag == PTag::AddressAndDataV1 {
@@ -546,11 +521,7 @@ impl PaymentId {
             }
         }
         // now we assume this has to be off type AddressAndData or TransactionInfo
-        let data_start_index = if p_tag == PTag::AddressAndData {
-            0
-        } else {
-            SIZE_VALUE
-        };
+        let data_start_index = if p_tag == PTag::AddressAndData { 0 } else { SIZE_VALUE };
         let metadata_end_index = if p_tag == PTag::AddressAndData {
             PaymentId::SIZE_META_DATA
         } else {
@@ -576,8 +547,7 @@ impl PaymentId {
         .map_err(|_| "Invalid TariAddress in bytes".to_string())?;
         let user_data_length = *bytes
             .get(metadata_end_index + 1 + address_size)
-            .ok_or("User data bytes does not have length encoded")?
-            as usize;
+            .ok_or("User data bytes does not have length encoded")? as usize;
         let user_data_start = metadata_end_index + 1 + address_size + 1;
         let user_data = bytes
             .get(user_data_start..user_data_start + user_data_length)
@@ -597,11 +567,7 @@ impl PaymentId {
         }
         // so this must be a TransactionInfo
         let mut amount_bytes = [0u8; SIZE_VALUE];
-        amount_bytes.copy_from_slice(
-            bytes
-                .get(0..SIZE_VALUE)
-                .ok_or("Not enough bytes for amount")?,
-        );
+        amount_bytes.copy_from_slice(bytes.get(0..SIZE_VALUE).ok_or("Not enough bytes for amount")?);
         let amount = MicroMinotari::from(u64::from_le_bytes(amount_bytes));
         let mut sent_output_hashes = Vec::new();
         let sent_output_hashes_length = *bytes
@@ -615,8 +581,7 @@ impl PaymentId {
             let hash = bytes
                 .get(hash_start..hash_end)
                 .ok_or("Not enough bytes for sent output hash")?;
-            let sent_output_hash =
-                FixedHash::try_from(hash).map_err(|_| "Invalid sent output hash".to_string())?;
+            let sent_output_hash = FixedHash::try_from(hash).map_err(|_| "Invalid sent output hash".to_string())?;
             sent_output_hashes.push(sent_output_hash);
         }
         if !Self::check_padding(
@@ -663,9 +628,7 @@ impl PaymentId {
         // Now we have to try and brute force a match here
         let mut offset = 0;
         while (TARI_ADDRESS_INTERNAL_DUAL_SIZE + offset) <= bytes.len() {
-            if let Ok(address) =
-                TariAddress::from_bytes(&bytes[..(TARI_ADDRESS_INTERNAL_DUAL_SIZE + offset)])
-            {
+            if let Ok(address) = TariAddress::from_bytes(&bytes[..(TARI_ADDRESS_INTERNAL_DUAL_SIZE + offset)]) {
                 return Ok((address, TARI_ADDRESS_INTERNAL_DUAL_SIZE + offset));
             }
             offset += 1;

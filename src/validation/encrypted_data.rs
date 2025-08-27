@@ -50,10 +50,7 @@ impl EncryptedDataValidator {
     /// # Returns
     /// * `Ok(())` if the data is valid
     /// * `Err(ValidationError)` if the data is invalid
-    pub fn validate_integrity(
-        &self,
-        encrypted_data: &EncryptedData,
-    ) -> Result<(), ValidationError> {
+    pub fn validate_integrity(&self, encrypted_data: &EncryptedData) -> Result<(), ValidationError> {
         let data_bytes = encrypted_data.as_bytes();
 
         // Check size constraints
@@ -157,10 +154,7 @@ impl EncryptedDataValidator {
     /// # Returns
     /// * `Ok(())` if all data is valid
     /// * `Err(ValidationError)` if any data is invalid
-    pub fn validate_batch(
-        &self,
-        encrypted_data_items: &[EncryptedData],
-    ) -> Result<(), ValidationError> {
+    pub fn validate_batch(&self, encrypted_data_items: &[EncryptedData]) -> Result<(), ValidationError> {
         let mut failed_count = 0;
         let mut error_messages = Vec::new();
 
@@ -271,12 +265,7 @@ pub struct EncryptedDataValidationResult {
 
 impl EncryptedDataValidationResult {
     /// Create a new validation result
-    pub fn new(
-        is_valid: bool,
-        errors: Vec<String>,
-        appears_properly_encrypted: bool,
-        size: usize,
-    ) -> Self {
+    pub fn new(is_valid: bool, errors: Vec<String>, appears_properly_encrypted: bool, size: usize) -> Self {
         Self {
             is_valid,
             errors,
@@ -307,9 +296,7 @@ impl EncryptedDataValidationResult {
 }
 
 /// Comprehensive encrypted data validation with detailed results
-pub fn validate_encrypted_data_comprehensive(
-    encrypted_data: &EncryptedData,
-) -> EncryptedDataValidationResult {
+pub fn validate_encrypted_data_comprehensive(encrypted_data: &EncryptedData) -> EncryptedDataValidationResult {
     let validator = EncryptedDataValidator::default();
     let data_bytes = encrypted_data.as_bytes();
     let mut errors = Vec::new();
@@ -322,12 +309,7 @@ pub fn validate_encrypted_data_comprehensive(
     let appears_properly_encrypted = validator.appears_properly_encrypted(encrypted_data);
     let is_valid = errors.is_empty();
 
-    EncryptedDataValidationResult::new(
-        is_valid,
-        errors,
-        appears_properly_encrypted,
-        data_bytes.len(),
-    )
+    EncryptedDataValidationResult::new(is_valid, errors, appears_properly_encrypted, data_bytes.len())
 }
 
 #[cfg(test)]
@@ -406,10 +388,7 @@ mod tests {
 
         let result = validator.validate_integrity(&pattern_data);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("repeating patterns"));
+        assert!(result.unwrap_err().to_string().contains("repeating patterns"));
     }
 
     #[test]
@@ -436,10 +415,7 @@ mod tests {
         let batch = vec![valid_data, invalid_data];
         let result = validator.validate_batch(&batch);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Batch validation failed"));
+        assert!(result.unwrap_err().to_string().contains("Batch validation failed"));
     }
 
     #[test]

@@ -27,15 +27,14 @@ use tari_crypto::{
 use tari_utilities::hex::Hex;
 
 use super::hash_domain::WalletMessageSigningDomain;
-use crate::errors::{ValidationError, WalletError};
-use crate::key_management::{
-    derive_view_and_spend_keys_from_entropy, mnemonic_to_bytes, seed_phrase::CipherSeed,
+use crate::{
+    errors::{ValidationError, WalletError},
+    key_management::{derive_view_and_spend_keys_from_entropy, mnemonic_to_bytes, seed_phrase::CipherSeed},
 };
 
 /// Type alias for domain-separated wallet signatures
 /// This matches Tari's SignatureWithDomain for wallet message signing
-pub type WalletSignature =
-    SchnorrSignature<RistrettoPublicKey, RistrettoSecretKey, WalletMessageSigningDomain>;
+pub type WalletSignature = SchnorrSignature<RistrettoPublicKey, RistrettoSecretKey, WalletMessageSigningDomain>;
 
 /// Signs a message using the provided secret key with Tari wallet-compatible domain separation
 ///
@@ -49,18 +48,14 @@ pub type WalletSignature =
 ///
 /// # Example
 /// ```
+/// use lightweight_wallet_libs::crypto::{signing::sign_message, RistrettoSecretKey, SecretKey};
 /// use rand::rngs::OsRng;
-/// use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
-/// use lightweight_wallet_libs::crypto::signing::sign_message;
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
 /// let message = "Hello, Tari!";
 /// let signature = sign_message(&secret_key, message).unwrap();
 /// ```
-pub fn sign_message(
-    secret_key: &RistrettoSecretKey,
-    message: &str,
-) -> Result<WalletSignature, WalletError> {
+pub fn sign_message(secret_key: &RistrettoSecretKey, message: &str) -> Result<WalletSignature, WalletError> {
     let message_bytes = message.as_bytes();
 
     WalletSignature::sign(secret_key, message_bytes, &mut OsRng).map_err(|e| {
@@ -82,9 +77,12 @@ pub fn sign_message(
 ///
 /// # Example
 /// ```
+/// use lightweight_wallet_libs::crypto::{
+///     signing::sign_message_with_hex_output,
+///     RistrettoSecretKey,
+///     SecretKey,
+/// };
 /// use rand::rngs::OsRng;
-/// use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
-/// use lightweight_wallet_libs::crypto::signing::sign_message_with_hex_output;
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
 /// let message = "Hello, Tari!";
@@ -115,9 +113,14 @@ pub fn sign_message_with_hex_output(
 ///
 /// # Example
 /// ```
+/// use lightweight_wallet_libs::crypto::{
+///     signing::{sign_message, verify_message},
+///     PublicKey,
+///     RistrettoPublicKey,
+///     RistrettoSecretKey,
+///     SecretKey,
+/// };
 /// use rand::rngs::OsRng;
-/// use lightweight_wallet_libs::crypto::{RistrettoPublicKey, RistrettoSecretKey, PublicKey, SecretKey};
-/// use lightweight_wallet_libs::crypto::signing::{sign_message, verify_message};
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
 /// let public_key = RistrettoPublicKey::from_secret_key(&secret_key);
@@ -127,11 +130,7 @@ pub fn sign_message_with_hex_output(
 /// let is_valid = verify_message(&public_key, message, &signature);
 /// assert!(is_valid);
 /// ```
-pub fn verify_message(
-    public_key: &RistrettoPublicKey,
-    message: &str,
-    signature: &WalletSignature,
-) -> bool {
+pub fn verify_message(public_key: &RistrettoPublicKey, message: &str, signature: &WalletSignature) -> bool {
     let message_bytes = message.as_bytes();
     signature.verify(public_key, message_bytes)
 }
@@ -151,9 +150,14 @@ pub fn verify_message(
 ///
 /// # Example
 /// ```
+/// use lightweight_wallet_libs::crypto::{
+///     signing::{sign_message_with_hex_output, verify_message_from_hex},
+///     PublicKey,
+///     RistrettoPublicKey,
+///     RistrettoSecretKey,
+///     SecretKey,
+/// };
 /// use rand::rngs::OsRng;
-/// use lightweight_wallet_libs::crypto::{RistrettoPublicKey, RistrettoSecretKey, PublicKey, SecretKey};
-/// use lightweight_wallet_libs::crypto::signing::{sign_message_with_hex_output, verify_message_from_hex};
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
 /// let public_key = RistrettoPublicKey::from_secret_key(&secret_key);
@@ -207,10 +211,7 @@ pub fn verify_message_from_hex(
 /// let signing_key = derive_tari_signing_key(seed_phrase, None).unwrap();
 /// // This key can now be used with sign_message_with_hex_output()
 /// ```
-pub fn derive_tari_signing_key(
-    seed_phrase: &str,
-    passphrase: Option<&str>,
-) -> Result<RistrettoSecretKey, WalletError> {
+pub fn derive_tari_signing_key(seed_phrase: &str, passphrase: Option<&str>) -> Result<RistrettoSecretKey, WalletError> {
     // Convert seed phrase to CipherSeed
     let encrypted_bytes = mnemonic_to_bytes(seed_phrase).map_err(|e| {
         WalletError::ValidationError(ValidationError::SignatureValidationFailed(format!(
@@ -218,12 +219,11 @@ pub fn derive_tari_signing_key(
         )))
     })?;
 
-    let cipher_seed =
-        CipherSeed::from_enciphered_bytes(&encrypted_bytes, passphrase).map_err(|e| {
-            WalletError::ValidationError(ValidationError::SignatureValidationFailed(format!(
-                "Failed to decrypt CipherSeed: {e}"
-            )))
-        })?;
+    let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, passphrase).map_err(|e| {
+        WalletError::ValidationError(ValidationError::SignatureValidationFailed(format!(
+            "Failed to decrypt CipherSeed: {e}"
+        )))
+    })?;
 
     // Convert entropy to required array type
     let entropy_array: &[u8; 16] = cipher_seed.entropy().try_into().map_err(|_| {
@@ -273,9 +273,10 @@ pub fn sign_message_with_tari_wallet(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rand::rngs::OsRng;
     use tari_crypto::keys::{PublicKey, SecretKey};
+
+    use super::*;
 
     #[test]
     fn test_sign_and_verify_message() {
@@ -300,18 +301,14 @@ mod tests {
         let message = "Hello, Tari!";
 
         // Sign and get hex components
-        let (hex_signature, hex_nonce) =
-            sign_message_with_hex_output(&secret_key, message).unwrap();
+        let (hex_signature, hex_nonce) = sign_message_with_hex_output(&secret_key, message).unwrap();
 
         // Verify from hex components
-        let is_valid =
-            verify_message_from_hex(&public_key, message, &hex_signature, &hex_nonce).unwrap();
+        let is_valid = verify_message_from_hex(&public_key, message, &hex_signature, &hex_nonce).unwrap();
         assert!(is_valid);
 
         // Verify with wrong message should fail
-        let is_invalid =
-            verify_message_from_hex(&public_key, "Wrong message", &hex_signature, &hex_nonce)
-                .unwrap();
+        let is_invalid = verify_message_from_hex(&public_key, "Wrong message", &hex_signature, &hex_nonce).unwrap();
         assert!(!is_invalid);
     }
 
@@ -392,18 +389,14 @@ mod tests {
         assert_eq!(key1, key2);
 
         // Sign same message twice and verify both signatures work
-        let (sig1_hex, nonce1_hex) =
-            sign_message_with_tari_wallet(&seed_phrase, message, None).unwrap();
-        let (sig2_hex, nonce2_hex) =
-            sign_message_with_tari_wallet(&seed_phrase, message, None).unwrap();
+        let (sig1_hex, nonce1_hex) = sign_message_with_tari_wallet(&seed_phrase, message, None).unwrap();
+        let (sig2_hex, nonce2_hex) = sign_message_with_tari_wallet(&seed_phrase, message, None).unwrap();
 
         // Signatures will be different due to random nonce, but both should verify
         let public_key = RistrettoPublicKey::from_secret_key(&key1);
 
-        let is_valid1 =
-            verify_message_from_hex(&public_key, message, &sig1_hex, &nonce1_hex).unwrap();
-        let is_valid2 =
-            verify_message_from_hex(&public_key, message, &sig2_hex, &nonce2_hex).unwrap();
+        let is_valid1 = verify_message_from_hex(&public_key, message, &sig1_hex, &nonce1_hex).unwrap();
+        let is_valid2 = verify_message_from_hex(&public_key, message, &sig2_hex, &nonce2_hex).unwrap();
 
         assert!(is_valid1);
         assert!(is_valid2);

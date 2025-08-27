@@ -5,27 +5,27 @@
 //! these integration tests use actual databases, real progress scenarios, and
 //! verify end-to-end functionality.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-#[cfg(feature = "storage")]
-use tempfile::TempDir;
-
-use lightweight_wallet_libs::events::types::{EventMetadata, ScanConfig};
-use lightweight_wallet_libs::events::{EventDispatcher, EventListener, WalletScanEvent};
-
-use lightweight_wallet_libs::events::listeners::{
-    ConsoleLoggingListener, MockEventListener, ProgressTrackingListener,
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 #[cfg(feature = "storage")]
-use lightweight_wallet_libs::events::types::{AddressInfo, BlockInfo, OutputData, TransactionData};
-
-#[cfg(feature = "storage")]
 use lightweight_wallet_libs::events::listeners::DatabaseStorageListener;
-
+#[cfg(feature = "storage")]
+use lightweight_wallet_libs::events::types::{AddressInfo, BlockInfo, OutputData, TransactionData};
+use lightweight_wallet_libs::events::{
+    listeners::{ConsoleLoggingListener, MockEventListener, ProgressTrackingListener},
+    types::{EventMetadata, ScanConfig},
+    EventDispatcher,
+    EventListener,
+    WalletScanEvent,
+};
 #[cfg(feature = "storage")]
 use lightweight_wallet_libs::wallet::Wallet;
+#[cfg(feature = "storage")]
+use tempfile::TempDir;
 
 /// Integration test for ProgressTrackingListener with real progress scenarios
 #[tokio::test]
@@ -84,36 +84,18 @@ async fn test_progress_tracking_listener_integration() {
     };
 
     // Process events sequentially
-    let result = progress_listener
-        .handle_event(&Arc::new(scan_started))
-        .await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle ScanStarted event: {result:?}",
-    );
+    let result = progress_listener.handle_event(&Arc::new(scan_started)).await;
+    assert!(result.is_ok(), "Failed to handle ScanStarted event: {result:?}",);
 
-    let result = progress_listener
-        .handle_event(&Arc::new(scan_progress))
-        .await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle ScanProgress event: {result:?}",
-    );
+    let result = progress_listener.handle_event(&Arc::new(scan_progress)).await;
+    assert!(result.is_ok(), "Failed to handle ScanProgress event: {result:?}",);
 
-    let result = progress_listener
-        .handle_event(&Arc::new(scan_completed))
-        .await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle ScanCompleted event: {result:?}",
-    );
+    let result = progress_listener.handle_event(&Arc::new(scan_completed)).await;
+    assert!(result.is_ok(), "Failed to handle ScanCompleted event: {result:?}",);
 
     // Verify callbacks were called
     let updates = progress_updates.lock().unwrap();
-    assert!(
-        !updates.is_empty(),
-        "Progress updates should have been called"
-    );
+    assert!(!updates.is_empty(), "Progress updates should have been called");
     assert!(
         *completion_called.lock().unwrap(),
         "Completion callback should have been called"
@@ -141,22 +123,12 @@ async fn test_console_logging_listener_integration() {
     };
 
     // Test minimal configuration
-    let result = minimal_listener
-        .handle_event(&Arc::new(block_processed.clone()))
-        .await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle event in minimal config: {result:?}",
-    );
+    let result = minimal_listener.handle_event(&Arc::new(block_processed.clone())).await;
+    assert!(result.is_ok(), "Failed to handle event in minimal config: {result:?}",);
 
     // Test debug configuration
-    let result = debug_listener
-        .handle_event(&Arc::new(block_processed))
-        .await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle event in debug config: {result:?}",
-    );
+    let result = debug_listener.handle_event(&Arc::new(block_processed)).await;
+    assert!(result.is_ok(), "Failed to handle event in debug config: {result:?}",);
 
     println!("✓ ConsoleLoggingListener integration test passed");
 }
@@ -171,10 +143,7 @@ async fn test_combined_listeners_integration() {
     let mock_listener = MockEventListener::new();
     let captured_events = mock_listener.get_captured_events();
 
-    let progress_listener = ProgressTrackingListener::builder()
-        .frequency(1)
-        .verbose(false)
-        .build();
+    let progress_listener = ProgressTrackingListener::builder().frequency(1).verbose(false).build();
     dispatcher
         .register(Box::new(progress_listener))
         .expect("Failed to register progress listener");
@@ -225,11 +194,7 @@ async fn test_combined_listeners_integration() {
 
     // Verify mock listener captured all events
     let captured = captured_events.lock().unwrap();
-    assert_eq!(
-        captured.len(),
-        3,
-        "Mock listener should have captured 3 events"
-    );
+    assert_eq!(captured.len(), 3, "Mock listener should have captured 3 events");
 
     println!("✓ Combined listeners integration test passed");
 }
@@ -240,10 +205,7 @@ async fn test_error_handling_integration() {
     let mut dispatcher = EventDispatcher::new();
 
     // Add listener that can handle errors
-    let progress_listener = ProgressTrackingListener::builder()
-        .frequency(1)
-        .verbose(true)
-        .build();
+    let progress_listener = ProgressTrackingListener::builder().frequency(1).verbose(true).build();
     dispatcher
         .register(Box::new(progress_listener))
         .expect("Failed to register progress listener");
@@ -304,10 +266,7 @@ async fn test_database_storage_listener_integration() {
 
     // Handle scan started event
     let result = db_listener.handle_event(&Arc::new(scan_started)).await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle ScanStarted event: {result:?}",
-    );
+    assert!(result.is_ok(), "Failed to handle ScanStarted event: {result:?}",);
 
     // Create and handle block processed event
     let block_processed = WalletScanEvent::BlockProcessed {
@@ -321,10 +280,7 @@ async fn test_database_storage_listener_integration() {
     };
 
     let result = db_listener.handle_event(&Arc::new(block_processed)).await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle BlockProcessed event: {result:?}",
-    );
+    assert!(result.is_ok(), "Failed to handle BlockProcessed event: {result:?}",);
 
     // Create and handle output found event
     let output_found = WalletScanEvent::OutputFound {
@@ -338,24 +294,12 @@ async fn test_database_storage_listener_integration() {
         .with_amount(1000000)
         .with_key_index(0),
         block_info: BlockInfo::new(1002, "block_hash_1002".to_string(), 1640995440, 0),
-        address_info: AddressInfo::new(
-            "test_address".to_string(),
-            "stealth".to_string(),
-            "testnet".to_string(),
-        ),
-        transaction_data: TransactionData::new(
-            1000000,
-            "Unspent".to_string(),
-            "Inbound".to_string(),
-            1640995440,
-        ),
+        address_info: AddressInfo::new("test_address".to_string(), "stealth".to_string(), "testnet".to_string()),
+        transaction_data: TransactionData::new(1000000, "Unspent".to_string(), "Inbound".to_string(), 1640995440),
     };
 
     let result = db_listener.handle_event(&Arc::new(output_found)).await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle OutputFound event: {result:?}",
-    );
+    assert!(result.is_ok(), "Failed to handle OutputFound event: {result:?}",);
 
     // Handle scan completion
     let scan_completed = WalletScanEvent::ScanCompleted {
@@ -371,10 +315,7 @@ async fn test_database_storage_listener_integration() {
     };
 
     let result = db_listener.handle_event(&Arc::new(scan_completed)).await;
-    assert!(
-        result.is_ok(),
-        "Failed to handle ScanCompleted event: {result:?}",
-    );
+    assert!(result.is_ok(), "Failed to handle ScanCompleted event: {result:?}",);
 
     println!("✓ DatabaseStorageListener integration test passed");
 }
@@ -385,9 +326,7 @@ async fn test_high_frequency_events_integration() {
     let mut dispatcher = EventDispatcher::new();
 
     // Add performance-optimized listeners
-    let progress_listener = ProgressTrackingListener::builder()
-        .performance_preset()
-        .build();
+    let progress_listener = ProgressTrackingListener::builder().performance_preset().build();
     dispatcher
         .register(Box::new(progress_listener))
         .expect("Failed to register progress listener");
@@ -423,10 +362,7 @@ async fn test_high_frequency_events_integration() {
     );
 
     // Should process at least 10 events per second
-    assert!(
-        elapsed < Duration::from_secs(10),
-        "Performance too slow: {elapsed:?}"
-    );
+    assert!(elapsed < Duration::from_secs(10), "Performance too slow: {elapsed:?}");
 
     println!("✓ High-frequency events integration test passed");
 }

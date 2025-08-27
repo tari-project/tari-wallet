@@ -10,7 +10,10 @@ use tari_transaction_components::{
 };
 
 use crate::{
-    key_manager::TransactionKeyManagerWalletStorage, CipherSeed, EncryptionError, WalletResult,
+    key_manager::TransactionKeyManagerWalletStorage,
+    CipherSeed,
+    EncryptionError,
+    WalletResult,
     WalletStorage,
 };
 
@@ -30,12 +33,8 @@ impl TransactionKeyManager {
             None,
         )
         .map_err(|err| EncryptionError::DecryptionFailed(err.to_string()))?;
-        let wrapper = TransactionKeyManagerWrapper::new(
-            seed,
-            storage.clone(),
-            CryptoFactories::default(),
-            wallet_type.into(),
-        )?;
+        let wrapper =
+            TransactionKeyManagerWrapper::new(seed, storage.clone(), CryptoFactories::default(), wallet_type.into())?;
         Ok(Self(wrapper))
     }
 

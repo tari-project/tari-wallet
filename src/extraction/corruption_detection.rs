@@ -169,10 +169,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in encrypted data
-    pub fn detect_encrypted_data_corruption(
-        &self,
-        encrypted_data: &EncryptedData,
-    ) -> CorruptionDetectionResult {
+    pub fn detect_encrypted_data_corruption(&self, encrypted_data: &EncryptedData) -> CorruptionDetectionResult {
         if encrypted_data.as_bytes().is_empty() {
             return CorruptionDetectionResult::corrupted(
                 CorruptionType::EmptyData,
@@ -186,10 +183,7 @@ impl CorruptionDetector {
         if encrypted_data.as_bytes().len() < 32 {
             return CorruptionDetectionResult::corrupted(
                 CorruptionType::InsufficientData,
-                format!(
-                    "Encrypted data too small: {} bytes",
-                    encrypted_data.as_bytes().len()
-                ),
+                format!("Encrypted data too small: {} bytes", encrypted_data.as_bytes().len()),
                 0.7,
                 false,
             );
@@ -224,8 +218,7 @@ impl CorruptionDetector {
         transaction_output: &TransactionOutput,
     ) -> CorruptionDetectionResult {
         // Check encrypted data corruption
-        let encrypted_data_result =
-            self.detect_encrypted_data_corruption(transaction_output.encrypted_data());
+        let encrypted_data_result = self.detect_encrypted_data_corruption(transaction_output.encrypted_data());
         if encrypted_data_result.is_corrupted() {
             return encrypted_data_result;
         }
@@ -245,8 +238,7 @@ impl CorruptionDetector {
         }
 
         // Check signature corruption
-        let signature_result =
-            self.detect_signature_corruption(transaction_output.metadata_signature());
+        let signature_result = self.detect_signature_corruption(transaction_output.metadata_signature());
         if signature_result.is_corrupted() {
             return signature_result;
         }
@@ -264,8 +256,7 @@ impl CorruptionDetector {
         }
 
         // Check value corruption
-        let value_result =
-            self.detect_value_corruption(&transaction_output.minimum_value_promise());
+        let value_result = self.detect_value_corruption(&transaction_output.minimum_value_promise());
         if value_result.is_corrupted() {
             return value_result;
         }
@@ -280,13 +271,9 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in wallet output
-    pub fn detect_wallet_output_corruption(
-        &self,
-        wallet_output: &WalletOutput,
-    ) -> CorruptionDetectionResult {
+    pub fn detect_wallet_output_corruption(&self, wallet_output: &WalletOutput) -> CorruptionDetectionResult {
         // Check encrypted data corruption
-        let encrypted_data_result =
-            self.detect_encrypted_data_corruption(wallet_output.encrypted_data());
+        let encrypted_data_result = self.detect_encrypted_data_corruption(wallet_output.encrypted_data());
         if encrypted_data_result.is_corrupted() {
             return encrypted_data_result;
         }
@@ -315,10 +302,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in commitment
-    fn detect_commitment_corruption(
-        &self,
-        commitment: &CompressedCommitment,
-    ) -> CorruptionDetectionResult {
+    fn detect_commitment_corruption(&self, commitment: &CompressedCommitment) -> CorruptionDetectionResult {
         // Check if commitment is all zeros
         if commitment.as_bytes().iter().all(|&b| b == 0) {
             return CorruptionDetectionResult::corrupted(
@@ -432,7 +416,7 @@ impl CorruptionDetector {
             PaymentId::Empty => {
                 // Empty payment ID is always valid
                 CorruptionDetectionResult::clean()
-            }
+            },
             PaymentId::U256(value) => {
                 // Check if U256 value is zero
                 if value.is_zero() {
@@ -444,11 +428,8 @@ impl CorruptionDetector {
                     );
                 }
                 CorruptionDetectionResult::clean()
-            }
-            PaymentId::Open {
-                user_data,
-                tx_type: _,
-            } => {
+            },
+            PaymentId::Open { user_data, tx_type: _ } => {
                 // Check if open data is empty
                 if user_data.is_empty() {
                     return CorruptionDetectionResult::corrupted(
@@ -459,7 +440,7 @@ impl CorruptionDetector {
                     );
                 }
                 CorruptionDetectionResult::clean()
-            }
+            },
             PaymentId::AddressAndData { user_data, .. } => {
                 // Check if data is empty
                 if user_data.is_empty() {
@@ -471,11 +452,11 @@ impl CorruptionDetector {
                     );
                 }
                 CorruptionDetectionResult::clean()
-            }
+            },
             PaymentId::TransactionInfo { .. } => {
                 // Transaction info is always valid for corruption detection
                 CorruptionDetectionResult::clean()
-            }
+            },
             PaymentId::Raw(data) => {
                 // Check if raw data is empty
                 if data.is_empty() {
@@ -487,7 +468,7 @@ impl CorruptionDetector {
                     );
                 }
                 CorruptionDetectionResult::clean()
-            }
+            },
         }
     }
 
@@ -561,14 +542,12 @@ impl CorruptionDetector {
         }
 
         match corruption_result.corruption_type() {
-            Some(CorruptionType::EmptyData) => Err(DataStructureError::InvalidDataFormat(
-                "Cannot recover from empty data".to_string(),
-            )
-            .into()),
-            Some(CorruptionType::InsufficientData) => Err(DataStructureError::InvalidDataFormat(
-                "Cannot recover from insufficient data".to_string(),
-            )
-            .into()),
+            Some(CorruptionType::EmptyData) => {
+                Err(DataStructureError::InvalidDataFormat("Cannot recover from empty data".to_string()).into())
+            },
+            Some(CorruptionType::InsufficientData) => {
+                Err(DataStructureError::InvalidDataFormat("Cannot recover from insufficient data".to_string()).into())
+            },
             Some(CorruptionType::ZeroData) => {
                 // Try to find non-zero data in surrounding context
                 // This is a placeholder - in practice, you'd need more context
@@ -576,12 +555,12 @@ impl CorruptionDetector {
                     "Cannot recover from zero data without additional context".to_string(),
                 )
                 .into())
-            }
+            },
             _ => {
                 // For other corruption types, return original data
                 // In a real implementation, you might try various recovery strategies
                 Ok(data.to_vec())
-            }
+            },
         }
     }
 
@@ -670,10 +649,7 @@ mod tests {
 
         assert!(result.is_corrupted());
         assert_eq!(result.corruption_type(), Some(&CorruptionType::ZeroData));
-        assert_eq!(
-            result.error_message(),
-            Some("Encrypted data contains only zeros")
-        );
+        assert_eq!(result.error_message(), Some("Encrypted data contains only zeros"));
         assert!(!result.is_recoverable());
     }
 
@@ -685,10 +661,7 @@ mod tests {
 
         assert!(result.is_corrupted());
         assert_eq!(result.corruption_type(), Some(&CorruptionType::ZeroData));
-        assert_eq!(
-            result.error_message(),
-            Some("Encrypted data contains only zeros")
-        );
+        assert_eq!(result.error_message(), Some("Encrypted data contains only zeros"));
         assert!(!result.is_recoverable());
     }
 
@@ -716,14 +689,8 @@ mod tests {
         let result = detector.detect_payment_id_corruption(&payment_id);
 
         assert!(result.is_corrupted());
-        assert_eq!(
-            result.corruption_type(),
-            Some(&CorruptionType::PaymentIdCorruption)
-        );
-        assert_eq!(
-            result.error_message(),
-            Some("Open payment ID data is empty")
-        );
+        assert_eq!(result.corruption_type(), Some(&CorruptionType::PaymentIdCorruption));
+        assert_eq!(result.error_message(), Some("Open payment ID data is empty"));
         assert!(result.is_recoverable());
     }
 
@@ -749,10 +716,7 @@ mod tests {
         let result = detector.detect_commitment_corruption(&commitment);
 
         assert!(result.is_corrupted());
-        assert_eq!(
-            result.corruption_type(),
-            Some(&CorruptionType::CommitmentCorruption)
-        );
+        assert_eq!(result.corruption_type(), Some(&CorruptionType::CommitmentCorruption));
         assert_eq!(result.error_message(), Some("Commitment is all zeros"));
         assert!(!result.is_recoverable());
     }
@@ -764,10 +728,7 @@ mod tests {
         let result = detector.detect_value_corruption(&value);
 
         assert!(result.is_corrupted());
-        assert_eq!(
-            result.corruption_type(),
-            Some(&CorruptionType::ValueCorruption)
-        );
+        assert_eq!(result.corruption_type(), Some(&CorruptionType::ValueCorruption));
         assert_eq!(result.error_message(), Some("Value is unreasonably large"));
         assert!(result.is_recoverable());
     }
@@ -792,12 +753,8 @@ mod tests {
     #[test]
     fn test_attempt_recovery() {
         let detector = CorruptionDetector::new();
-        let corruption_result = CorruptionDetectionResult::corrupted(
-            CorruptionType::EmptyData,
-            "Test corruption".to_string(),
-            0.8,
-            false,
-        );
+        let corruption_result =
+            CorruptionDetectionResult::corrupted(CorruptionType::EmptyData, "Test corruption".to_string(), 0.8, false);
 
         let result = detector.attempt_recovery(&corruption_result, &[1, 2, 3, 4]);
         assert!(result.is_err());

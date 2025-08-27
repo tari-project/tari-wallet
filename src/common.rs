@@ -3,8 +3,7 @@
 //! This module provides shared constants, utility functions, and type conversions
 //! that are used across multiple modules in the library.
 
-use crate::data_structures::address::Network;
-use crate::errors::WalletError;
+use crate::{data_structures::address::Network, errors::WalletError};
 
 /// Format a number with thousands separators (e.g., 1,234,567)
 pub fn format_number<T: std::fmt::Display>(val: T) -> String {
@@ -75,8 +74,7 @@ pub fn validate_network_string(network_str: &str) -> Result<(), WalletError> {
         _ => Err(WalletError::InvalidArgument {
             argument: "network".to_string(),
             value: network_str.to_string(),
-            message: "Must be one of: mainnet, stagenet, localnet, esmeralda, nextnet, igor"
-                .to_string(),
+            message: "Must be one of: mainnet, stagenet, localnet, esmeralda, nextnet, igor".to_string(),
         }),
     }
 }

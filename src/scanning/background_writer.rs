@@ -7,13 +7,14 @@
 //! This module is part of the scanner.rs binary refactoring effort.
 
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+use tokio::sync::{mpsc, oneshot};
+
+#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 use crate::{
     data_structures::{types::CompressedCommitment, wallet_transaction::WalletTransaction},
     errors::WalletResult,
     storage::{StoredOutput, WalletStorage},
 };
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-use tokio::sync::{mpsc, oneshot};
 
 /// Background writer commands for non-WASM32 architectures
 ///
@@ -135,24 +136,19 @@ impl BackgroundWriter {
                 } => {
                     let result = storage.save_transactions(wallet_id, &transactions).await;
                     let _ = response_tx.send(result);
-                }
-                BackgroundWriterCommand::SaveOutputs {
-                    outputs,
-                    response_tx,
-                } => {
+                },
+                BackgroundWriterCommand::SaveOutputs { outputs, response_tx } => {
                     let result = storage.save_outputs(&outputs).await;
                     let _ = response_tx.send(result);
-                }
+                },
                 BackgroundWriterCommand::UpdateWalletScannedBlock {
                     wallet_id,
                     block_height,
                     response_tx,
                 } => {
-                    let result = storage
-                        .update_wallet_scanned_block(wallet_id, block_height)
-                        .await;
+                    let result = storage.update_wallet_scanned_block(wallet_id, block_height).await;
                     let _ = response_tx.send(result);
-                }
+                },
                 BackgroundWriterCommand::MarkTransactionSpent {
                     commitment,
                     block_height,
@@ -163,18 +159,18 @@ impl BackgroundWriter {
                         .mark_transaction_spent(&commitment, block_height, input_index)
                         .await;
                     let _ = response_tx.send(result);
-                }
+                },
                 BackgroundWriterCommand::MarkTransactionsSpentBatch {
                     commitments,
                     response_tx,
                 } => {
                     let result = storage.mark_transactions_spent_batch(&commitments).await;
                     let _ = response_tx.send(result);
-                }
+                },
                 BackgroundWriterCommand::Shutdown { response_tx } => {
                     let _ = response_tx.send(());
                     break;
-                }
+                },
             }
         }
     }
@@ -191,21 +187,21 @@ mod tests {
     type ShouldFail = Arc<Mutex<bool>>;
 
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    use crate::data_structures::WalletState;
-    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    use crate::key_manager::{
-        ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql,
-    };
-    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    use crate::storage::{OutputFilter, StorageStats, StoredWallet, TransactionFilter};
+    use std::sync::{Arc, Mutex};
+
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use async_trait::async_trait;
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use chrono::NaiveDateTime;
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    use std::sync::{Arc, Mutex};
-    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use tari_common_types::types::CompressedPublicKey;
+
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    use crate::data_structures::WalletState;
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    use crate::key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql};
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    use crate::storage::{OutputFilter, StorageStats, StoredWallet, TransactionFilter};
 
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     #[derive(Debug, Clone)]
@@ -264,9 +260,7 @@ mod tests {
     impl WalletStorage for MockStorage {
         async fn initialize(&self) -> WalletResult<()> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 Ok(())
             }
@@ -274,9 +268,7 @@ mod tests {
 
         async fn save_wallet(&self, _wallet: &StoredWallet) -> WalletResult<u32> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 Ok(1)
             }
@@ -284,9 +276,7 @@ mod tests {
 
         async fn get_wallet_by_id(&self, _id: u32) -> WalletResult<Option<StoredWallet>> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 Ok(None)
             }
@@ -294,9 +284,7 @@ mod tests {
 
         async fn get_wallet_by_name(&self, _name: &str) -> WalletResult<Option<StoredWallet>> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 Ok(None)
             }
@@ -304,23 +292,15 @@ mod tests {
 
         async fn list_wallets(&self) -> WalletResult<Vec<StoredWallet>> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 Ok(Vec::new())
             }
         }
 
-        async fn save_transactions(
-            &self,
-            wallet_id: u32,
-            transactions: &[WalletTransaction],
-        ) -> WalletResult<()> {
+        async fn save_transactions(&self, wallet_id: u32, transactions: &[WalletTransaction]) -> WalletResult<()> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 self.transactions_saved
                     .lock()
@@ -332,9 +312,7 @@ mod tests {
 
         async fn save_outputs(&self, outputs: &[StoredOutput]) -> WalletResult<Vec<u32>> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 self.outputs_saved.lock().unwrap().push(outputs.to_vec());
                 Ok((0..outputs.len()).map(|i| i as u32).collect())
@@ -343,28 +321,17 @@ mod tests {
 
         async fn get_unspent_outputs(&self, _wallet_id: u32) -> WalletResult<Vec<StoredOutput>> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 Ok(Vec::new())
             }
         }
 
-        async fn update_wallet_scanned_block(
-            &self,
-            wallet_id: u32,
-            block_height: u64,
-        ) -> WalletResult<()> {
+        async fn update_wallet_scanned_block(&self, wallet_id: u32, block_height: u64) -> WalletResult<()> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
-                self.wallets_updated
-                    .lock()
-                    .unwrap()
-                    .push((wallet_id, block_height));
+                self.wallets_updated.lock().unwrap().push((wallet_id, block_height));
                 Ok(())
             }
         }
@@ -376,15 +343,12 @@ mod tests {
             input_index: usize,
         ) -> WalletResult<bool> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
-                self.transactions_marked.lock().unwrap().push((
-                    commitment.clone(),
-                    block_height,
-                    input_index,
-                ));
+                self.transactions_marked
+                    .lock()
+                    .unwrap()
+                    .push((commitment.clone(), block_height, input_index));
                 Ok(true)
             }
         }
@@ -394,23 +358,16 @@ mod tests {
             commitments: &[(CompressedCommitment, u64, usize)],
         ) -> WalletResult<usize> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 self.batch_marked.lock().unwrap().push(commitments.to_vec());
                 Ok(commitments.len())
             }
         }
 
-        async fn get_wallet_statistics(
-            &self,
-            _wallet_id: Option<u32>,
-        ) -> WalletResult<StorageStats> {
+        async fn get_wallet_statistics(&self, _wallet_id: Option<u32>) -> WalletResult<StorageStats> {
             if *self.should_fail.lock().unwrap() {
-                Err(crate::errors::WalletError::StorageError(
-                    "Mock failure".to_string(),
-                ))
+                Err(crate::errors::WalletError::StorageError("Mock failure".to_string()))
             } else {
                 Ok(StorageStats {
                     total_transactions: 0,
@@ -432,34 +389,34 @@ mod tests {
         async fn delete_wallet(&self, _wallet_id: u32) -> WalletResult<bool> {
             Ok(false)
         }
+
         async fn wallet_name_exists(&self, _name: &str) -> WalletResult<bool> {
             Ok(false)
         }
-        async fn save_transaction(
-            &self,
-            _wallet_id: u32,
-            _transaction: &WalletTransaction,
-        ) -> WalletResult<()> {
+
+        async fn save_transaction(&self, _wallet_id: u32, _transaction: &WalletTransaction) -> WalletResult<()> {
             Ok(())
         }
+
         async fn update_transaction(&self, _transaction: &WalletTransaction) -> WalletResult<()> {
             Ok(())
         }
+
         async fn get_transaction_by_commitment(
             &self,
             _commitment: &CompressedCommitment,
         ) -> WalletResult<Option<WalletTransaction>> {
             Ok(None)
         }
-        async fn get_transactions(
-            &self,
-            _filter: Option<TransactionFilter>,
-        ) -> WalletResult<Vec<WalletTransaction>> {
+
+        async fn get_transactions(&self, _filter: Option<TransactionFilter>) -> WalletResult<Vec<WalletTransaction>> {
             Ok(Vec::new())
         }
+
         async fn load_wallet_state(&self, _wallet_id: u32) -> WalletResult<WalletState> {
             Ok(WalletState::new())
         }
+
         async fn get_statistics(&self) -> WalletResult<StorageStats> {
             Ok(StorageStats {
                 total_transactions: 0,
@@ -475,6 +432,7 @@ mod tests {
                 latest_scanned_block: None,
             })
         }
+
         async fn get_transactions_by_block_range(
             &self,
             _from_block: u64,
@@ -482,81 +440,83 @@ mod tests {
         ) -> WalletResult<Vec<WalletTransaction>> {
             Ok(Vec::new())
         }
+
         async fn get_unspent_transactions(&self) -> WalletResult<Vec<WalletTransaction>> {
             Ok(Vec::new())
         }
+
         async fn get_spent_transactions(&self) -> WalletResult<Vec<WalletTransaction>> {
             Ok(Vec::new())
         }
+
         async fn has_commitment(&self, _commitment: &CompressedCommitment) -> WalletResult<bool> {
             Ok(false)
         }
+
         async fn get_highest_block(&self) -> WalletResult<Option<u64>> {
             Ok(None)
         }
+
         async fn get_lowest_block(&self) -> WalletResult<Option<u64>> {
             Ok(None)
         }
+
         async fn clear_all_transactions(&self) -> WalletResult<()> {
             Ok(())
         }
+
         async fn get_transaction_count(&self) -> WalletResult<usize> {
             Ok(0)
         }
+
         async fn close(&self) -> WalletResult<()> {
             Ok(())
         }
+
         async fn save_output(&self, _output: &StoredOutput) -> WalletResult<u32> {
             Ok(1)
         }
+
         async fn update_output(&self, _output: &StoredOutput) -> WalletResult<()> {
             Ok(())
         }
-        async fn mark_output_spent(
-            &self,
-            _output_id: u32,
-            _spent_in_tx_id: u64,
-        ) -> WalletResult<()> {
+
+        async fn mark_output_spent(&self, _output_id: u32, _spent_in_tx_id: u64) -> WalletResult<()> {
             Ok(())
         }
+
         async fn get_output_by_id(&self, _output_id: u32) -> WalletResult<Option<StoredOutput>> {
             Ok(None)
         }
-        async fn get_output_by_commitment(
-            &self,
-            _commitment: &[u8],
-        ) -> WalletResult<Option<StoredOutput>> {
+
+        async fn get_output_by_commitment(&self, _commitment: &[u8]) -> WalletResult<Option<StoredOutput>> {
             Ok(None)
         }
-        async fn get_outputs(
-            &self,
-            _filter: Option<OutputFilter>,
-        ) -> WalletResult<Vec<StoredOutput>> {
+
+        async fn get_outputs(&self, _filter: Option<OutputFilter>) -> WalletResult<Vec<StoredOutput>> {
             Ok(Vec::new())
         }
-        async fn get_spendable_outputs(
-            &self,
-            _wallet_id: u32,
-            _block_height: u64,
-        ) -> WalletResult<Vec<StoredOutput>> {
+
+        async fn get_spendable_outputs(&self, _wallet_id: u32, _block_height: u64) -> WalletResult<Vec<StoredOutput>> {
             Ok(Vec::new())
         }
-        async fn get_spendable_balance(
-            &self,
-            _wallet_id: u32,
-            _block_height: u64,
-        ) -> WalletResult<u64> {
+
+        async fn get_spendable_balance(&self, _wallet_id: u32, _block_height: u64) -> WalletResult<u64> {
             Ok(0)
         }
+
         async fn delete_output(&self, _output_id: u32) -> WalletResult<bool> {
             Ok(false)
         }
+
         async fn clear_outputs(&self, _wallet_id: u32) -> WalletResult<()> {
             Ok(())
         }
+
         async fn get_output_count(&self, _wallet_id: u32) -> WalletResult<usize> {
             Ok(0)
         }
+
         async fn mark_spent_outputs_from_inputs(
             &self,
             _wallet_id: u32,
@@ -565,17 +525,16 @@ mod tests {
         ) -> WalletResult<usize> {
             Ok(0)
         }
+
         async fn mark_outputs_locked(&self, _output_ids: &[u32]) -> WalletResult<usize> {
             Ok(0)
         }
+
         async fn unlock_all_outputs(&self, _wallet_id: u32) -> WalletResult<usize> {
             Ok(0)
         }
-        async fn key_manager_get_state(
-            &self,
-            _branch: &str,
-            _wallet_id: u32,
-        ) -> WalletResult<KeyManagerStateSql> {
+
+        async fn key_manager_get_state(&self, _branch: &str, _wallet_id: u32) -> WalletResult<KeyManagerStateSql> {
             Ok(KeyManagerStateSql {
                 id: 0,
                 wallet_id: 0,
@@ -584,15 +543,15 @@ mod tests {
                 timestamp: NaiveDateTime::default(),
             })
         }
-        async fn key_manager_commit_state(
-            &self,
-            _state: &NewKeyManagerStateSql,
-        ) -> WalletResult<()> {
+
+        async fn key_manager_commit_state(&self, _state: &NewKeyManagerStateSql) -> WalletResult<()> {
             Ok(())
         }
+
         async fn key_manager_set_index(&self, _id: i32, _index: Vec<u8>) -> WalletResult<()> {
             Ok(())
         }
+
         async fn key_manager_get_imported_key(
             &self,
             _key: &CompressedPublicKey,
@@ -606,10 +565,8 @@ mod tests {
                 timestamp: NaiveDateTime::default(),
             })
         }
-        async fn key_manager_commit_imported_key(
-            &self,
-            _key: &NewImportedKeySql,
-        ) -> WalletResult<()> {
+
+        async fn key_manager_commit_imported_key(&self, _key: &NewImportedKeySql) -> WalletResult<()> {
             Ok(())
         }
     }
@@ -623,8 +580,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send a save transactions command
@@ -670,8 +626,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send a save transactions command
@@ -709,8 +664,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send a save outputs command
@@ -754,8 +708,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send an update wallet command
@@ -800,8 +753,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send a mark transaction spent command
@@ -849,8 +801,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send a batch mark command
@@ -897,8 +848,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send shutdown command
@@ -925,8 +875,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Send multiple commands
@@ -986,8 +935,7 @@ mod tests {
         // Spawn the background writer task
         let storage_clone = mock_storage.clone();
         let writer_task = tokio::spawn(async move {
-            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx)
-                .await;
+            BackgroundWriter::background_writer_loop(Box::new(storage_clone), &mut command_rx).await;
         });
 
         // Close the sender - this should cause the loop to exit

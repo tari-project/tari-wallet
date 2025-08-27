@@ -16,8 +16,10 @@
 //! at key points in the scanning process:
 //!
 //! ```rust,no_run
-//! use lightweight_wallet_libs::scanning::event_emitter::ScanEventEmitter;
-//! use lightweight_wallet_libs::events::EventDispatcher;
+//! use lightweight_wallet_libs::{
+//!     events::EventDispatcher,
+//!     scanning::event_emitter::ScanEventEmitter,
+//! };
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create event dispatcher with listeners
@@ -33,32 +35,41 @@
 //! # }
 //! ```
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
-use tokio::sync::Mutex;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 #[cfg(target_arch = "wasm32")]
 use js_sys;
+use tokio::sync::Mutex;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures;
 
-use crate::data_structures::{
-    block::Block,
-    transaction_output::TransactionOutput,
-    wallet_transaction::{WalletState, WalletTransaction},
-};
-use crate::errors::WalletError;
-use crate::events::{
-    types::{
-        AddressInfo, BlockInfo, EventMetadata, OutputData, ScanConfig, SpentOutputData,
-        TransactionData, WalletScanEvent,
+use crate::{
+    data_structures::{
+        block::Block,
+        transaction_output::TransactionOutput,
+        wallet_transaction::{WalletState, WalletTransaction},
     },
-    EventDispatcher,
+    errors::WalletError,
+    events::{
+        types::{
+            AddressInfo,
+            BlockInfo,
+            EventMetadata,
+            OutputData,
+            ScanConfig,
+            SpentOutputData,
+            TransactionData,
+            WalletScanEvent,
+        },
+        EventDispatcher,
+    },
+    hex_utils::HexEncodable,
+    scanning::{BinaryScanConfig, ScanContext, ScanMetadata},
 };
-use crate::hex_utils::HexEncodable;
-use crate::scanning::{BinaryScanConfig, ScanContext, ScanMetadata};
 
 /// Event emitter for wallet scanner integration
 ///
@@ -272,13 +283,7 @@ impl ScanEventEmitter {
             match_method.to_string(),
         )
         .with_spent_amount(spent_output.value)
-        .with_output_hash(
-            spent_output
-                .output_hash
-                .as_ref()
-                .map(hex::encode)
-                .unwrap_or_default(),
-        );
+        .with_output_hash(spent_output.output_hash.as_ref().map(hex::encode).unwrap_or_default());
 
         // Create spending block info
         let spending_block_info = BlockInfo::new(
@@ -339,8 +344,8 @@ impl ScanEventEmitter {
             0.0
         };
 
-        let estimated_time_remaining = estimated_completion
-            .and_then(|completion| SystemTime::now().duration_since(completion).ok());
+        let estimated_time_remaining =
+            estimated_completion.and_then(|completion| SystemTime::now().duration_since(completion).ok());
 
         // Include both blocks_processed (for percentage calculation) and current_block_height (for display)
         let event = WalletScanEvent::ScanProgress {
@@ -368,10 +373,7 @@ impl ScanEventEmitter {
     ) -> Result<(), WalletError> {
         let metadata = self.create_metadata();
         let mut final_statistics = HashMap::new();
-        final_statistics.insert(
-            "total_blocks_scanned".to_string(),
-            final_stats.blocks_processed as u64,
-        );
+        final_statistics.insert("total_blocks_scanned".to_string(), final_stats.blocks_processed as u64);
         final_statistics.insert(
             "total_transactions_found".to_string(),
             wallet_state.transactions.len() as u64,
@@ -440,10 +442,7 @@ impl ScanEventEmitter {
         let metadata = self.create_metadata();
         let mut final_statistics = HashMap::new();
         if let Some(stats) = partial_stats {
-            final_statistics.insert(
-                "blocks_processed".to_string(),
-                stats.blocks_processed as u64,
-            );
+            final_statistics.insert("blocks_processed".to_string(), stats.blocks_processed as u64);
             final_statistics.insert("from_block".to_string(), stats.from_block);
             final_statistics.insert("to_block".to_string(), stats.to_block);
         }
@@ -530,7 +529,7 @@ impl ScanEventEmitter {
                         } else {
                             Ok(None)
                         }
-                    }
+                    },
                     Err(_) => Ok(None),
                 },
                 Err(_) => Ok(None),
@@ -542,10 +541,7 @@ impl ScanEventEmitter {
 }
 
 /// Helper function to create AddressInfo from scan context and transaction
-pub fn create_address_info_from_transaction(
-    context: &ScanContext,
-    _transaction: &WalletTransaction,
-) -> AddressInfo {
+pub fn create_address_info_from_transaction(context: &ScanContext, _transaction: &WalletTransaction) -> AddressInfo {
     AddressInfo {
         address: "derived".to_string(), // Would be derived from context in real implementation
         address_type: "dual".to_string(),

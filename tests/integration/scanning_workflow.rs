@@ -3,24 +3,26 @@
 //! Tests the complete blockchain scanning workflow from setup to UTXO discovery
 //! to balance calculation, including mock blockchain data and real scanning logic.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
-
-use lightweight_wallet_libs::data_structures::{
-    encrypted_data::EncryptedData,
-    transaction_output::TransactionOutput,
-    types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
-    wallet_output::{OutputFeatures, OutputType, RangeProofType},
+use lightweight_wallet_libs::{
+    data_structures::{
+        encrypted_data::EncryptedData,
+        transaction_output::TransactionOutput,
+        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
+        wallet_output::{OutputFeatures, OutputType, RangeProofType},
+    },
+    errors::{ValidationError, WalletError},
+    extraction::ExtractionConfig,
+    scanning::*,
+    wallet::*,
+    WalletResult,
 };
-use lightweight_wallet_libs::errors::{ValidationError, WalletError};
-use lightweight_wallet_libs::extraction::ExtractionConfig;
-use lightweight_wallet_libs::WalletResult;
-
-use lightweight_wallet_libs::scanning::*;
-use lightweight_wallet_libs::wallet::*;
 
 /// Mock scanner with test data
 struct TestBlockchainScanner {
@@ -77,10 +79,7 @@ impl BlockchainScanner for TestBlockchainScanner {
         })
     }
 
-    async fn search_utxos(
-        &mut self,
-        _commitments: Vec<Vec<u8>>,
-    ) -> WalletResult<Vec<BlockScanResult>> {
+    async fn search_utxos(&mut self, _commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
         Ok(vec![])
     }
 
@@ -136,9 +135,8 @@ fn create_test_output(
     let mask = PrivateKey::new([0x03; 32]);
     let payment_id = PaymentId::Empty;
 
-    let encrypted_data =
-        EncryptedData::encrypt_data(&encryption_key, &commitment, micro_value, &mask, payment_id)
-            .map_err(|e| {
+    let encrypted_data = EncryptedData::encrypt_data(&encryption_key, &commitment, micro_value, &mask, payment_id)
+        .map_err(|e| {
             WalletError::ValidationError(ValidationError::ValueValidationFailed(format!(
                 "Failed to encrypt data: {e}"
             )))
@@ -332,8 +330,7 @@ async fn test_scanning_with_progress() {
 #[tokio::test]
 async fn test_wallet_scanning_workflow() {
     // Setup wallet
-    let mut wallet =
-        Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
+    let mut wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
     wallet.set_network("mainnet".to_string());
     wallet.set_current_key_index(0);
 
@@ -356,8 +353,8 @@ async fn test_wallet_scanning_workflow() {
         // Add a non-wallet output (different keys)
         let other_view = PrivateKey::new([0x99; 32]);
         let other_spend = PrivateKey::new([0xAA; 32]);
-        let other_output = create_test_output(1000000, &other_view, &other_spend)
-            .expect("Failed to create other output");
+        let other_output =
+            create_test_output(1000000, &other_view, &other_spend).expect("Failed to create other output");
         outputs.push(other_output);
 
         scanner.add_test_block(height, outputs);
@@ -382,35 +379,24 @@ async fn test_wallet_scanning_workflow() {
 
     // Execute wallet scan
     let start_time = Instant::now();
-    let wallet_result =
-        DefaultScanningLogic::scan_wallet_with_progress(&mut scanner, wallet_scan_config, None)
-            .await
-            .expect("Wallet scan failed");
+    let wallet_result = DefaultScanningLogic::scan_wallet_with_progress(&mut scanner, wallet_scan_config, None)
+        .await
+        .expect("Wallet scan failed");
     let scan_duration = start_time.elapsed();
 
     // Verify wallet scan results
     assert_eq!(wallet_result.block_results.len(), 20); // 20 blocks
 
     // Count wallet outputs (should only find every 3rd block)
-    let wallet_outputs: usize = wallet_result
-        .block_results
-        .iter()
-        .map(|r| r.wallet_outputs.len())
-        .sum();
+    let wallet_outputs: usize = wallet_result.block_results.iter().map(|r| r.wallet_outputs.len()).sum();
 
     // Every 3rd block starting from 300: 300, 303, 306, 309, 312, 315, 318 = 7 blocks
     let expected_wallet_outputs = (300..320).step_by(3).count();
     assert_eq!(wallet_outputs, expected_wallet_outputs);
-    assert_eq!(
-        wallet_result.total_wallet_outputs,
-        expected_wallet_outputs as u64
-    );
+    assert_eq!(wallet_result.total_wallet_outputs, expected_wallet_outputs as u64);
 
     // Verify total value
-    let expected_total_value: u64 = (300..320)
-        .step_by(3)
-        .map(|height| 2000000 + height * 5000)
-        .sum();
+    let expected_total_value: u64 = (300..320).step_by(3).map(|height| 2000000 + height * 5000).sum();
     assert_eq!(wallet_result.total_value, expected_total_value);
 
     // Verify scan metadata
@@ -445,8 +431,7 @@ async fn test_balance_calculation_workflow() {
 
     for (i, &value) in output_values.iter().enumerate() {
         let height = 400 + i as u64;
-        let output =
-            create_test_output(value, &view_key, &spend_key).expect("Failed to create test output");
+        let output = create_test_output(value, &view_key, &spend_key).expect("Failed to create test output");
         scanner.add_test_block(height, vec![output]);
     }
 
@@ -496,11 +481,7 @@ async fn test_balance_calculation_workflow() {
     // Test balance breakdown by account/address
     let mut balance_by_height: HashMap<u64, u64> = HashMap::new();
     for result in &results {
-        let height_balance: u64 = result
-            .wallet_outputs
-            .iter()
-            .map(|wo| wo.value().as_u64())
-            .sum();
+        let height_balance: u64 = result.wallet_outputs.iter().map(|wo| wo.value().as_u64()).sum();
         balance_by_height.insert(result.height, height_balance);
     }
 
@@ -580,8 +561,7 @@ async fn test_concurrent_scanning() {
     // Setup scanner with test data
     let mut scanner = TestBlockchainScanner::new();
     for height in 600..650 {
-        let output = create_test_output(1000000, &view_key, &spend_key)
-            .expect("Failed to create test output");
+        let output = create_test_output(1000000, &view_key, &spend_key).expect("Failed to create test output");
         scanner.add_test_block(height, vec![output]);
     }
 
@@ -607,15 +587,9 @@ async fn test_concurrent_scanning() {
     // Note: Since we can't easily clone the scanner, we'll test sequential execution
     let start_time = Instant::now();
 
-    let results1 = scanner
-        .scan_blocks(config1)
-        .await
-        .expect("First scan failed");
+    let results1 = scanner.scan_blocks(config1).await.expect("First scan failed");
 
-    let results2 = scanner
-        .scan_blocks(config2)
-        .await
-        .expect("Second scan failed");
+    let results2 = scanner.scan_blocks(config2).await.expect("Second scan failed");
 
     let total_duration = start_time.elapsed();
 
@@ -634,23 +608,12 @@ async fn test_concurrent_scanning() {
     let heights2: Vec<u64> = results2.iter().map(|r| r.height).collect();
 
     for h1 in &heights1 {
-        assert!(
-            !heights2.contains(h1),
-            "Height {h1} found in both result sets"
-        );
+        assert!(!heights2.contains(h1), "Height {h1} found in both result sets");
     }
 
     println!("✓ Concurrent scanning test passed");
-    println!(
-        "  Scan 1: {} blocks, {} outputs",
-        results1.len(),
-        total_outputs1
-    );
-    println!(
-        "  Scan 2: {} blocks, {} outputs",
-        results2.len(),
-        total_outputs2
-    );
+    println!("  Scan 1: {} blocks, {} outputs", results1.len(), total_outputs1);
+    println!("  Scan 2: {} blocks, {} outputs", results2.len(), total_outputs2);
     println!("  Total duration: {total_duration:?}");
 }
 
@@ -660,8 +623,7 @@ fn derive_test_keys(wallet: &Wallet) -> (PrivateKey, PrivateKey) {
     let master_key_bytes = wallet.master_key_bytes();
 
     // Create view key from master key
-    let view_key =
-        PrivateKey::from_canonical_bytes(&master_key_bytes).expect("Failed to create view key");
+    let view_key = PrivateKey::from_canonical_bytes(&master_key_bytes).expect("Failed to create view key");
 
     // Create spend key by hashing master_key + "spend"
     use blake2b_simd::blake2b;
@@ -674,8 +636,7 @@ fn derive_test_keys(wallet: &Wallet) -> (PrivateKey, PrivateKey) {
         .try_into()
         .expect("Failed to create spend key bytes");
 
-    let spend_key =
-        PrivateKey::from_canonical_bytes(&spend_key_bytes).expect("Failed to create spend key");
+    let spend_key = PrivateKey::from_canonical_bytes(&spend_key_bytes).expect("Failed to create spend key");
 
     (view_key, spend_key)
 }

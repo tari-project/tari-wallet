@@ -1,11 +1,10 @@
-use crate::data_structures::EncryptedData;
 use borsh::{from_slice, to_vec, BorshDeserialize, BorshSerialize};
 use serde_json;
 
+use crate::data_structures::EncryptedData;
+
 fn serde_roundtrip<T>(value: &T) -> T
-where
-    T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
-{
+where T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug {
     let json = serde_json::to_string(value).unwrap();
     let de: T = serde_json::from_str(&json).unwrap();
     assert_eq!(value, &de);
@@ -13,9 +12,7 @@ where
 }
 
 fn borsh_roundtrip<T>(value: &T) -> T
-where
-    T: BorshSerialize + BorshDeserialize + PartialEq + std::fmt::Debug,
-{
+where T: BorshSerialize + BorshDeserialize + PartialEq + std::fmt::Debug {
     let bytes = to_vec(value).unwrap();
     let de = from_slice::<T>(&bytes).unwrap();
     assert_eq!(value, &de);
@@ -45,8 +42,9 @@ fn test_transaction_output_serialization() {
 
 #[test]
 fn test_payment_id_serialization() {
-    use crate::data_structures::payment_id::{PaymentId, TxType};
     use primitive_types::U256;
+
+    use crate::data_structures::payment_id::{PaymentId, TxType};
     let ids = vec![
         PaymentId::Empty,
         PaymentId::U256(U256::from(12345)),
@@ -64,9 +62,7 @@ fn test_payment_id_serialization() {
 
 #[test]
 fn test_transaction_status_serialization() {
-    use crate::data_structures::transaction::{
-        ImportStatus, TransactionDirection, TransactionStatus,
-    };
+    use crate::data_structures::transaction::{ImportStatus, TransactionDirection, TransactionStatus};
 
     let statuses = vec![
         TransactionStatus::Completed,

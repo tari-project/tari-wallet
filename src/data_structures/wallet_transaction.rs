@@ -3,15 +3,17 @@
 //! This module contains structures for tracking wallet transactions and state
 //! across blocks, including transaction metadata and spending status.
 
+use std::collections::HashMap;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::data_structures::{
     payment_id::PaymentId,
     transaction::{TransactionDirection, TransactionStatus},
     types::CompressedCommitment,
-    CompressedPublicKey, PrivateKey,
+    CompressedPublicKey,
+    PrivateKey,
 };
 // Simple number formatting (removed utils::number module)
 
@@ -291,12 +293,7 @@ impl WalletState {
 
     /// Mark an output as spent by output hash and create an outbound transaction record
     /// This is used when we have the output hash from HTTP inputs array
-    pub fn mark_output_spent_by_hash(
-        &mut self,
-        output_hash: &[u8],
-        block_height: u64,
-        input_index: usize,
-    ) -> bool {
+    pub fn mark_output_spent_by_hash(&mut self, output_hash: &[u8], block_height: u64, input_index: usize) -> bool {
         if let Some(&tx_index) = self.outputs_by_hash.get(output_hash) {
             if let Some(transaction) = self.transactions.get_mut(tx_index) {
                 if !transaction.is_spent {
@@ -317,8 +314,13 @@ impl WalletState {
                     #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
                     {
                         let hash_hex = hex::encode(output_hash);
-                        web_sys::console::log_1(&format!("💰 SPENT VALUE UPDATE: Hash {} - Value: {} μT, Total spent: {} -> {} μT", 
-                            hash_hex, spent_value, old_total_spent, self.total_spent).into());
+                        web_sys::console::log_1(
+                            &format!(
+                                "💰 SPENT VALUE UPDATE: Hash {} - Value: {} μT, Total spent: {} -> {} μT",
+                                hash_hex, spent_value, old_total_spent, self.total_spent
+                            )
+                            .into(),
+                        );
                     }
 
                     // Create an outbound transaction record for the spending
@@ -460,21 +462,11 @@ impl WalletState {
     }
 
     /// Create an enhanced progress bar with balance information
-    pub fn format_progress_bar(
-        &self,
-        current: u64,
-        total: u64,
-        block_height: u64,
-        phase: &str,
-    ) -> String {
+    pub fn format_progress_bar(&self, current: u64, total: u64, block_height: u64, phase: &str) -> String {
         let progress_percent = (current as f64 / total as f64) * 100.0;
         let bar_width = 40; // Shorter bar to make room for balance info
         let filled_width = ((progress_percent / 100.0) * bar_width as f64) as usize;
-        let bar = format!(
-            "{}{}",
-            "█".repeat(filled_width),
-            "░".repeat(bar_width - filled_width)
-        );
+        let bar = format!("{}{}", "█".repeat(filled_width), "░".repeat(bar_width - filled_width));
 
         let unspent_value = self.get_unspent_value();
         let balance_t = self.running_balance as f64 / 1_000_000.0;
@@ -680,10 +672,7 @@ mod tests {
 
         // New outbound transaction should exist
         let outbound_tx = &state.transactions[1];
-        assert_eq!(
-            outbound_tx.transaction_direction,
-            TransactionDirection::Outbound
-        );
+        assert_eq!(outbound_tx.transaction_direction, TransactionDirection::Outbound);
         assert_eq!(outbound_tx.block_height, 200);
         assert_eq!(outbound_tx.input_index, Some(5));
         assert_eq!(outbound_tx.output_index, None);

@@ -3,14 +3,14 @@
 //! This implementation follows the Tari key derivation specification for compatibility
 //! with the main Tari wallet implementation.
 
-use crate::crypto::{
-    DomainSeparatedHasher, KeyManagerDomain, PublicKey, RistrettoPublicKey, RistrettoSecretKey,
-    SecretKey,
-};
-use crate::errors::KeyManagementError;
 use blake2::Blake2b;
 use digest::{consts::U64, Digest};
 use tari_utilities::ByteArray;
+
+use crate::{
+    crypto::{DomainSeparatedHasher, KeyManagerDomain, PublicKey, RistrettoPublicKey, RistrettoSecretKey, SecretKey},
+    errors::KeyManagementError,
+};
 
 /// Derives a public key from a private key
 pub fn derive_public_key_from_private(
@@ -29,13 +29,11 @@ pub fn derive_view_and_spend_keys_from_entropy(
     const VIEW_KEY_BRANCH: &str = "data encryption"; // For encrypted data decryption (view key)
     const SPEND_KEY_BRANCH: &str = "comms"; // Communication node identity key (spending + message signing)
 
-    let view_key = derive_private_key_from_entropy(entropy, VIEW_KEY_BRANCH, 0).map_err(|e| {
-        KeyManagementError::view_key_derivation_failed(&format!("Failed to derive view key: {e}"))
-    })?;
+    let view_key = derive_private_key_from_entropy(entropy, VIEW_KEY_BRANCH, 0)
+        .map_err(|e| KeyManagementError::view_key_derivation_failed(&format!("Failed to derive view key: {e}")))?;
 
-    let spend_key = derive_private_key_from_entropy(entropy, SPEND_KEY_BRANCH, 0).map_err(|e| {
-        KeyManagementError::spend_key_derivation_failed(&format!("Failed to derive spend key: {e}"))
-    })?;
+    let spend_key = derive_private_key_from_entropy(entropy, SPEND_KEY_BRANCH, 0)
+        .map_err(|e| KeyManagementError::spend_key_derivation_failed(&format!("Failed to derive spend key: {e}")))?;
 
     Ok((view_key, spend_key))
 }
@@ -52,8 +50,7 @@ pub fn derive_private_key_from_entropy(
     //   .chain(self.seed.entropy())  // CipherSeed entropy directly (16 bytes)
     //   .chain(self.branch_seed.as_bytes())
     //   .chain(key_index.to_le_bytes())
-    let derive_key =
-        DomainSeparatedHasher::<Blake2b<U64>, KeyManagerDomain>::new_with_label("derive_key")
+    let derive_key = DomainSeparatedHasher::<Blake2b<U64>, KeyManagerDomain>::new_with_label("derive_key")
             .chain(entropy) // Use the 16-byte CipherSeed entropy directly
             .chain(branch_seed.as_bytes())
             .chain(key_index.to_le_bytes())
@@ -88,27 +85,26 @@ pub fn derive_stealth_address(
 
 #[cfg(test)]
 mod tests {
+    use tari_utilities::ByteArray;
+
     use super::*;
     use crate::crypto::PublicKey;
-    use tari_utilities::ByteArray;
 
     #[test]
     fn test_tari_test_vector_validation() {
         // Official Tari test vector data for validation
-        let seed_phrase = "scare harsh invite normal satisfy subject similar excite dragon gap fence machine monster flavor spoon tape rice require risk sting health nurse orange stick";
+        let seed_phrase = "scare harsh invite normal satisfy subject similar excite dragon gap fence machine monster \
+                           flavor spoon tape rice require risk sting health nurse orange stick";
 
         // Expected keys from the test vector
-        let expected_view_private_key =
-            "7755e59ca4a10d19d14f56a014826d005d029ff9a5053c850d63f9322005080a";
-        let expected_spend_private_key =
-            "ef5d6881f2b1ff65dd6d62a77f73be2179cad40c6d587d5ff9f4ed49b5378b05";
-        let expected_view_public_key =
-            "c64341cddadc29e1e31ce1f568d3bbd0262ef2f9bfdbf2405d85735d45f1bb02";
-        let expected_spend_public_key =
-            "5285073b72f698132432e1be6b76e170d437e4ba11bfaf5f7539d5c998523226";
+        let expected_view_private_key = "7755e59ca4a10d19d14f56a014826d005d029ff9a5053c850d63f9322005080a";
+        let expected_spend_private_key = "ef5d6881f2b1ff65dd6d62a77f73be2179cad40c6d587d5ff9f4ed49b5378b05";
+        let expected_view_public_key = "c64341cddadc29e1e31ce1f568d3bbd0262ef2f9bfdbf2405d85735d45f1bb02";
+        let expected_spend_public_key = "5285073b72f698132432e1be6b76e170d437e4ba11bfaf5f7539d5c998523226";
 
         // Expected addresses (for future validation once address generation is implemented)
-        let expected_base58_address = "12JVm6ARPDg2GvBEpaKxADBW4SkacGRWZYhowEzoUvHrz9kFWCVv4QSYUE6JWiLFYcjEeZv43YJw8W7E8ynrMUWsDm5";
+        let expected_base58_address =
+            "12JVm6ARPDg2GvBEpaKxADBW4SkacGRWZYhowEzoUvHrz9kFWCVv4QSYUE6JWiLFYcjEeZv43YJw8W7E8ynrMUWsDm5";
         let expected_emoji_address = "🐢📟📈🎉🤖⏰🔪🔬🍟😂😈🍋😂🚜🏦🔑💦🔋🍗🍪🚓🚨💯🔫🚓🎃🎼🐯🐔🎼🎓🚒💦🌈🎮🐯🤔🍺🐑🚢💅🍀🍔🍯😂➕🐀🐘😂🦁🔔🍶🤑💤🌻💯💊🎾🐗🍸🔥📎💅🎮🍯🍗💄";
 
         println!("=== Testing Tari Test Vector ===");
@@ -119,11 +115,8 @@ mod tests {
             .expect("Failed to convert mnemonic to bytes");
 
         // Decrypt the CipherSeed to get the entropy
-        let cipher_seed = crate::key_management::seed_phrase::CipherSeed::from_enciphered_bytes(
-            &encrypted_bytes,
-            None,
-        )
-        .expect("Failed to decrypt CipherSeed");
+        let cipher_seed = crate::key_management::seed_phrase::CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)
+            .expect("Failed to decrypt CipherSeed");
 
         // Use the entropy directly for key derivation (matching main Tari implementation)
         let entropy: [u8; 16] = cipher_seed
@@ -135,8 +128,7 @@ mod tests {
 
         // Derive view and spend keys using entropy directly
         let (view_private_key, spend_private_key) =
-            derive_view_and_spend_keys_from_entropy(&entropy)
-                .expect("Failed to derive view and spend keys");
+            derive_view_and_spend_keys_from_entropy(&entropy).expect("Failed to derive view and spend keys");
 
         // Convert to public keys
         let view_public_key = RistrettoPublicKey::from_secret_key(&view_private_key);
@@ -168,10 +160,7 @@ mod tests {
         );
 
         // Validate that public keys correspond to private keys
-        assert_eq!(
-            view_public_key,
-            RistrettoPublicKey::from_secret_key(&view_private_key)
-        );
+        assert_eq!(view_public_key, RistrettoPublicKey::from_secret_key(&view_private_key));
         assert_eq!(
             spend_public_key,
             RistrettoPublicKey::from_secret_key(&spend_private_key)
@@ -317,8 +306,7 @@ mod tests {
         );
 
         // Test at index 255
-        let private_key =
-            derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
+        let private_key = derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
         let public_key = RistrettoPublicKey::from_secret_key(&private_key);
 
         assert_eq!(
@@ -403,8 +391,7 @@ mod tests {
         );
 
         // Test at index 255
-        let private_key =
-            derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
+        let private_key = derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
         let public_key = RistrettoPublicKey::from_secret_key(&private_key);
 
         assert_eq!(
@@ -489,8 +476,7 @@ mod tests {
         );
 
         // Test at index 255
-        let private_key =
-            derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
+        let private_key = derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
         let public_key = RistrettoPublicKey::from_secret_key(&private_key);
 
         assert_eq!(
@@ -575,8 +561,7 @@ mod tests {
         );
 
         // Test at index 255
-        let private_key =
-            derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
+        let private_key = derive_private_key_from_entropy(&entropy_array, branch_seed, 255).unwrap();
         let public_key = RistrettoPublicKey::from_secret_key(&private_key);
 
         assert_eq!(
@@ -598,80 +583,31 @@ mod tests {
         let entropy_array: [u8; 16] = entropy.try_into().unwrap();
 
         let test_cases = vec![
-            (
-                "",
-                vec![
-                    (
-                        0,
-                        "2b0f7d935bcf9f4f9c6c4e550c44146a3502a521fbc6e9829bb5a2831e352000",
-                    ),
-                    (
-                        1,
-                        "9b359f7f3b56564c03a45f5abe1c9d1bb72dab7a71e5b665ffd8fc66a325ed05",
-                    ),
-                    (
-                        2,
-                        "1e3fbd7065248d2a7eb6a850c9019fd0f21642a7b5d82d88e6aefdc6c9990f04",
-                    ),
-                ],
-            ),
-            (
-                "test",
-                vec![
-                    (
-                        0,
-                        "e3780919a5babfe9d47dd68c6bba8d086681a07eb49c334589f63ebc0d682909",
-                    ),
-                    (
-                        1,
-                        "3c66cc2bb9a20527583085d57d464c21dbb0aff2e44300c67f62957001b63402",
-                    ),
-                    (
-                        2,
-                        "a589c38be9d22e7fd9097dff0dfd8f4164b098d1a5e7970e74441738b15a8f00",
-                    ),
-                ],
-            ),
-            (
-                "wallet_spending",
-                vec![
-                    (
-                        0,
-                        "66f713c1859cceb855bb49b5d1bcdd3a32f6e2163bc4fc4d1baeea39aea70508",
-                    ),
-                    (
-                        1,
-                        "57342dec2029bde37211fec09df09bdffd9c6ce6334f94aff87a492240881a05",
-                    ),
-                    (
-                        2,
-                        "b02247769bfddec3f477224639b47174ff5bb7648442440f279aa38a496dbe0f",
-                    ),
-                ],
-            ),
-            (
-                "🚀",
-                vec![
-                    (
-                        0,
-                        "93b94c4d9ad253f9821d8c5ebe1ca14c56f4d39acfece3e4579892850d136609",
-                    ),
-                    (
-                        1,
-                        "eea864243f056b3ff8d85eb2d6706db1aca24c4ace955f633c29f5f5c6b8b504",
-                    ),
-                    (
-                        2,
-                        "fb028f6fd1693393ed2d0f97dbe5cda550b2bbef179f72429ef189bd9862bb05",
-                    ),
-                ],
-            ),
+            ("", vec![
+                (0, "2b0f7d935bcf9f4f9c6c4e550c44146a3502a521fbc6e9829bb5a2831e352000"),
+                (1, "9b359f7f3b56564c03a45f5abe1c9d1bb72dab7a71e5b665ffd8fc66a325ed05"),
+                (2, "1e3fbd7065248d2a7eb6a850c9019fd0f21642a7b5d82d88e6aefdc6c9990f04"),
+            ]),
+            ("test", vec![
+                (0, "e3780919a5babfe9d47dd68c6bba8d086681a07eb49c334589f63ebc0d682909"),
+                (1, "3c66cc2bb9a20527583085d57d464c21dbb0aff2e44300c67f62957001b63402"),
+                (2, "a589c38be9d22e7fd9097dff0dfd8f4164b098d1a5e7970e74441738b15a8f00"),
+            ]),
+            ("wallet_spending", vec![
+                (0, "66f713c1859cceb855bb49b5d1bcdd3a32f6e2163bc4fc4d1baeea39aea70508"),
+                (1, "57342dec2029bde37211fec09df09bdffd9c6ce6334f94aff87a492240881a05"),
+                (2, "b02247769bfddec3f477224639b47174ff5bb7648442440f279aa38a496dbe0f"),
+            ]),
+            ("🚀", vec![
+                (0, "93b94c4d9ad253f9821d8c5ebe1ca14c56f4d39acfece3e4579892850d136609"),
+                (1, "eea864243f056b3ff8d85eb2d6706db1aca24c4ace955f633c29f5f5c6b8b504"),
+                (2, "fb028f6fd1693393ed2d0f97dbe5cda550b2bbef179f72429ef189bd9862bb05"),
+            ]),
         ];
 
         for (branch_seed, expected_keys) in test_cases {
             for (index, expected_private_hex) in expected_keys {
-                let derived_key =
-                    derive_private_key_from_entropy(&entropy_array, branch_seed, index).unwrap();
+                let derived_key = derive_private_key_from_entropy(&entropy_array, branch_seed, index).unwrap();
                 let derived_hex = hex::encode(derived_key.as_bytes());
 
                 assert_eq!(
@@ -682,10 +618,7 @@ mod tests {
                 // Ensure we can derive public key consistently
                 let public_key = RistrettoPublicKey::from_secret_key(&derived_key);
                 let public_key2 = derive_public_key_from_private(&derived_key).unwrap();
-                assert_eq!(
-                    public_key, public_key2,
-                    "Public key derivation inconsistency"
-                );
+                assert_eq!(public_key, public_key2, "Public key derivation inconsistency");
             }
         }
     }

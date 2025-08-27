@@ -350,13 +350,22 @@ pub enum KeyManagementError {
     #[error("Invalid seed phrase format: {details}. Suggestion: {suggestion}")]
     InvalidSeedPhraseFormat { details: String, suggestion: String },
 
-    #[error("Invalid word count: expected {expected} words, got {actual} words. Please check your seed phrase has exactly {expected} words.")]
+    #[error(
+        "Invalid word count: expected {expected} words, got {actual} words. Please check your seed phrase has exactly \
+         {expected} words."
+    )]
     InvalidWordCount { expected: usize, actual: usize },
 
-    #[error("Unknown word '{word}' at position {position}. This word is not in the BIP39 word list. Please check for typos.")]
+    #[error(
+        "Unknown word '{word}' at position {position}. This word is not in the BIP39 word list. Please check for \
+         typos."
+    )]
     UnknownWord { word: String, position: usize },
 
-    #[error("Invalid seed phrase checksum. The seed phrase appears to be corrupted or mistyped. Please verify all words are correct.")]
+    #[error(
+        "Invalid seed phrase checksum. The seed phrase appears to be corrupted or mistyped. Please verify all words \
+         are correct."
+    )]
     InvalidSeedChecksum,
 
     #[error("Empty seed phrase provided. Please provide a valid seed phrase.")]
@@ -376,21 +385,21 @@ pub enum KeyManagementError {
     MasterKeyDerivationFailed { reason: String },
 
     #[error("Branch key derivation failed for branch '{branch}' at index {index}: {reason}")]
-    BranchKeyDerivationFailed {
-        branch: String,
-        index: u64,
-        reason: String,
-    },
-
-    #[error("View key derivation failed: {reason}. This may indicate an issue with the master key or derivation parameters.")]
-    ViewKeyDerivationFailed { reason: String },
-
-    #[error("Spend key derivation failed: {reason}. This may indicate an issue with the master key or derivation parameters.")]
-    SpendKeyDerivationFailed { reason: String },
+    BranchKeyDerivationFailed { branch: String, index: u64, reason: String },
 
     #[error(
-        "Invalid derivation index {index} for branch '{branch}'. Index must be within valid range."
+        "View key derivation failed: {reason}. This may indicate an issue with the master key or derivation \
+         parameters."
     )]
+    ViewKeyDerivationFailed { reason: String },
+
+    #[error(
+        "Spend key derivation failed: {reason}. This may indicate an issue with the master key or derivation \
+         parameters."
+    )]
+    SpendKeyDerivationFailed { reason: String },
+
+    #[error("Invalid derivation index {index} for branch '{branch}'. Index must be within valid range.")]
     InvalidDerivationIndex { branch: String, index: u64 },
 
     #[error("Derivation path too deep: {depth} levels. Maximum supported depth is {max_depth}.")]
@@ -400,13 +409,8 @@ pub enum KeyManagementError {
     HierarchicalDerivationFailed { level: usize, reason: String },
 
     // === Enhanced CipherSeed Error Types ===
-    #[error(
-        "CipherSeed version {version} is not supported. Supported versions: {supported_versions:?}"
-    )]
-    UnsupportedCipherSeedVersion {
-        version: u8,
-        supported_versions: Vec<u8>,
-    },
+    #[error("CipherSeed version {version} is not supported. Supported versions: {supported_versions:?}")]
+    UnsupportedCipherSeedVersion { version: u8, supported_versions: Vec<u8> },
 
     #[error("CipherSeed encryption failed: {reason}. Please check the passphrase and try again.")]
     CipherSeedEncryptionFailed { reason: String },
@@ -427,7 +431,9 @@ pub enum KeyManagementError {
     CipherSeedEntropyError { details: String },
 
     // === Enhanced Passphrase Error Types ===
-    #[error("Missing required passphrase. This seed phrase was created with a passphrase and requires one for decryption.")]
+    #[error(
+        "Missing required passphrase. This seed phrase was created with a passphrase and requires one for decryption."
+    )]
     MissingRequiredPassphrase,
 
     #[error("Invalid passphrase provided. Please check that the passphrase is correct.")]
@@ -447,7 +453,10 @@ pub enum KeyManagementError {
         actual_format: String,
     },
 
-    #[error("Key length error: {key_type} key has invalid length. Expected: {expected_length} bytes, got: {actual_length} bytes")]
+    #[error(
+        "Key length error: {key_type} key has invalid length. Expected: {expected_length} bytes, got: {actual_length} \
+         bytes"
+    )]
     KeyLengthError {
         key_type: String,
         expected_length: usize,
@@ -980,11 +989,7 @@ impl KeyManagementError {
     }
 
     /// Create a partial recovery completed error
-    pub fn partial_recovery_completed(
-        recovered_items: usize,
-        failed_items: usize,
-        details: &str,
-    ) -> Self {
+    pub fn partial_recovery_completed(recovered_items: usize, failed_items: usize, details: &str) -> Self {
         Self::PartialRecoveryCompleted {
             recovered_items,
             failed_items,
@@ -998,14 +1003,14 @@ impl KeyManagementError {
     pub fn is_recoverable(&self) -> bool {
         matches!(
             self,
-            Self::UnknownWord { .. }
-                | Self::InvalidWordCount { .. }
-                | Self::InvalidSeedChecksum
-                | Self::EmptySeedPhrase
-                | Self::MissingRequiredPassphrase
-                | Self::InvalidPassphrase
-                | Self::InvalidSeedPhraseFormat { .. }
-                | Self::SeedValidationFailed { .. }
+            Self::UnknownWord { .. } |
+                Self::InvalidWordCount { .. } |
+                Self::InvalidSeedChecksum |
+                Self::EmptySeedPhrase |
+                Self::MissingRequiredPassphrase |
+                Self::InvalidPassphrase |
+                Self::InvalidSeedPhraseFormat { .. } |
+                Self::SeedValidationFailed { .. }
         )
     }
 
@@ -1013,11 +1018,11 @@ impl KeyManagementError {
     pub fn is_critical(&self) -> bool {
         matches!(
             self,
-            Self::MasterKeyDerivationFailed { .. }
-                | Self::KeyValidationFailed { .. }
-                | Self::CipherSeedMacVerificationFailed
-                | Self::CipherSeedEntropyError { .. }
-                | Self::DomainSeparationError { .. }
+            Self::MasterKeyDerivationFailed { .. } |
+                Self::KeyValidationFailed { .. } |
+                Self::CipherSeedMacVerificationFailed |
+                Self::CipherSeedEntropyError { .. } |
+                Self::DomainSeparationError { .. }
         )
     }
 
@@ -1033,17 +1038,12 @@ impl KeyManagementError {
             )),
             Self::InvalidSeedChecksum => {
                 Some("Verify all words are spelled correctly and in the right order.".to_string())
-            }
-            Self::EmptySeedPhrase => {
-                Some("Provide a valid seed phrase with 12 or 24 words.".to_string())
-            }
-            Self::MissingRequiredPassphrase => Some(
-                "This wallet was created with a passphrase. Please provide the correct passphrase."
-                    .to_string(),
-            ),
-            Self::InvalidPassphrase => {
-                Some("Check that the passphrase is correct and try again.".to_string())
-            }
+            },
+            Self::EmptySeedPhrase => Some("Provide a valid seed phrase with 12 or 24 words.".to_string()),
+            Self::MissingRequiredPassphrase => {
+                Some("This wallet was created with a passphrase. Please provide the correct passphrase.".to_string())
+            },
+            Self::InvalidPassphrase => Some("Check that the passphrase is correct and try again.".to_string()),
             Self::InvalidSeedPhraseFormat { suggestion, .. } => Some(suggestion.clone()),
             Self::SeedValidationFailed { suggestion, .. } => Some(suggestion.clone()),
             _ => None,
@@ -1053,42 +1053,40 @@ impl KeyManagementError {
     /// Get the error category for this error
     pub fn category(&self) -> &'static str {
         match self {
-            Self::UnknownWord { .. }
-            | Self::InvalidWordCount { .. }
-            | Self::InvalidSeedChecksum
-            | Self::EmptySeedPhrase
-            | Self::InvalidSeedPhraseFormat { .. }
-            | Self::SeedValidationFailed { .. }
-            | Self::SeedEncodingError { .. }
-            | Self::SeedDecodingError { .. } => "seed_phrase",
+            Self::UnknownWord { .. } |
+            Self::InvalidWordCount { .. } |
+            Self::InvalidSeedChecksum |
+            Self::EmptySeedPhrase |
+            Self::InvalidSeedPhraseFormat { .. } |
+            Self::SeedValidationFailed { .. } |
+            Self::SeedEncodingError { .. } |
+            Self::SeedDecodingError { .. } => "seed_phrase",
 
-            Self::MasterKeyDerivationFailed { .. }
-            | Self::BranchKeyDerivationFailed { .. }
-            | Self::ViewKeyDerivationFailed { .. }
-            | Self::SpendKeyDerivationFailed { .. }
-            | Self::InvalidDerivationIndex { .. }
-            | Self::DerivationPathTooDeep { .. }
-            | Self::HierarchicalDerivationFailed { .. } => "key_derivation",
+            Self::MasterKeyDerivationFailed { .. } |
+            Self::BranchKeyDerivationFailed { .. } |
+            Self::ViewKeyDerivationFailed { .. } |
+            Self::SpendKeyDerivationFailed { .. } |
+            Self::InvalidDerivationIndex { .. } |
+            Self::DerivationPathTooDeep { .. } |
+            Self::HierarchicalDerivationFailed { .. } => "key_derivation",
 
-            Self::UnsupportedCipherSeedVersion { .. }
-            | Self::CipherSeedEncryptionFailed { .. }
-            | Self::CipherSeedDecryptionFailed { .. }
-            | Self::InvalidCipherSeedFormat { .. }
-            | Self::CipherSeedMacVerificationFailed
-            | Self::InvalidCipherSeedBirthday { .. }
-            | Self::CipherSeedEntropyError { .. } => "cipher_seed",
+            Self::UnsupportedCipherSeedVersion { .. } |
+            Self::CipherSeedEncryptionFailed { .. } |
+            Self::CipherSeedDecryptionFailed { .. } |
+            Self::InvalidCipherSeedFormat { .. } |
+            Self::CipherSeedMacVerificationFailed |
+            Self::InvalidCipherSeedBirthday { .. } |
+            Self::CipherSeedEntropyError { .. } => "cipher_seed",
 
-            Self::MissingRequiredPassphrase
-            | Self::InvalidPassphrase
-            | Self::PassphraseValidationFailed { .. } => "passphrase",
+            Self::MissingRequiredPassphrase | Self::InvalidPassphrase | Self::PassphraseValidationFailed { .. } => {
+                "passphrase"
+            },
 
-            Self::KeyValidationFailed { .. }
-            | Self::KeyFormatError { .. }
-            | Self::KeyLengthError { .. } => "key_validation",
+            Self::KeyValidationFailed { .. } | Self::KeyFormatError { .. } | Self::KeyLengthError { .. } => {
+                "key_validation"
+            },
 
-            Self::DomainSeparationError { .. } | Self::InvalidDomainLabel { .. } => {
-                "domain_separation"
-            }
+            Self::DomainSeparationError { .. } | Self::InvalidDomainLabel { .. } => "domain_separation",
 
             Self::WalletRecoveryFailed { .. } | Self::PartialRecoveryCompleted { .. } => "recovery",
 
@@ -1165,10 +1163,7 @@ mod tests {
         assert_eq!(error.to_string(), "Invalid output value: negative");
 
         let error = DataStructureError::data_too_large(100, 200);
-        assert_eq!(
-            error.to_string(),
-            "Data too large: expected max 100, got 200"
-        );
+        assert_eq!(error.to_string(), "Data too large: expected max 100, got 200");
 
         let error = DataStructureError::data_too_small(50, 10);
         assert_eq!(error.to_string(), "Data too small: expected min 50, got 10");
@@ -1198,40 +1193,22 @@ mod tests {
     #[test]
     fn test_validation_error_convenience_constructors() {
         let error = ValidationError::range_proof_validation_failed("invalid proof");
-        assert_eq!(
-            error.to_string(),
-            "Range proof validation failed: invalid proof"
-        );
+        assert_eq!(error.to_string(), "Range proof validation failed: invalid proof");
 
         let error = ValidationError::signature_validation_failed("bad signature");
-        assert_eq!(
-            error.to_string(),
-            "Signature validation failed: bad signature"
-        );
+        assert_eq!(error.to_string(), "Signature validation failed: bad signature");
 
         let error = ValidationError::metadata_signature_validation_failed("meta failed");
-        assert_eq!(
-            error.to_string(),
-            "Metadata signature validation failed: meta failed"
-        );
+        assert_eq!(error.to_string(), "Metadata signature validation failed: meta failed");
 
         let error = ValidationError::script_signature_validation_failed("script failed");
-        assert_eq!(
-            error.to_string(),
-            "Script signature validation failed: script failed"
-        );
+        assert_eq!(error.to_string(), "Script signature validation failed: script failed");
 
         let error = ValidationError::commitment_validation_failed("commitment failed");
-        assert_eq!(
-            error.to_string(),
-            "Commitment validation failed: commitment failed"
-        );
+        assert_eq!(error.to_string(), "Commitment validation failed: commitment failed");
 
         let error = ValidationError::minimum_value_promise_validation_failed("mvp failed");
-        assert_eq!(
-            error.to_string(),
-            "Minimum value promise validation failed: mvp failed"
-        );
+        assert_eq!(error.to_string(), "Minimum value promise validation failed: mvp failed");
     }
 
     #[test]
@@ -1243,10 +1220,7 @@ mod tests {
         assert_eq!(error.to_string(), "Key derivation failed: path invalid");
 
         let error = KeyManagementError::stealth_address_recovery_failed("recovery error");
-        assert_eq!(
-            error.to_string(),
-            "Stealth address recovery failed: recovery error"
-        );
+        assert_eq!(error.to_string(), "Stealth address recovery failed: recovery error");
     }
 
     #[test]
@@ -1258,13 +1232,23 @@ mod tests {
         );
 
         let error = KeyManagementError::invalid_word_count(12, 10);
-        assert_eq!(error.to_string(), "Invalid word count: expected 12 words, got 10 words. Please check your seed phrase has exactly 12 words.");
+        assert_eq!(
+            error.to_string(),
+            "Invalid word count: expected 12 words, got 10 words. Please check your seed phrase has exactly 12 words."
+        );
 
         let error = KeyManagementError::unknown_word("wrongword", 5);
-        assert_eq!(error.to_string(), "Unknown word 'wrongword' at position 5. This word is not in the BIP39 word list. Please check for typos.");
+        assert_eq!(
+            error.to_string(),
+            "Unknown word 'wrongword' at position 5. This word is not in the BIP39 word list. Please check for typos."
+        );
 
         let error = KeyManagementError::invalid_seed_checksum();
-        assert_eq!(error.to_string(), "Invalid seed phrase checksum. The seed phrase appears to be corrupted or mistyped. Please verify all words are correct.");
+        assert_eq!(
+            error.to_string(),
+            "Invalid seed phrase checksum. The seed phrase appears to be corrupted or mistyped. Please verify all \
+             words are correct."
+        );
 
         let error = KeyManagementError::empty_seed_phrase();
         assert_eq!(
@@ -1279,16 +1263,26 @@ mod tests {
         );
 
         let error = KeyManagementError::seed_encoding_error("utf8 error");
-        assert_eq!(error.to_string(), "Seed phrase encoding error: utf8 error. The seed phrase could not be converted to the expected format.");
+        assert_eq!(
+            error.to_string(),
+            "Seed phrase encoding error: utf8 error. The seed phrase could not be converted to the expected format."
+        );
 
         let error = KeyManagementError::seed_decoding_error("invalid bytes");
-        assert_eq!(error.to_string(), "Seed phrase decoding error: invalid bytes. The provided data could not be converted to a valid seed phrase.");
+        assert_eq!(
+            error.to_string(),
+            "Seed phrase decoding error: invalid bytes. The provided data could not be converted to a valid seed \
+             phrase."
+        );
     }
 
     #[test]
     fn test_derivation_error_constructors() {
         let error = KeyManagementError::master_key_derivation_failed("bad seed");
-        assert_eq!(error.to_string(), "Master key derivation failed: bad seed. Check that the seed phrase and passphrase are correct.");
+        assert_eq!(
+            error.to_string(),
+            "Master key derivation failed: bad seed. Check that the seed phrase and passphrase are correct."
+        );
 
         let error = KeyManagementError::branch_key_derivation_failed("spend", 123, "overflow");
         assert_eq!(
@@ -1297,10 +1291,18 @@ mod tests {
         );
 
         let error = KeyManagementError::view_key_derivation_failed("crypto error");
-        assert_eq!(error.to_string(), "View key derivation failed: crypto error. This may indicate an issue with the master key or derivation parameters.");
+        assert_eq!(
+            error.to_string(),
+            "View key derivation failed: crypto error. This may indicate an issue with the master key or derivation \
+             parameters."
+        );
 
         let error = KeyManagementError::spend_key_derivation_failed("invalid params");
-        assert_eq!(error.to_string(), "Spend key derivation failed: invalid params. This may indicate an issue with the master key or derivation parameters.");
+        assert_eq!(
+            error.to_string(),
+            "Spend key derivation failed: invalid params. This may indicate an issue with the master key or \
+             derivation parameters."
+        );
 
         let error = KeyManagementError::invalid_derivation_index("view", 9999999);
         assert_eq!(
@@ -1342,10 +1344,16 @@ mod tests {
         );
 
         let error = KeyManagementError::invalid_cipher_seed_format("bad header");
-        assert_eq!(error.to_string(), "Invalid CipherSeed format: bad header. The data does not match the expected CipherSeed structure.");
+        assert_eq!(
+            error.to_string(),
+            "Invalid CipherSeed format: bad header. The data does not match the expected CipherSeed structure."
+        );
 
         let error = KeyManagementError::cipher_seed_mac_verification_failed();
-        assert_eq!(error.to_string(), "CipherSeed MAC verification failed. The seed data may be corrupted or the wrong passphrase was used.");
+        assert_eq!(
+            error.to_string(),
+            "CipherSeed MAC verification failed. The seed data may be corrupted or the wrong passphrase was used."
+        );
 
         let error = KeyManagementError::invalid_cipher_seed_birthday(65535);
         assert_eq!(
@@ -1363,7 +1371,11 @@ mod tests {
     #[test]
     fn test_passphrase_error_constructors() {
         let error = KeyManagementError::missing_required_passphrase();
-        assert_eq!(error.to_string(), "Missing required passphrase. This seed phrase was created with a passphrase and requires one for decryption.");
+        assert_eq!(
+            error.to_string(),
+            "Missing required passphrase. This seed phrase was created with a passphrase and requires one for \
+             decryption."
+        );
 
         let error = KeyManagementError::invalid_passphrase();
         assert_eq!(
@@ -1404,18 +1416,17 @@ mod tests {
             "Domain separation error: hash failed with domain 'wallet'. invalid label"
         );
 
-        let error = KeyManagementError::invalid_domain_label(
-            "sign",
-            "wrong",
-            vec!["key".to_string(), "msg".to_string()],
+        let error =
+            KeyManagementError::invalid_domain_label("sign", "wrong", vec!["key".to_string(), "msg".to_string()]);
+        assert_eq!(
+            error.to_string(),
+            "Invalid domain label 'wrong' for operation 'sign'. Expected one of: [\"key\", \"msg\"]"
         );
-        assert_eq!(error.to_string(), "Invalid domain label 'wrong' for operation 'sign'. Expected one of: [\"key\", \"msg\"]");
     }
 
     #[test]
     fn test_recovery_error_constructors() {
-        let error =
-            KeyManagementError::wallet_recovery_failed("scanning", "no utxos", "check blocks");
+        let error = KeyManagementError::wallet_recovery_failed("scanning", "no utxos", "check blocks");
         assert_eq!(
             error.to_string(),
             "Wallet recovery failed: scanning. no utxos. Suggestion: check blocks"
@@ -1459,9 +1470,7 @@ mod tests {
         // Test hex error conversion
         let hex_error = hex::FromHexError::InvalidHexCharacter { c: 'z', index: 0 };
         let serialization_error = SerializationError::from(hex_error);
-        assert!(serialization_error
-            .to_string()
-            .contains("Hex decoding error"));
+        assert!(serialization_error.to_string().contains("Hex decoding error"));
 
         // Test io error conversion
         let io_error = std::io::Error::new(std::io::ErrorKind::WriteZero, "test");

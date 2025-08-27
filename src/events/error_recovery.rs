@@ -4,10 +4,13 @@
 //! circuit breakers, and structured logging for event listeners to ensure
 //! robust operation in production environments.
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant, SystemTime},
+};
+
 // use std::sync::{Arc, Mutex}; // Unused imports
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant, SystemTime};
 
 /// Configuration for error recovery behavior
 #[derive(Debug, Clone)]
@@ -239,7 +242,7 @@ impl ErrorRecoveryManager {
                 } else {
                     false
                 }
-            }
+            },
             CircuitBreakerState::HalfOpen => true,
         }
     }
@@ -254,17 +257,17 @@ impl ErrorRecoveryManager {
                 self.circuit_opened_at = None;
                 self.total_recoveries += 1;
                 self.log("Circuit breaker closed after successful operation");
-            }
+            },
             CircuitBreakerState::Closed => {
                 // Reset error count on success
                 if self.consecutive_errors > 0 {
                     self.consecutive_errors = 0;
                     self.log("Error count reset after successful operation");
                 }
-            }
+            },
             CircuitBreakerState::Open => {
                 // Should not happen if is_operation_allowed is used correctly
-            }
+            },
         }
     }
 
@@ -297,8 +300,8 @@ impl ErrorRecoveryManager {
         }
 
         // Check if circuit breaker should open
-        let should_open_circuit = self.consecutive_errors >= self.config.max_consecutive_errors
-            && self.circuit_state != CircuitBreakerState::Open;
+        let should_open_circuit = self.consecutive_errors >= self.config.max_consecutive_errors &&
+            self.circuit_state != CircuitBreakerState::Open;
 
         if should_open_circuit {
             self.circuit_state = CircuitBreakerState::Open;
@@ -340,9 +343,7 @@ impl ErrorRecoveryManager {
 
     /// Check if a retry should be attempted
     pub fn should_retry(&self, attempt: usize, is_recoverable: bool) -> bool {
-        is_recoverable
-            && attempt < self.config.max_retry_attempts
-            && self.circuit_state != CircuitBreakerState::Open
+        is_recoverable && attempt < self.config.max_retry_attempts && self.circuit_state != CircuitBreakerState::Open
     }
 
     /// Get error statistics
@@ -480,11 +481,8 @@ macro_rules! impl_retryable_operation {
 
                 loop {
                     if !error_manager.is_operation_allowed() {
-                        let error_record = ErrorRecord::new(
-                            "Operation blocked by circuit breaker".to_string(),
-                            false,
-                        )
-                        .with_error_code("CIRCUIT_BREAKER_OPEN".to_string());
+                        let error_record = ErrorRecord::new("Operation blocked by circuit breaker".to_string(), false)
+                            .with_error_code("CIRCUIT_BREAKER_OPEN".to_string());
 
                         for (key, value) in &context {
                             error_record = error_record.with_context(key.clone(), value.clone());
@@ -498,18 +496,16 @@ macro_rules! impl_retryable_operation {
                         Ok(result) => {
                             error_manager.record_success();
                             return Ok(result);
-                        }
+                        },
                         Err(e) => {
                             let error_message = e.to_string();
                             let is_recoverable = attempt < error_manager.config.max_retry_attempts;
 
                             let mut error_record =
-                                ErrorRecord::new(error_message.clone(), is_recoverable)
-                                    .with_retry_attempt(attempt);
+                                ErrorRecord::new(error_message.clone(), is_recoverable).with_retry_attempt(attempt);
 
                             for (key, value) in &context {
-                                error_record =
-                                    error_record.with_context(key.clone(), value.clone());
+                                error_record = error_record.with_context(key.clone(), value.clone());
                             }
 
                             let should_retry = error_manager.record_error(error_record);
@@ -521,7 +517,7 @@ macro_rules! impl_retryable_operation {
                             let delay = error_manager.calculate_retry_delay(attempt);
                             tokio::time::sleep(delay).await;
                             attempt += 1;
-                        }
+                        },
                     }
                 }
             }
@@ -531,8 +527,9 @@ macro_rules! impl_retryable_operation {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_error_recovery_config_builder() {
@@ -604,8 +601,7 @@ mod tests {
 
     #[test]
     fn test_retry_delay_calculation() {
-        let config = ErrorRecoveryConfig::new()
-            .with_retry_delays(Duration::from_millis(100), Duration::from_secs(5));
+        let config = ErrorRecoveryConfig::new().with_retry_delays(Duration::from_millis(100), Duration::from_secs(5));
         let manager = ErrorRecoveryManager::with_config(config);
 
         assert_eq!(manager.calculate_retry_delay(0), Duration::from_millis(100));
@@ -642,10 +638,7 @@ mod tests {
         assert_eq!(error.error_message, "Test error");
         assert!(error.is_recoverable);
         assert_eq!(error.error_code, Some("TEST_ERROR".to_string()));
-        assert_eq!(
-            error.context.get("operation"),
-            Some(&"test_operation".to_string())
-        );
+        assert_eq!(error.context.get("operation"), Some(&"test_operation".to_string()));
         assert_eq!(error.retry_attempt, Some(1));
     }
 

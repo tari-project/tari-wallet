@@ -5,6 +5,9 @@
 //! infrastructure while using the new callback-based approach.
 
 #[cfg(feature = "storage")]
+use async_trait::async_trait;
+
+#[cfg(feature = "storage")]
 use crate::{
     errors::WalletResult,
     scanning::{
@@ -12,9 +15,6 @@ use crate::{
         ScannerStorage,
     },
 };
-
-#[cfg(feature = "storage")]
-use async_trait::async_trait;
 
 /// Database data processor that stores scan results to SQLite
 ///
@@ -68,9 +68,7 @@ impl DatabaseDataProcessor {
     }
 
     /// Get storage statistics
-    pub async fn get_statistics(
-        &self,
-    ) -> WalletResult<crate::storage::storage_trait::StorageStats> {
+    pub async fn get_statistics(&self) -> WalletResult<crate::storage::storage_trait::StorageStats> {
         self.storage.get_statistics().await
     }
 
@@ -105,9 +103,7 @@ impl DatabaseDataProcessor {
         config: &crate::scanning::BinaryScanConfig,
         scan_context: Option<&crate::scanning::ScanContext>,
     ) -> WalletResult<Option<crate::scanning::ScanContext>> {
-        self.storage
-            .handle_wallet_operations(config, scan_context)
-            .await
+        self.storage.handle_wallet_operations(config, scan_context).await
     }
 
     /// Load scan context from wallet
@@ -201,9 +197,7 @@ impl MemoryStorageProcessor {
     }
 
     /// Get all transactions
-    pub fn get_transactions(
-        &self,
-    ) -> &[crate::data_structures::wallet_transaction::WalletTransaction] {
+    pub fn get_transactions(&self) -> &[crate::data_structures::wallet_transaction::WalletTransaction] {
         &self.transactions
     }
 
@@ -233,10 +227,7 @@ impl DataProcessor for MemoryStorageProcessor {
         }
 
         // Track latest block
-        if self
-            .latest_block
-            .map_or(true, |latest| block_data.height > latest)
-        {
+        if self.latest_block.map_or(true, |latest| block_data.height > latest) {
             self.latest_block = Some(block_data.height);
         }
 

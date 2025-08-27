@@ -4,10 +4,13 @@
 //! the wallet scanner event system. Events are designed to be efficiently
 //! shared between listeners using Arc<Event> pattern.
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, Mutex},
+    time::{Duration, SystemTime},
+};
+
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, SystemTime};
 use tari_transaction_components::transaction_components::OutputFeatures;
 use thiserror::Error;
 use zeroize::Zeroize;
@@ -16,8 +19,7 @@ use crate::data_structures::{CompressedPublicKey, Covenant, PrivateKey, Signatur
 
 /// Thread-safe sequence number generator for event ordering
 /// Each wallet maintains its own sequence counter
-static SEQUENCE_GENERATORS: LazyLock<Mutex<HashMap<String, u64>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SEQUENCE_GENERATORS: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Generate the next sequence number for a given wallet
 fn next_sequence_number(wallet_id: &str) -> u64 {
@@ -87,12 +89,7 @@ impl EventMetadata {
     }
 
     /// Create new event metadata with explicit sequence number (for replay scenarios)
-    pub fn with_sequence(
-        source: &str,
-        wallet_id: &str,
-        sequence_number: u64,
-        correlation_id: Option<String>,
-    ) -> Self {
+    pub fn with_sequence(source: &str, wallet_id: &str, sequence_number: u64, correlation_id: Option<String>) -> Self {
         Self {
             event_id: uuid::Uuid::new_v4().to_string(),
             timestamp: SystemTime::now(),
@@ -506,10 +503,7 @@ pub enum WalletEventError {
 
     /// Event deserialization failed
     #[error("Event deserialization failed: {message}")]
-    DeserializationError {
-        message: String,
-        data_snippet: String,
-    },
+    DeserializationError { message: String, data_snippet: String },
 
     /// Event metadata is invalid or missing required fields
     #[error("Invalid event metadata: {field} - {message}")]
@@ -529,10 +523,7 @@ pub enum WalletEventError {
 
     /// Event listener encountered an error
     #[error("Event listener '{listener_name}' failed: {error}")]
-    ListenerError {
-        listener_name: String,
-        error: String,
-    },
+    ListenerError { listener_name: String, error: String },
 
     /// Event replay failed
     #[error("Event replay failed at sequence {sequence}: {reason}")]
@@ -632,19 +623,11 @@ pub enum WalletEventValidationError {
 
     /// Field length exceeds maximum allowed
     #[error("Field '{field}' length {actual} exceeds maximum {max}")]
-    FieldTooLong {
-        field: String,
-        actual: usize,
-        max: usize,
-    },
+    FieldTooLong { field: String, actual: usize, max: usize },
 
     /// Field is too short
     #[error("Field '{field}' length {actual} is below minimum {min}")]
-    FieldTooShort {
-        field: String,
-        actual: usize,
-        min: usize,
-    },
+    FieldTooShort { field: String, actual: usize, min: usize },
 
     /// Cross-field validation failed
     #[error("Cross-field validation failed: {field1} and {field2} - {reason}")]
@@ -664,10 +647,7 @@ pub enum WalletEventValidationError {
 
     /// Referenced entity does not exist
     #[error("Referenced {entity_type} '{entity_id}' does not exist")]
-    ReferenceNotFound {
-        entity_type: String,
-        entity_id: String,
-    },
+    ReferenceNotFound { entity_type: String, entity_id: String },
 }
 
 /// Event listener-specific errors
@@ -769,52 +749,48 @@ impl WalletEventError {
     pub fn is_recoverable(&self) -> bool {
         match self {
             // Transient errors that might succeed on retry
-            Self::NetworkError { .. }
-            | Self::ProcessingTimeout { .. }
-            | Self::StorageError { .. }
-            | Self::ConcurrentModification { .. } => true,
+            Self::NetworkError { .. } |
+            Self::ProcessingTimeout { .. } |
+            Self::StorageError { .. } |
+            Self::ConcurrentModification { .. } => true,
 
             // Permanent errors that won't succeed on retry
-            Self::ValidationError { .. }
-            | Self::SerializationError { .. }
-            | Self::DeserializationError { .. }
-            | Self::InvalidMetadata { .. }
-            | Self::InvalidPayload { .. }
-            | Self::DuplicateEvent { .. }
-            | Self::EventNotFound { .. }
-            | Self::WalletIdMismatch { .. }
-            | Self::EventTypeMismatch { .. }
-            | Self::InvalidBlockHeight { .. }
-            | Self::InvalidAmount { .. }
-            | Self::InvalidStateTransition { .. }
-            | Self::ConfigurationError { .. }
-            | Self::PermissionDenied { .. } => false,
+            Self::ValidationError { .. } |
+            Self::SerializationError { .. } |
+            Self::DeserializationError { .. } |
+            Self::InvalidMetadata { .. } |
+            Self::InvalidPayload { .. } |
+            Self::DuplicateEvent { .. } |
+            Self::EventNotFound { .. } |
+            Self::WalletIdMismatch { .. } |
+            Self::EventTypeMismatch { .. } |
+            Self::InvalidBlockHeight { .. } |
+            Self::InvalidAmount { .. } |
+            Self::InvalidStateTransition { .. } |
+            Self::ConfigurationError { .. } |
+            Self::PermissionDenied { .. } => false,
 
             // Context-dependent errors
-            Self::ProcessingError { .. }
-            | Self::ListenerError { .. }
-            | Self::ReplayError { .. }
-            | Self::SequenceError { .. }
-            | Self::InternalError { .. } => false,
+            Self::ProcessingError { .. } |
+            Self::ListenerError { .. } |
+            Self::ReplayError { .. } |
+            Self::SequenceError { .. } |
+            Self::InternalError { .. } => false,
         }
     }
 
     /// Get the error category for metrics/logging
     pub fn category(&self) -> &'static str {
         match self {
-            Self::ValidationError { .. }
-            | Self::InvalidMetadata { .. }
-            | Self::InvalidPayload { .. } => "validation",
+            Self::ValidationError { .. } | Self::InvalidMetadata { .. } | Self::InvalidPayload { .. } => "validation",
             Self::SerializationError { .. } | Self::DeserializationError { .. } => "serialization",
             Self::ProcessingError { .. } | Self::ListenerError { .. } => "processing",
             Self::ReplayError { .. } | Self::SequenceError { .. } => "replay",
-            Self::StorageError { .. }
-            | Self::DuplicateEvent { .. }
-            | Self::EventNotFound { .. } => "storage",
+            Self::StorageError { .. } | Self::DuplicateEvent { .. } | Self::EventNotFound { .. } => "storage",
             Self::WalletIdMismatch { .. } | Self::EventTypeMismatch { .. } => "consistency",
-            Self::InvalidBlockHeight { .. }
-            | Self::InvalidAmount { .. }
-            | Self::InvalidStateTransition { .. } => "business_logic",
+            Self::InvalidBlockHeight { .. } | Self::InvalidAmount { .. } | Self::InvalidStateTransition { .. } => {
+                "business_logic"
+            },
             Self::ConcurrentModification { .. } | Self::ProcessingTimeout { .. } => "concurrency",
             Self::ConfigurationError { .. } => "configuration",
             Self::NetworkError { .. } => "network",
@@ -1148,12 +1124,8 @@ impl ReorgPayload {
 impl Zeroize for ReorgPayload {
     fn zeroize(&mut self) {
         // Zeroize sensitive wallet-related data
-        self.affected_utxo_ids
-            .iter_mut()
-            .for_each(|id| id.zeroize());
-        self.invalidated_utxos
-            .iter_mut()
-            .for_each(|id| id.zeroize());
+        self.affected_utxo_ids.iter_mut().for_each(|id| id.zeroize());
+        self.invalidated_utxos.iter_mut().for_each(|id| id.zeroize());
         self.restored_utxos.iter_mut().for_each(|id| id.zeroize());
         // Zeroize recovery info that might contain sensitive debugging data
         // Note: We need to clear the HashMap entirely since we can't mutably borrow keys
@@ -1310,23 +1282,19 @@ impl EventType for WalletScanEvent {
                 block_range.0, block_range.1
             )),
             WalletScanEvent::BlockProcessed {
-                height,
-                outputs_count,
-                ..
+                height, outputs_count, ..
             } => Some(format!("height: {height}, outputs: {outputs_count}")),
             WalletScanEvent::OutputFound {
                 block_info,
                 output_data,
                 ..
             } => {
-                let amount_str = output_data
-                    .amount
-                    .map_or("unknown".to_string(), |a| a.to_string());
+                let amount_str = output_data.amount.map_or("unknown".to_string(), |a| a.to_string());
                 Some(format!(
                     "block: {}, amount: {amount_str}, mine: {}",
                     block_info.height, output_data.is_mine
                 ))
-            }
+            },
             WalletScanEvent::SpentOutputFound {
                 spending_block_info,
                 spent_output_data,
@@ -1337,11 +1305,9 @@ impl EventType for WalletScanEvent {
                     .map_or("unknown".to_string(), |a| a.to_string());
                 Some(format!(
                     "block: {}, amount: {amount_str}, method: {}, input: {}",
-                    spending_block_info.height,
-                    spent_output_data.match_method,
-                    spent_output_data.input_index
+                    spending_block_info.height, spent_output_data.match_method, spent_output_data.input_index
                 ))
-            }
+            },
             WalletScanEvent::ScanProgress {
                 current_block,
                 total_blocks,
@@ -1355,9 +1321,10 @@ impl EventType for WalletScanEvent {
                     format!("{secs}s")
                 });
                 Some(format!(
-                    "{current_block}/{total_blocks} ({percentage:.1}%), speed: {speed_blocks_per_second:.1} bps, ETA: {eta_str}"
+                    "{current_block}/{total_blocks} ({percentage:.1}%), speed: {speed_blocks_per_second:.1} bps, ETA: \
+                     {eta_str}"
                 ))
-            }
+            },
             WalletScanEvent::ScanCompleted {
                 success,
                 final_statistics,
@@ -1368,7 +1335,7 @@ impl EventType for WalletScanEvent {
                 Some(format!(
                     "success: {success}, duration: {total_duration:?}, stats: {stats_count} items"
                 ))
-            }
+            },
             WalletScanEvent::ScanError {
                 error_message,
                 block_height,
@@ -1389,15 +1356,14 @@ impl Zeroize for WalletScanEvent {
             } => {
                 output_data.zeroize();
                 address_info.zeroize();
-            }
+            },
             WalletScanEvent::SpentOutputFound {
-                original_output_info,
-                ..
+                original_output_info, ..
             } => {
                 original_output_info.zeroize();
-            }
+            },
             // For other variants, we only zeroize if they contain sensitive data
-            _ => {}
+            _ => {},
         }
     }
 }
@@ -1424,14 +1390,12 @@ impl SerializableEvent for WalletScanEvent {
                     "Scan started for wallet '{wallet_context}' on blocks {}-{}",
                     block_range.0, block_range.1
                 )
-            }
+            },
             WalletScanEvent::BlockProcessed {
-                height,
-                outputs_count,
-                ..
+                height, outputs_count, ..
             } => {
                 format!("Processed block {height} with {outputs_count} outputs")
-            }
+            },
             WalletScanEvent::OutputFound {
                 block_info,
                 output_data,
@@ -1441,16 +1405,12 @@ impl SerializableEvent for WalletScanEvent {
                 let amount_str = output_data
                     .amount
                     .map_or("unknown amount".to_string(), |a| format!("{a} units"));
-                let mine_str = if output_data.is_mine {
-                    "mine"
-                } else {
-                    "not mine"
-                };
+                let mine_str = if output_data.is_mine { "mine" } else { "not mine" };
                 format!(
                     "Found output at block {} ({amount_str}, {mine_str}, addr: {})",
                     block_info.height, address_info.address
                 )
-            }
+            },
             WalletScanEvent::SpentOutputFound {
                 spending_block_info,
                 spent_output_data,
@@ -1463,11 +1423,9 @@ impl SerializableEvent for WalletScanEvent {
                     .map_or("unknown amount".to_string(), |a| format!("{a} units"));
                 format!(
                     "Output spent at block {} ({amount_str}, method: {}, input index: {})",
-                    spending_block_info.height,
-                    spent_output_data.match_method,
-                    spent_output_data.input_index
+                    spending_block_info.height, spent_output_data.match_method, spent_output_data.input_index
                 )
-            }
+            },
             WalletScanEvent::ScanProgress {
                 current_block,
                 total_blocks,
@@ -1491,9 +1449,10 @@ impl SerializableEvent for WalletScanEvent {
                     }
                 });
                 format!(
-                    "Scan progress: {current_block}/{total_blocks} blocks ({percentage:.1}%) at {speed_blocks_per_second:.1} blocks/sec, {eta_str}"
+                    "Scan progress: {current_block}/{total_blocks} blocks ({percentage:.1}%) at \
+                     {speed_blocks_per_second:.1} blocks/sec, {eta_str}"
                 )
-            }
+            },
             WalletScanEvent::ScanCompleted {
                 success,
                 final_statistics,
@@ -1522,11 +1481,7 @@ impl SerializableEvent for WalletScanEvent {
                     ("errors_encountered", "errors"),
                 ]
                 .iter()
-                .filter_map(|(key, unit)| {
-                    final_statistics
-                        .get(*key)
-                        .map(|value| format!("{value} {unit}"))
-                })
+                .filter_map(|(key, unit)| final_statistics.get(*key).map(|value| format!("{value} {unit}")))
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -1535,7 +1490,7 @@ impl SerializableEvent for WalletScanEvent {
                 } else {
                     format!("Scan completed (success: {success}) in {duration_str} - {key_stats}")
                 }
-            }
+            },
             WalletScanEvent::ScanError {
                 error_message,
                 block_height,
@@ -1546,7 +1501,7 @@ impl SerializableEvent for WalletScanEvent {
             },
             WalletScanEvent::ScanCancelled { reason, .. } => {
                 format!("Scan cancelled: {reason}")
-            }
+            },
         }
     }
 }
@@ -1614,13 +1569,13 @@ impl Zeroize for WalletEvent {
         match self {
             WalletEvent::UtxoReceived { payload, .. } => {
                 payload.zeroize();
-            }
+            },
             WalletEvent::UtxoSpent { payload, .. } => {
                 payload.zeroize();
-            }
+            },
             WalletEvent::Reorg { payload, .. } => {
                 payload.zeroize();
-            }
+            },
         }
     }
 }
@@ -1699,11 +1654,7 @@ impl WalletEvent {
     }
 
     /// Create a new UtxoSpent event with correlation ID
-    pub fn utxo_spent_with_correlation(
-        wallet_id: &str,
-        payload: UtxoSpentPayload,
-        correlation_id: String,
-    ) -> Self {
+    pub fn utxo_spent_with_correlation(wallet_id: &str, payload: UtxoSpentPayload, correlation_id: String) -> Self {
         Self::UtxoSpent {
             metadata: EventMetadata::with_correlation("wallet", wallet_id, correlation_id),
             payload,
@@ -1711,11 +1662,7 @@ impl WalletEvent {
     }
 
     /// Create a new Reorg event with correlation ID
-    pub fn reorg_with_correlation(
-        wallet_id: &str,
-        payload: ReorgPayload,
-        correlation_id: String,
-    ) -> Self {
+    pub fn reorg_with_correlation(wallet_id: &str, payload: ReorgPayload, correlation_id: String) -> Self {
         Self::Reorg {
             metadata: EventMetadata::with_correlation("wallet", wallet_id, correlation_id),
             payload,
@@ -1750,12 +1697,7 @@ impl WalletScanEvent {
 /// Helper functions for creating events with proper metadata
 impl WalletScanEvent {
     /// Create a new ScanStarted event
-    pub fn scan_started(
-        wallet_id: &str,
-        config: ScanConfig,
-        block_range: (u64, u64),
-        wallet_context: String,
-    ) -> Self {
+    pub fn scan_started(wallet_id: &str, config: ScanConfig, block_range: (u64, u64), wallet_context: String) -> Self {
         Self::ScanStarted {
             metadata: EventMetadata::new("wallet_scanner", wallet_id),
             config,
@@ -1891,8 +1833,9 @@ impl WalletScanEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::SystemTime;
+
+    use super::*;
 
     #[test]
     fn test_scan_started_event_creation() {
@@ -1923,7 +1866,7 @@ mod tests {
                 assert_eq!(event_config.retry_attempts, Some(3));
                 assert_eq!(*block_range, (1000, 2000));
                 assert_eq!(wallet_context, "test_wallet_context");
-            }
+            },
             _ => panic!("Expected ScanStarted event"),
         }
     }
@@ -1931,12 +1874,7 @@ mod tests {
     #[test]
     fn test_scan_started_event_traits() {
         let config = ScanConfig::default();
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            config,
-            (0, 100),
-            "wallet_123".to_string(),
-        );
+        let event = WalletScanEvent::scan_started("test_wallet", config, (0, 100), "wallet_123".to_string());
 
         // Test EventType trait
         assert_eq!(event.event_type(), "ScanStarted");
@@ -1958,11 +1896,7 @@ mod tests {
 
     #[test]
     fn test_scan_started_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation(
-            "wallet_scanner",
-            "test_wallet",
-            "scan_session_123".to_string(),
-        );
+        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "scan_session_123".to_string());
         let config = ScanConfig::default();
 
         let event = WalletScanEvent::ScanStarted {
@@ -1974,28 +1908,18 @@ mod tests {
 
         match &event {
             WalletScanEvent::ScanStarted { metadata, .. } => {
-                assert_eq!(
-                    metadata.correlation_id,
-                    Some("scan_session_123".to_string())
-                );
+                assert_eq!(metadata.correlation_id, Some("scan_session_123".to_string()));
                 assert_eq!(metadata.source, "wallet_scanner");
-            }
+            },
             _ => panic!("Expected ScanStarted event"),
         }
     }
 
     #[test]
     fn test_event_serialization_roundtrip() {
-        let config = ScanConfig::new()
-            .with_batch_size(25)
-            .with_timeout_seconds(60);
+        let config = ScanConfig::new().with_batch_size(25).with_timeout_seconds(60);
 
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            config,
-            (1000, 2000),
-            "test_wallet".to_string(),
-        );
+        let event = WalletScanEvent::scan_started("test_wallet", config, (1000, 2000), "test_wallet".to_string());
 
         // Test pretty JSON serialization
         let pretty_json = event.to_debug_json().unwrap();
@@ -2026,7 +1950,7 @@ mod tests {
             ) => {
                 assert_eq!(br1, br2);
                 assert_eq!(wc1, wc2);
-            }
+            },
             _ => panic!("Deserialized event type mismatch"),
         }
     }
@@ -2051,21 +1975,16 @@ mod tests {
             } => {
                 assert_eq!(*block_range, (500, 1500));
                 assert_eq!(wallet_context, "shared_test");
-            }
+            },
             _ => panic!("Expected ScanStarted event"),
         }
     }
 
     #[test]
     fn test_serialization_with_complex_data() {
-        let output_data = OutputData::new(
-            "commitment_123".to_string(),
-            "proof_data_456".to_string(),
-            1,
-            true,
-        )
-        .with_amount(1000)
-        .with_key_index(5);
+        let output_data = OutputData::new("commitment_123".to_string(), "proof_data_456".to_string(), 1, true)
+            .with_amount(1000)
+            .with_key_index(5);
 
         let block_info = BlockInfo::new(12345, "block_hash_abc".to_string(), 1697123456, 2);
 
@@ -2075,19 +1994,10 @@ mod tests {
             "mainnet".to_string(),
         );
 
-        let transaction_data = TransactionData::new(
-            1000,
-            "MinedConfirmed".to_string(),
-            "Inbound".to_string(),
-            1697123456,
-        );
-        let event = WalletScanEvent::output_found(
-            "test_wallet",
-            output_data,
-            block_info,
-            address_info,
-            transaction_data,
-        );
+        let transaction_data =
+            TransactionData::new(1000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697123456);
+        let event =
+            WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
 
         // Test serialization
         let json = event.to_debug_json().unwrap();
@@ -2109,7 +2019,7 @@ mod tests {
                 assert_eq!(output_data.amount, Some(1000));
                 assert_eq!(block_info.height, 12345);
                 assert_eq!(address_info.address, "tari1xyz123...");
-            }
+            },
             _ => panic!("Expected OutputFound event"),
         }
     }
@@ -2133,13 +2043,8 @@ mod tests {
 
     #[test]
     fn test_output_data_zeroize() {
-        let mut output_data = OutputData::new(
-            "commitment_test".to_string(),
-            "proof_test".to_string(),
-            1,
-            true,
-        )
-        .with_encrypted_value(vec![1, 2, 3, 4, 5]);
+        let mut output_data = OutputData::new("commitment_test".to_string(), "proof_test".to_string(), 1, true)
+            .with_encrypted_value(vec![1, 2, 3, 4, 5]);
 
         // Verify initial state
         assert_eq!(output_data.encrypted_value, Some(vec![1, 2, 3, 4, 5]));
@@ -2165,15 +2070,9 @@ mod tests {
         .with_derivation_path("m/44'/0'/0'/0/5".to_string());
 
         // Verify initial state
-        assert_eq!(
-            address_info.public_spend_key,
-            Some("public_key_123".to_string())
-        );
+        assert_eq!(address_info.public_spend_key, Some("public_key_123".to_string()));
         assert_eq!(address_info.view_key, Some("view_key_456".to_string()));
-        assert_eq!(
-            address_info.derivation_path,
-            Some("m/44'/0'/0'/0/5".to_string())
-        );
+        assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/5".to_string()));
 
         // Zeroize sensitive data
         address_info.zeroize();
@@ -2248,7 +2147,7 @@ mod tests {
             WalletEvent::UtxoReceived { payload, .. } => {
                 assert_eq!(payload.receiving_address, "");
                 assert_eq!(payload.commitment, "");
-            }
+            },
             _ => panic!("Expected UtxoReceived event"),
         }
     }
@@ -2284,7 +2183,7 @@ mod tests {
                 assert_eq!(*duration, processing_duration);
                 assert_eq!(*outputs_count, 5);
                 assert_eq!(*spent_outputs_count, 0);
-            }
+            },
             _ => panic!("Expected BlockProcessed event"),
         }
     }
@@ -2333,7 +2232,7 @@ mod tests {
         match &event {
             WalletScanEvent::BlockProcessed { outputs_count, .. } => {
                 assert_eq!(*outputs_count, 0);
-            }
+            },
             _ => panic!("Expected BlockProcessed event"),
         }
 
@@ -2343,11 +2242,7 @@ mod tests {
 
     #[test]
     fn test_block_processed_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation(
-            "wallet_scanner",
-            "test_wallet",
-            "block_batch_123".to_string(),
-        );
+        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "block_batch_123".to_string());
         let event = WalletScanEvent::BlockProcessed {
             metadata,
             height: 54321,
@@ -2362,7 +2257,7 @@ mod tests {
             WalletScanEvent::BlockProcessed { metadata, .. } => {
                 assert_eq!(metadata.correlation_id, Some("block_batch_123".to_string()));
                 assert_eq!(metadata.source, "wallet_scanner");
-            }
+            },
             _ => panic!("Expected BlockProcessed event"),
         }
     }
@@ -2390,11 +2285,10 @@ mod tests {
 
             match &event {
                 WalletScanEvent::BlockProcessed {
-                    processing_duration,
-                    ..
+                    processing_duration, ..
                 } => {
                     assert_eq!(processing_duration, duration);
-                }
+                },
                 _ => panic!("Expected BlockProcessed event"),
             }
         }
@@ -2426,19 +2320,10 @@ mod tests {
         )
         .with_derivation_path("m/44'/0'/0'/0/5".to_string());
 
-        let transaction_data = TransactionData::new(
-            1000,
-            "MinedConfirmed".to_string(),
-            "Inbound".to_string(),
-            1697123456,
-        );
-        let event = WalletScanEvent::output_found(
-            "test_wallet",
-            output_data,
-            block_info,
-            address_info,
-            transaction_data,
-        );
+        let transaction_data =
+            TransactionData::new(1000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697123456);
+        let event =
+            WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
 
         match &event {
             WalletScanEvent::OutputFound {
@@ -2470,11 +2355,8 @@ mod tests {
                 assert_eq!(address_info.address, "tari1xyz123...");
                 assert_eq!(address_info.address_type, "stealth");
                 assert_eq!(address_info.network, "mainnet");
-                assert_eq!(
-                    address_info.derivation_path,
-                    Some("m/44'/0'/0'/0/5".to_string())
-                );
-            }
+                assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/5".to_string()));
+            },
             _ => panic!("Expected OutputFound event"),
         }
     }
@@ -2496,19 +2378,10 @@ mod tests {
             "testnet".to_string(),
         );
 
-        let transaction_data = TransactionData::new(
-            5000,
-            "MinedConfirmed".to_string(),
-            "Inbound".to_string(),
-            1697999999,
-        );
-        let event = WalletScanEvent::output_found(
-            "test_wallet",
-            output_data,
-            block_info,
-            address_info,
-            transaction_data,
-        );
+        let transaction_data =
+            TransactionData::new(5000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697999999);
+        let event =
+            WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
 
         // Test EventType trait
         assert_eq!(event.event_type(), "OutputFound");
@@ -2554,15 +2427,8 @@ mod tests {
 
     #[test]
     fn test_scan_progress_event_creation() {
-        let event = WalletScanEvent::scan_progress(
-            "test_wallet",
-            750,
-            1000,
-            1750,
-            75.0,
-            5.5,
-            Some(Duration::from_secs(45)),
-        );
+        let event =
+            WalletScanEvent::scan_progress("test_wallet", 750, 1000, 1750, 75.0, 5.5, Some(Duration::from_secs(45)));
 
         match &event {
             WalletScanEvent::ScanProgress {
@@ -2581,7 +2447,7 @@ mod tests {
                 assert_eq!(*percentage, 75.0);
                 assert_eq!(*speed_blocks_per_second, 5.5);
                 assert_eq!(*estimated_time_remaining, Some(Duration::from_secs(45)));
-            }
+            },
             _ => panic!("Expected ScanProgress event"),
         }
     }
@@ -2633,7 +2499,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(*estimated_time_remaining, None);
-            }
+            },
             _ => panic!("Expected ScanProgress event"),
         }
 
@@ -2659,15 +2525,7 @@ mod tests {
         ];
 
         for (duration, expected_format) in test_cases {
-            let event = WalletScanEvent::scan_progress(
-                "test_wallet",
-                100,
-                200,
-                1100,
-                50.0,
-                1.0,
-                Some(duration),
-            );
+            let event = WalletScanEvent::scan_progress("test_wallet", 100, 200, 1100, 50.0, 1.0, Some(duration));
             let summary = event.summary();
             assert!(
                 summary.contains(expected_format),
@@ -2690,20 +2548,12 @@ mod tests {
                 assert_eq!(*current_block, 0);
                 assert_eq!(*percentage, 0.0);
                 assert_eq!(*speed_blocks_per_second, 0.0);
-            }
+            },
             _ => panic!("Expected ScanProgress event"),
         }
 
         // Test 100% progress
-        let event = WalletScanEvent::scan_progress(
-            "test_wallet",
-            1000,
-            1000,
-            2000,
-            100.0,
-            5.0,
-            Some(Duration::ZERO),
-        );
+        let event = WalletScanEvent::scan_progress("test_wallet", 1000, 1000, 2000, 100.0, 5.0, Some(Duration::ZERO));
         match &event {
             WalletScanEvent::ScanProgress {
                 current_block,
@@ -2716,18 +2566,14 @@ mod tests {
                 assert_eq!(*total_blocks, 1000);
                 assert_eq!(*percentage, 100.0);
                 assert_eq!(*estimated_time_remaining, Some(Duration::ZERO));
-            }
+            },
             _ => panic!("Expected ScanProgress event"),
         }
     }
 
     #[test]
     fn test_scan_progress_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation(
-            "wallet_scanner",
-            "test_wallet",
-            "scan_batch_456".to_string(),
-        );
+        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "scan_batch_456".to_string());
         let event = WalletScanEvent::ScanProgress {
             metadata,
             current_block: 300,
@@ -2742,7 +2588,7 @@ mod tests {
             WalletScanEvent::ScanProgress { metadata, .. } => {
                 assert_eq!(metadata.correlation_id, Some("scan_batch_456".to_string()));
                 assert_eq!(metadata.source, "wallet_scanner");
-            }
+            },
             _ => panic!("Expected ScanProgress event"),
         }
     }
@@ -2755,12 +2601,7 @@ mod tests {
         final_stats.insert("transactions_found".to_string(), 15);
         final_stats.insert("errors_encountered".to_string(), 0);
 
-        let event = WalletScanEvent::scan_completed(
-            "test_wallet",
-            final_stats.clone(),
-            true,
-            Duration::from_secs(300),
-        );
+        let event = WalletScanEvent::scan_completed("test_wallet", final_stats.clone(), true, Duration::from_secs(300));
 
         match &event {
             WalletScanEvent::ScanCompleted {
@@ -2778,7 +2619,7 @@ mod tests {
                 assert_eq!(final_statistics.get("outputs_found"), Some(&25));
                 assert_eq!(final_statistics.get("transactions_found"), Some(&15));
                 assert_eq!(final_statistics.get("errors_encountered"), Some(&0));
-            }
+            },
             _ => panic!("Expected ScanCompleted event"),
         }
     }
@@ -2789,12 +2630,7 @@ mod tests {
         final_stats.insert("blocks_processed".to_string(), 500);
         final_stats.insert("outputs_found".to_string(), 10);
 
-        let event = WalletScanEvent::scan_completed(
-            "test_wallet",
-            final_stats,
-            true,
-            Duration::from_secs(150),
-        );
+        let event = WalletScanEvent::scan_completed("test_wallet", final_stats, true, Duration::from_secs(150));
 
         // Test EventType trait
         assert_eq!(event.event_type(), "ScanCompleted");
@@ -2824,17 +2660,12 @@ mod tests {
         final_stats.insert("blocks_processed".to_string(), 750);
         final_stats.insert("errors_encountered".to_string(), 5);
 
-        let event = WalletScanEvent::scan_completed(
-            "test_wallet",
-            final_stats,
-            false,
-            Duration::from_secs(45),
-        );
+        let event = WalletScanEvent::scan_completed("test_wallet", final_stats, false, Duration::from_secs(45));
 
         match &event {
             WalletScanEvent::ScanCompleted { success, .. } => {
                 assert!(!success);
-            }
+            },
             _ => panic!("Expected ScanCompleted event"),
         }
 
@@ -2848,12 +2679,7 @@ mod tests {
     #[test]
     fn test_scan_completed_empty_stats() {
         let empty_stats = HashMap::new();
-        let event = WalletScanEvent::scan_completed(
-            "test_wallet",
-            empty_stats,
-            true,
-            Duration::from_secs(30),
-        );
+        let event = WalletScanEvent::scan_completed("test_wallet", empty_stats, true, Duration::from_secs(30));
 
         // Test with empty statistics
         let debug_data = event.debug_data().unwrap();
@@ -2876,8 +2702,7 @@ mod tests {
         ];
 
         for (duration, expected_format) in test_cases {
-            let event =
-                WalletScanEvent::scan_completed("test_wallet", HashMap::new(), true, duration);
+            let event = WalletScanEvent::scan_completed("test_wallet", HashMap::new(), true, duration);
             let summary = event.summary();
             assert!(
                 summary.contains(expected_format),
@@ -2888,11 +2713,7 @@ mod tests {
 
     #[test]
     fn test_scan_completed_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation(
-            "wallet_scanner",
-            "test_wallet",
-            "final_scan_789".to_string(),
-        );
+        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "final_scan_789".to_string());
         let mut stats = HashMap::new();
         stats.insert("blocks_processed".to_string(), 100);
 
@@ -2907,7 +2728,7 @@ mod tests {
             WalletScanEvent::ScanCompleted { metadata, .. } => {
                 assert_eq!(metadata.correlation_id, Some("final_scan_789".to_string()));
                 assert_eq!(metadata.source, "wallet_scanner");
-            }
+            },
             _ => panic!("Expected ScanCompleted event"),
         }
     }
@@ -2968,7 +2789,7 @@ mod tests {
                 assert_eq!(block_height, &Some(12345));
                 assert_eq!(retry_info, &Some("Will retry in 5 seconds".to_string()));
                 assert!(is_recoverable);
-            }
+            },
             _ => panic!("Expected ScanError event"),
         }
     }
@@ -3025,19 +2846,14 @@ mod tests {
                 assert_eq!(final_statistics.get("blocks_processed"), Some(&500));
                 assert_eq!(final_statistics.get("outputs_found"), Some(&25));
                 assert_eq!(partial_completion, &Some(0.5));
-            }
+            },
             _ => panic!("Expected ScanCancelled event"),
         }
     }
 
     #[test]
     fn test_scan_cancelled_event_traits() {
-        let event = WalletScanEvent::scan_cancelled(
-            "test_wallet",
-            "Network timeout".to_string(),
-            HashMap::new(),
-            None,
-        );
+        let event = WalletScanEvent::scan_cancelled("test_wallet", "Network timeout".to_string(), HashMap::new(), None);
 
         // Test EventType trait
         assert_eq!(event.event_type(), "ScanCancelled");
@@ -3086,11 +2902,7 @@ mod tests {
 
     #[test]
     fn test_event_metadata_with_correlation() {
-        let metadata = EventMetadata::with_correlation(
-            "test_source",
-            "test_wallet",
-            "correlation_123".to_string(),
-        );
+        let metadata = EventMetadata::with_correlation("test_source", "test_wallet", "correlation_123".to_string());
 
         assert!(!metadata.event_id.is_empty());
         assert_eq!(metadata.source, "test_source");
@@ -3114,26 +2926,16 @@ mod tests {
 
     #[test]
     fn test_address_info_builder_pattern() {
-        let address_info = AddressInfo::new(
-            "tari1abc123".to_string(),
-            "stealth".to_string(),
-            "mainnet".to_string(),
-        )
-        .with_derivation_path("m/44'/0'/0'/0/1".to_string())
-        .with_public_spend_key("public_key_123".to_string())
-        .with_view_key("view_key_456".to_string());
+        let address_info = AddressInfo::new("tari1abc123".to_string(), "stealth".to_string(), "mainnet".to_string())
+            .with_derivation_path("m/44'/0'/0'/0/1".to_string())
+            .with_public_spend_key("public_key_123".to_string())
+            .with_view_key("view_key_456".to_string());
 
         assert_eq!(address_info.address, "tari1abc123");
         assert_eq!(address_info.address_type, "stealth");
         assert_eq!(address_info.network, "mainnet");
-        assert_eq!(
-            address_info.derivation_path,
-            Some("m/44'/0'/0'/0/1".to_string())
-        );
-        assert_eq!(
-            address_info.public_spend_key,
-            Some("public_key_123".to_string())
-        );
+        assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/1".to_string()));
+        assert_eq!(address_info.public_spend_key, Some("public_key_123".to_string()));
         assert_eq!(address_info.view_key, Some("view_key_456".to_string()));
     }
 
@@ -3141,12 +2943,7 @@ mod tests {
     fn test_json_serialization_error_handling() {
         // Test that the error handling for JSON serialization works correctly
         // by creating a valid event and checking error paths
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (0, 100),
-            "test".to_string(),
-        );
+        let event = WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "test".to_string());
 
         // These should succeed
         assert!(event.to_debug_json().is_ok());
@@ -3319,7 +3116,7 @@ mod tests {
                 assert_eq!(payload.utxo_id, "test_utxo");
                 assert_eq!(payload.amount, 2000000);
                 assert_eq!(payload.block_height, 15000);
-            }
+            },
             _ => panic!("Expected UtxoReceived event"),
         }
 
@@ -3367,7 +3164,7 @@ mod tests {
                 assert_eq!(payload.amount, 1500000);
                 assert_eq!(payload.spending_block_height, 15500);
                 assert!(!payload.is_self_spend);
-            }
+            },
             _ => panic!("Expected UtxoSpent event"),
         }
 
@@ -3413,7 +3210,7 @@ mod tests {
                 assert_eq!(payload.new_blocks_count, 5);
                 assert_eq!(payload.balance_change, 500000);
                 assert_eq!(payload.affected_transaction_hashes.len(), 2);
-            }
+            },
             _ => panic!("Expected Reorg event"),
         }
 
@@ -3467,9 +3264,7 @@ mod tests {
         let validation_err = WalletEventError::validation("Invalid amount", "UtxoReceived");
         assert_eq!(validation_err.category(), "validation");
         assert!(!validation_err.is_recoverable());
-        assert!(validation_err
-            .to_string()
-            .contains("Event validation failed"));
+        assert!(validation_err.to_string().contains("Event validation failed"));
         assert!(validation_err.to_string().contains("Invalid amount"));
 
         // Test serialization error
@@ -3560,7 +3355,7 @@ mod tests {
         match wallet_err {
             WalletEventError::ValidationError { message, .. } => {
                 assert!(message.contains("test_field"));
-            }
+            },
             _ => panic!("Expected ValidationError"),
         }
 
@@ -3573,7 +3368,7 @@ mod tests {
         match wallet_err {
             WalletEventError::ListenerError { error, .. } => {
                 assert!(error.contains("TestListener"));
-            }
+            },
             _ => panic!("Expected ListenerError"),
         }
 
@@ -3583,7 +3378,7 @@ mod tests {
         match wallet_err {
             WalletEventError::SerializationError { message, .. } => {
                 assert!(message.contains("expected"));
-            }
+            },
             _ => panic!("Expected SerializationError"),
         }
     }
@@ -3611,10 +3406,7 @@ mod tests {
         ];
 
         for error in recoverable_errors {
-            assert!(
-                error.is_recoverable(),
-                "Error should be recoverable: {error:?}"
-            );
+            assert!(error.is_recoverable(), "Error should be recoverable: {error:?}");
         }
 
         // Non-recoverable errors
@@ -3638,10 +3430,7 @@ mod tests {
         ];
 
         for error in non_recoverable_errors {
-            assert!(
-                !error.is_recoverable(),
-                "Error should not be recoverable: {error:?}"
-            );
+            assert!(!error.is_recoverable(), "Error should not be recoverable: {error:?}");
         }
     }
 
@@ -3775,10 +3564,7 @@ mod tests {
         assert!(message.contains("Event validation failed"));
         assert!(message.contains("Amount cannot be zero"));
 
-        let sequence_err = WalletEventError::SequenceError {
-            expected: 5,
-            actual: 3,
-        };
+        let sequence_err = WalletEventError::SequenceError { expected: 5, actual: 3 };
         let message = sequence_err.to_string();
         assert!(message.contains("Invalid event sequence"));
         assert!(message.contains("expected 5"));
@@ -3927,12 +3713,8 @@ mod tests {
             .with_retry_attempts(5)
             .with_filter("coinbase".to_string(), "true".to_string());
 
-        let scan_started = WalletScanEvent::scan_started(
-            "test_wallet",
-            config,
-            (1000, 2000),
-            "test_context".to_string(),
-        );
+        let scan_started =
+            WalletScanEvent::scan_started("test_wallet", config, (1000, 2000), "test_context".to_string());
 
         let json = serde_json::to_string_pretty(&scan_started).unwrap();
         let deserialized: WalletScanEvent = serde_json::from_str(&json).unwrap();
@@ -3943,12 +3725,10 @@ mod tests {
         // Verify event can be serialized and deserialized without data loss
         if let (
             WalletScanEvent::ScanStarted {
-                config: orig_config,
-                ..
+                config: orig_config, ..
             },
             WalletScanEvent::ScanStarted {
-                config: deser_config,
-                ..
+                config: deser_config, ..
             },
         ) = (&scan_started, &deserialized)
         {
@@ -4000,12 +3780,8 @@ mod tests {
         // Extract payloads and verify field-by-field equality
         if let (
             WalletEvent::UtxoReceived { payload: orig, .. },
-            WalletEvent::UtxoReceived {
-                payload: pretty, ..
-            },
-            WalletEvent::UtxoReceived {
-                payload: compact, ..
-            },
+            WalletEvent::UtxoReceived { payload: pretty, .. },
+            WalletEvent::UtxoReceived { payload: compact, .. },
         ) = (&original_event, &from_pretty, &from_compact)
         {
             // Test all fields are preserved
@@ -4048,17 +3824,12 @@ mod tests {
     #[test]
     fn test_data_structure_serialization() {
         // Test supporting data structures individually
-        let output_data = OutputData::new(
-            "commitment_123".to_string(),
-            "range_proof_456".to_string(),
-            42,
-            true,
-        )
-        .with_amount(1000000)
-        .with_key_index(5)
-        .with_maturity_height(12345)
-        .with_script("script_code".to_string())
-        .with_encrypted_value(vec![1, 2, 3, 4, 5]);
+        let output_data = OutputData::new("commitment_123".to_string(), "range_proof_456".to_string(), 42, true)
+            .with_amount(1000000)
+            .with_key_index(5)
+            .with_maturity_height(12345)
+            .with_script("script_code".to_string())
+            .with_encrypted_value(vec![1, 2, 3, 4, 5]);
 
         let json = serde_json::to_string(&output_data).unwrap();
         let deserialized: OutputData = serde_json::from_str(&json).unwrap();

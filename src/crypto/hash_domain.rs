@@ -40,10 +40,7 @@ mod tests {
 
     #[test]
     fn test_key_manager_domain_name() {
-        assert_eq!(
-            KeyManagerDomain::domain(),
-            "com.tari.base_layer.key_manager"
-        );
+        assert_eq!(KeyManagerDomain::domain(), "com.tari.base_layer.key_manager");
     }
 
     #[test]
@@ -68,16 +65,10 @@ mod tests {
         let _wallet_domain = WalletMessageSigningDomain::domain();
 
         // Verify domain names are different
-        assert_ne!(
-            KeyManagerDomain::domain(),
-            WalletMessageSigningDomain::domain()
-        );
+        assert_ne!(KeyManagerDomain::domain(), WalletMessageSigningDomain::domain());
 
         // Verify versions are consistent
-        assert_eq!(
-            KeyManagerDomain::version(),
-            WalletMessageSigningDomain::version()
-        );
+        assert_eq!(KeyManagerDomain::version(), WalletMessageSigningDomain::version());
     }
 
     #[test]

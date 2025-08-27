@@ -4,6 +4,10 @@
 //! an EncryptedData instance, using a provided decryption key and commitment.
 //! It supports all payment ID types: Empty, U256, Open, AddressAndData, TransactionInfo, and Raw.
 
+use std::str::FromStr;
+
+use primitive_types::U256;
+
 use crate::{
     data_structures::{
         encrypted_data::EncryptedData,
@@ -12,8 +16,6 @@ use crate::{
     },
     hex_utils::HexEncodable,
 };
-use primitive_types::U256;
-use std::str::FromStr;
 
 /// Result of payment ID extraction
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,10 +60,7 @@ impl PaymentIdMetadata {
         match payment_id {
             PaymentId::Empty => true,
             PaymentId::U256 { .. } => true,
-            PaymentId::Open {
-                user_data,
-                tx_type: _,
-            } => std::str::from_utf8(user_data).is_ok(),
+            PaymentId::Open { user_data, tx_type: _ } => std::str::from_utf8(user_data).is_ok(),
             PaymentId::AddressAndData { user_data, .. } => std::str::from_utf8(user_data).is_ok(),
             PaymentId::TransactionInfo { .. } => true,
             PaymentId::Raw(data) => std::str::from_utf8(data).is_ok(),
@@ -72,13 +71,10 @@ impl PaymentIdMetadata {
         match payment_id {
             PaymentId::Empty => true,
             PaymentId::U256 { .. } => true,
-            PaymentId::Open {
-                user_data,
-                tx_type: _,
-            } => user_data.len() <= 256, // Standard limit
+            PaymentId::Open { user_data, tx_type: _ } => user_data.len() <= 256, // Standard limit
             PaymentId::AddressAndData { user_data, .. } => {
                 user_data.len() <= 256 // Standard limits
-            }
+            },
             PaymentId::TransactionInfo { .. } => true, // Standard tx ID size
             PaymentId::Raw(data) => data.len() <= 256, // Standard limit
         }
@@ -138,9 +134,7 @@ impl PaymentIdExtractor {
         match EncryptedData::decrypt_data(decryption_key, commitment, encrypted_data) {
             Ok((_value, _mask, payment_id)) => match Self::validate_payment_id(&payment_id) {
                 Ok(()) => PaymentIdExtractionResult::success(payment_id),
-                Err(e) => {
-                    PaymentIdExtractionResult::failure(format!("Payment ID validation failed: {e}"))
-                }
+                Err(e) => PaymentIdExtractionResult::failure(format!("Payment ID validation failed: {e}")),
             },
             Err(e) => PaymentIdExtractionResult::failure(format!("Failed to decrypt data: {e}")),
         }
@@ -210,11 +204,8 @@ impl PaymentIdExtractor {
                 } else {
                     Ok(())
                 }
-            }
-            PaymentId::Open {
-                user_data,
-                tx_type: _,
-            } => {
+            },
+            PaymentId::Open { user_data, tx_type: _ } => {
                 if user_data.is_empty() {
                     Err("Open payment ID data cannot be empty".to_string())
                 } else if user_data.len() > 256 {
@@ -222,7 +213,7 @@ impl PaymentIdExtractor {
                 } else {
                     Ok(())
                 }
-            }
+            },
             PaymentId::AddressAndData { user_data, .. } => {
                 if user_data.is_empty() {
                     Err("AddressAndData payment ID data cannot be empty".to_string())
@@ -231,10 +222,8 @@ impl PaymentIdExtractor {
                 } else {
                     Ok(())
                 }
-            }
-            PaymentId::TransactionInfo {
-                user_data, amount, ..
-            } => {
+            },
+            PaymentId::TransactionInfo { user_data, amount, .. } => {
                 if amount.as_u64() == 0 {
                     Err("TransactionInfo payment ID amount cannot be zero".to_string())
                 } else if user_data.is_empty() {
@@ -244,7 +233,7 @@ impl PaymentIdExtractor {
                 } else {
                     Ok(())
                 }
-            }
+            },
             PaymentId::Raw(data) => {
                 if data.is_empty() {
                     Err("Raw payment ID data cannot be empty".to_string())
@@ -253,7 +242,7 @@ impl PaymentIdExtractor {
                 } else {
                     Ok(())
                 }
-            }
+            },
         }
     }
 
@@ -266,17 +255,14 @@ impl PaymentIdExtractor {
                 let mut bytes = [0u8; 32];
                 value.to_big_endian(&mut bytes);
                 format!("U256: {:064x}", U256::from_big_endian(&bytes))
-            }
-            PaymentId::Open {
-                user_data,
-                tx_type: _,
-            } => {
+            },
+            PaymentId::Open { user_data, tx_type: _ } => {
                 if let Ok(s) = std::str::from_utf8(user_data) {
                     format!("Open: {s}")
                 } else {
                     format!("Open: {}", hex::encode(user_data))
                 }
-            }
+            },
             PaymentId::AddressAndData {
                 sender_address,
                 user_data,
@@ -289,7 +275,7 @@ impl PaymentIdExtractor {
                     hex::encode(user_data)
                 };
                 format!("AddressAndData: address={address_str}, data={data_str}")
-            }
+            },
             PaymentId::TransactionInfo {
                 recipient_address,
                 amount,
@@ -302,14 +288,14 @@ impl PaymentIdExtractor {
                     amount,
                     String::from_utf8_lossy(user_data)
                 )
-            }
+            },
             PaymentId::Raw(data) => {
                 if let Ok(s) = std::str::from_utf8(data) {
                     format!("Raw: {s}")
                 } else {
                     format!("Raw: {}", hex::encode(data))
                 }
-            }
+            },
         }
     }
 
@@ -337,8 +323,7 @@ impl PaymentIdExtractor {
         }
 
         if let Some(value_str) = s.strip_prefix("U256: ") {
-            let value =
-                U256::from_str(value_str).map_err(|e| format!("Invalid U256 value: {e}"))?;
+            let value = U256::from_str(value_str).map_err(|e| format!("Invalid U256 value: {e}"))?;
             return Ok(PaymentId::U256(value));
         }
 
@@ -398,16 +383,13 @@ mod tests {
         TariAddress,
     };
 
-    fn create_test_encrypted_data(
-        payment_id: PaymentId,
-    ) -> (EncryptedData, CompressedCommitment, PrivateKey) {
+    fn create_test_encrypted_data(payment_id: PaymentId) -> (EncryptedData, CompressedCommitment, PrivateKey) {
         let encryption_key = PrivateKey::random();
         let commitment = CompressedCommitment::new([0x08; 32]);
         let value = MicroMinotari::new(1000);
         let mask = PrivateKey::random();
         let encrypted_data =
-            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id)
-                .unwrap();
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
         (encrypted_data, commitment, encryption_key)
     }
 
@@ -439,32 +421,18 @@ mod tests {
 
         // Test Empty
         let empty_payment_id = PaymentId::Empty;
-        let encrypted_empty = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            empty_payment_id,
-        )
-        .unwrap();
-        let result_empty =
-            PaymentIdExtractor::extract(&encrypted_empty, &encryption_key, &commitment);
+        let encrypted_empty =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, empty_payment_id).unwrap();
+        let result_empty = PaymentIdExtractor::extract(&encrypted_empty, &encryption_key, &commitment);
         assert!(result_empty.is_success());
         assert!(matches!(result_empty.payment_id, Some(PaymentId::Empty)));
 
         // Test U256
         let u256_bytes = [0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>();
         let u256_payment_id = PaymentId::U256(U256::from_big_endian(&u256_bytes));
-        let encrypted_u256 = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            u256_payment_id,
-        )
-        .unwrap();
-        let result_u256 =
-            PaymentIdExtractor::extract(&encrypted_u256, &encryption_key, &commitment);
+        let encrypted_u256 =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, u256_payment_id).unwrap();
+        let result_u256 = PaymentIdExtractor::extract(&encrypted_u256, &encryption_key, &commitment);
         assert!(result_u256.is_success());
         assert!(matches!(result_u256.payment_id, Some(PaymentId::U256(..))));
 
@@ -473,25 +441,14 @@ mod tests {
             user_data: b"test_data".to_vec(),
             tx_type: TxType::PaymentToOther,
         };
-        let encrypted_open = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            open_payment_id,
-        )
-        .unwrap();
-        let result_open =
-            PaymentIdExtractor::extract(&encrypted_open, &encryption_key, &commitment);
+        let encrypted_open =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, open_payment_id).unwrap();
+        let result_open = PaymentIdExtractor::extract(&encrypted_open, &encryption_key, &commitment);
         assert!(result_open.is_success());
-        assert!(matches!(
-            result_open.payment_id,
-            Some(PaymentId::Open { .. })
-        ));
+        assert!(matches!(result_open.payment_id, Some(PaymentId::Open { .. })));
 
         // Test AddressAndData
-        use crate::data_structures::address::TariAddress;
-        use crate::data_structures::types::MicroMinotari;
+        use crate::data_structures::{address::TariAddress, types::MicroMinotari};
         let tari_address = TariAddress::default(); // This may need to be adjusted based on your TariAddress implementation
         let address_data_payment_id = PaymentId::AddressAndData {
             sender_address: tari_address,
@@ -500,16 +457,9 @@ mod tests {
             tx_type: TxType::PaymentToOther,
             user_data: b"test_data".to_vec(),
         };
-        let encrypted_address_data = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            address_data_payment_id,
-        )
-        .unwrap();
-        let result_address_data =
-            PaymentIdExtractor::extract(&encrypted_address_data, &encryption_key, &commitment);
+        let encrypted_address_data =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, address_data_payment_id).unwrap();
+        let result_address_data = PaymentIdExtractor::extract(&encrypted_address_data, &encryption_key, &commitment);
         assert!(result_address_data.is_success());
         assert!(matches!(
             result_address_data.payment_id,
@@ -526,16 +476,9 @@ mod tests {
             sender_one_sided: false,
             fee: MicroMinotari::new(100),
         };
-        let encrypted_tx_info = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            tx_info_payment_id,
-        )
-        .unwrap();
-        let result_tx_info =
-            PaymentIdExtractor::extract(&encrypted_tx_info, &encryption_key, &commitment);
+        let encrypted_tx_info =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, tx_info_payment_id).unwrap();
+        let result_tx_info = PaymentIdExtractor::extract(&encrypted_tx_info, &encryption_key, &commitment);
         assert!(result_tx_info.is_success());
         assert!(matches!(
             result_tx_info.payment_id,
@@ -545,8 +488,7 @@ mod tests {
         // Test Raw
         let raw_payment_id = PaymentId::Raw(b"raw_data".to_vec());
         let encrypted_raw =
-            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, raw_payment_id)
-                .unwrap();
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, raw_payment_id).unwrap();
         let result_raw = PaymentIdExtractor::extract(&encrypted_raw, &encryption_key, &commitment);
         assert!(result_raw.is_success());
         assert!(matches!(result_raw.payment_id, Some(PaymentId::Raw(..))));
@@ -557,12 +499,7 @@ mod tests {
         // Test valid payment IDs
         assert!(PaymentIdExtractor::validate_payment_id(&PaymentId::Empty).is_ok());
         let u256_bytes = [0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>();
-        assert!(
-            PaymentIdExtractor::validate_payment_id(&PaymentId::U256(U256::from_big_endian(
-                &u256_bytes
-            )))
-            .is_ok()
-        );
+        assert!(PaymentIdExtractor::validate_payment_id(&PaymentId::U256(U256::from_big_endian(&u256_bytes))).is_ok());
         assert!(PaymentIdExtractor::validate_payment_id(&PaymentId::Open {
             user_data: b"test".to_vec(),
             tx_type: TxType::PaymentToOther
@@ -585,10 +522,7 @@ mod tests {
 
     #[test]
     fn test_payment_id_to_string() {
-        assert_eq!(
-            PaymentIdExtractor::payment_id_to_string(&PaymentId::Empty),
-            "Empty"
-        );
+        assert_eq!(PaymentIdExtractor::payment_id_to_string(&PaymentId::Empty), "Empty");
         assert_eq!(
             PaymentIdExtractor::payment_id_to_string(&PaymentId::U256(U256::from_big_endian(
                 &[0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>()[..]
@@ -614,10 +548,7 @@ mod tests {
             PaymentIdExtractor::from_string("Empty").unwrap(),
             PaymentId::Empty
         ));
-        assert!(matches!(
-            PaymentIdExtractor::from_string("").unwrap(),
-            PaymentId::Empty
-        ));
+        assert!(matches!(PaymentIdExtractor::from_string("").unwrap(), PaymentId::Empty));
         assert!(matches!(
             PaymentIdExtractor::from_string("Open: test").unwrap(),
             PaymentId::Open { .. }
@@ -654,14 +585,13 @@ mod tests {
 
     #[test]
     fn test_metadata_extraction() {
-        let (encrypted_data, commitment, key) =
-            create_test_encrypted_data(PaymentId::AddressAndData {
-                sender_address: TariAddress::default(),
-                sender_one_sided: false,
-                fee: MicroMinotari::new(100),
-                tx_type: TxType::PaymentToOther,
-                user_data: b"data".to_vec(),
-            });
+        let (encrypted_data, commitment, key) = create_test_encrypted_data(PaymentId::AddressAndData {
+            sender_address: TariAddress::default(),
+            sender_one_sided: false,
+            fee: MicroMinotari::new(100),
+            tx_type: TxType::PaymentToOther,
+            user_data: b"data".to_vec(),
+        });
         let result = PaymentIdExtractor::extract(&encrypted_data, &key, &commitment);
         assert!(result.is_success());
 

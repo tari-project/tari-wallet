@@ -10,18 +10,14 @@ pub mod serde_helpers {
 
     /// Serialize a 32-byte array as hex
     pub fn serialize_array_32<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    where S: Serializer {
         let hex_string = hex::encode(bytes);
         hex_string.serialize(serializer)
     }
 
     /// Deserialize a 32-byte array from hex
     pub fn deserialize_array_32<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    where D: Deserializer<'de> {
         let hex_string = String::deserialize(deserializer)?;
         let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
 
@@ -69,14 +65,11 @@ pub trait HexEncodable {
 
     /// Convert from a hex string
     fn from_hex(hex: &str) -> Result<Self, HexError>
-    where
-        Self: Sized;
+    where Self: Sized;
 
     /// Convert from a hex string, optionally removing a prefix
     fn from_hex_with_prefix(hex: &str, prefix: &str) -> Result<Self, HexError>
-    where
-        Self: Sized,
-    {
+    where Self: Sized {
         let hex = hex.strip_prefix(prefix).unwrap_or(hex);
         Self::from_hex(hex)
     }
@@ -86,17 +79,13 @@ pub trait HexEncodable {
 pub trait HexValidatable: HexEncodable {
     /// Validate that a hex string can be converted to this type
     fn is_valid_hex(hex: &str) -> bool
-    where
-        Self: Sized,
-    {
+    where Self: Sized {
         Self::from_hex(hex).is_ok()
     }
 
     /// Validate that a hex string can be converted to this type, optionally removing a prefix
     fn is_valid_hex_with_prefix(hex: &str, prefix: &str) -> bool
-    where
-        Self: Sized,
-    {
+    where Self: Sized {
         Self::from_hex_with_prefix(hex, prefix).is_ok()
     }
 }
@@ -151,10 +140,7 @@ impl HexUtils {
     }
 
     /// Convert hex string to fixed-size byte array, optionally removing a prefix
-    pub fn from_hex_to_array_with_prefix<const N: usize>(
-        hex: &str,
-        prefix: &str,
-    ) -> Result<[u8; N], HexError> {
+    pub fn from_hex_to_array_with_prefix<const N: usize>(hex: &str, prefix: &str) -> Result<[u8; N], HexError> {
         let hex = hex.strip_prefix(prefix).unwrap_or(hex);
         Self::from_hex_to_array(hex)
     }
@@ -257,13 +243,19 @@ impl<'a> fmt::Debug for HexDisplayWithPrefix<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::data_structures::{
-        CompressedCommitment, CompressedPublicKey, EncryptedData, PaymentId, PrivateKey, SafeArray,
-        TransactionOutput, WalletOutput,
-    };
     use primitive_types::U256;
+
+    use super::*;
+    use crate::data_structures::{
+        CompressedCommitment,
+        CompressedPublicKey,
+        EncryptedData,
+        PaymentId,
+        PrivateKey,
+        SafeArray,
+        TransactionOutput,
+        WalletOutput,
+    };
 
     #[test]
     fn test_hex_utils_basic() {
@@ -296,8 +288,7 @@ mod tests {
         assert_eq!(parsed, data);
 
         // Test array conversion with prefix
-        let parsed_with_prefix =
-            HexUtils::from_hex_to_array_with_prefix::<4>("0x12345678", "0x").unwrap();
+        let parsed_with_prefix = HexUtils::from_hex_to_array_with_prefix::<4>("0x12345678", "0x").unwrap();
         assert_eq!(parsed_with_prefix, data);
     }
 
@@ -313,14 +304,8 @@ mod tests {
         assert!(!HexUtils::is_valid_hex("123456789abcdefg")); // Invalid characters
 
         // Test with prefix
-        assert!(HexUtils::is_valid_hex_with_prefix(
-            "0x123456789abcdef0",
-            "0x"
-        ));
-        assert!(!HexUtils::is_valid_hex_with_prefix(
-            "0x123456789abcdef",
-            "0x"
-        ));
+        assert!(HexUtils::is_valid_hex_with_prefix("0x123456789abcdef0", "0x"));
+        assert!(!HexUtils::is_valid_hex_with_prefix("0x123456789abcdef", "0x"));
     }
 
     #[test]
@@ -362,10 +347,7 @@ mod tests {
         assert!(matches!(HexUtils::from_hex(""), Err(HexError::EmptyString)));
 
         // Test odd length
-        assert!(matches!(
-            HexUtils::from_hex("123"),
-            Err(HexError::OddLength(3))
-        ));
+        assert!(matches!(HexUtils::from_hex("123"), Err(HexError::OddLength(3))));
 
         // Test invalid hex
         assert!(matches!(
@@ -376,10 +358,7 @@ mod tests {
         // Test wrong array size
         assert!(matches!(
             HexUtils::from_hex_to_array::<4>("1234567890"),
-            Err(HexError::InvalidLength {
-                expected: 4,
-                actual: 5
-            })
+            Err(HexError::InvalidLength { expected: 4, actual: 5 })
         ));
     }
 

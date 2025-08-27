@@ -16,11 +16,12 @@
 //! operations will use memory-only event storage.
 
 #[cfg(feature = "storage")]
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(feature = "storage")]
 use async_trait::async_trait;
 #[cfg(feature = "storage")]
 use rusqlite::{params, Row};
-#[cfg(feature = "storage")]
-use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(feature = "storage")]
 use tokio_rusqlite::Connection;
 
@@ -288,11 +289,7 @@ pub trait EventStorage {
     async fn get_event_count(&self, wallet_id: &str) -> WalletEventResult<u64>;
 
     /// Get events since a specific sequence number (for replay)
-    async fn get_events_since_sequence(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<Vec<StoredEvent>>;
+    async fn get_events_since_sequence(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<Vec<StoredEvent>>;
 
     /// Check if an event exists by ID
     async fn event_exists(&self, event_id: &str) -> WalletEventResult<bool>;
@@ -314,32 +311,16 @@ pub trait EventStorage {
     ) -> WalletEventResult<Vec<StoredEvent>>;
 
     /// Get the first N events for a wallet (oldest first)
-    async fn get_wallet_events_head(
-        &self,
-        wallet_id: &str,
-        limit: usize,
-    ) -> WalletEventResult<Vec<StoredEvent>>;
+    async fn get_wallet_events_head(&self, wallet_id: &str, limit: usize) -> WalletEventResult<Vec<StoredEvent>>;
 
     /// Get the last N events for a wallet (newest first)
-    async fn get_wallet_events_tail(
-        &self,
-        wallet_id: &str,
-        limit: usize,
-    ) -> WalletEventResult<Vec<StoredEvent>>;
+    async fn get_wallet_events_tail(&self, wallet_id: &str, limit: usize) -> WalletEventResult<Vec<StoredEvent>>;
 
     /// Get events by specific sequence numbers
-    async fn get_events_by_sequences(
-        &self,
-        wallet_id: &str,
-        sequences: &[u64],
-    ) -> WalletEventResult<Vec<StoredEvent>>;
+    async fn get_events_by_sequences(&self, wallet_id: &str, sequences: &[u64]) -> WalletEventResult<Vec<StoredEvent>>;
 
     /// Get a specific event by wallet_id and sequence number
-    async fn get_event_by_sequence(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<Option<StoredEvent>>;
+    async fn get_event_by_sequence(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<Option<StoredEvent>>;
 
     /// Insert a new event with automatic sequence number assignment
     async fn insert_event(
@@ -356,7 +337,8 @@ pub trait EventStorage {
     async fn insert_events_batch(
         &self,
         wallet_id: &str,
-        events: &[(String, String, String, String, Option<String>)], // (event_type, payload, metadata, source, correlation_id)
+        events: &[(String, String, String, String, Option<String>)], /* (event_type, payload, metadata, source,
+                                                                      * correlation_id) */
     ) -> WalletEventResult<Vec<(u64, u64)>>; // Returns vec of (db_id, sequence_number)
 
     /// Get event count by type for a wallet
@@ -401,11 +383,7 @@ pub trait EventStorage {
     async fn get_next_sequence_number(&self, wallet_id: &str) -> WalletEventResult<u64>;
 
     /// Validate that a sequence number is available for a wallet
-    async fn is_sequence_available(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<bool>;
+    async fn is_sequence_available(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<bool>;
 
     // Specialized replay methods for task 4.7
 
@@ -422,8 +400,7 @@ pub trait EventStorage {
         wallet_id: &str,
         from_sequence: u64,
     ) -> WalletEventResult<Vec<StoredEvent>> {
-        self.get_events_since_sequence(wallet_id, from_sequence)
-            .await
+        self.get_events_since_sequence(wallet_id, from_sequence).await
     }
 
     /// Get events in batches for memory-efficient replay of large event logs
@@ -603,10 +580,7 @@ impl SqliteEventStorage {
         }
 
         if let Some((from, to)) = filter.timestamp_range {
-            let from_secs = from
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let from_secs = from.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
             let to_secs = to.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
             conditions.push("timestamp BETWEEN ? AND ?".to_string());
             params.push(Box::new(from_secs));
@@ -672,9 +646,7 @@ impl EventStorage for SqliteEventStorage {
                 Ok(conn.last_insert_rowid() as u64)
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage("store_event", format!("Failed to store event: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("store_event", format!("Failed to store event: {e}")))
     }
 
     async fn store_events_batch(&self, events: &[StoredEvent]) -> WalletEventResult<Vec<u64>> {
@@ -689,11 +661,8 @@ impl EventStorage for SqliteEventStorage {
                 let mut event_ids = Vec::new();
 
                 for event in &events_clone {
-                    let timestamp_secs = event
-                        .timestamp
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64;
+                    let timestamp_secs =
+                        event.timestamp.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
                     tx.execute(
                         r#"
@@ -721,12 +690,7 @@ impl EventStorage for SqliteEventStorage {
                 Ok(event_ids)
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "store_events_batch",
-                    format!("Failed to store events batch: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("store_events_batch", format!("Failed to store events batch: {e}")))
     }
 
     async fn get_events(&self, filter: &EventFilter) -> WalletEventResult<Vec<StoredEvent>> {
@@ -758,10 +722,8 @@ impl EventStorage for SqliteEventStorage {
                 }
 
                 let mut stmt = conn.prepare(&base_query)?;
-                let param_refs: Vec<&dyn rusqlite::ToSql> = params
-                    .iter()
-                    .map(|p| p.as_ref() as &dyn rusqlite::ToSql)
-                    .collect();
+                let param_refs: Vec<&dyn rusqlite::ToSql> =
+                    params.iter().map(|p| p.as_ref() as &dyn rusqlite::ToSql).collect();
 
                 let rows = stmt.query_map(&param_refs[..], Self::row_to_stored_event)?;
 
@@ -773,9 +735,7 @@ impl EventStorage for SqliteEventStorage {
                 Ok(events)
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage("get_events", format!("Failed to get events: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("get_events", format!("Failed to get events: {e}")))
     }
 
     async fn get_event_by_id(&self, event_id: &str) -> WalletEventResult<Option<StoredEvent>> {
@@ -783,8 +743,7 @@ impl EventStorage for SqliteEventStorage {
         self.connection
             .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallet_events WHERE event_id = ?")?;
-                let mut rows =
-                    stmt.query_map(params![event_id_owned], Self::row_to_stored_event)?;
+                let mut rows = stmt.query_map(params![event_id_owned], Self::row_to_stored_event)?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -793,31 +752,20 @@ impl EventStorage for SqliteEventStorage {
                 }
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "get_event_by_id",
-                    format!("Failed to get event by ID: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("get_event_by_id", format!("Failed to get event by ID: {e}")))
     }
 
     async fn get_latest_sequence(&self, wallet_id: &str) -> WalletEventResult<Option<u64>> {
         let wallet_id_owned = wallet_id.to_string();
         self.connection
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT MAX(sequence_number) FROM wallet_events WHERE wallet_id = ?",
-                )?;
-                let sequence: Option<i64> =
-                    stmt.query_row(params![wallet_id_owned], |row| row.get(0))?;
+                let mut stmt = conn.prepare("SELECT MAX(sequence_number) FROM wallet_events WHERE wallet_id = ?")?;
+                let sequence: Option<i64> = stmt.query_row(params![wallet_id_owned], |row| row.get(0))?;
                 Ok(sequence.map(|s| s as u64))
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage(
-                    "get_latest_sequence",
-                    format!("Failed to get latest sequence: {e}"),
-                )
+                WalletEventError::storage("get_latest_sequence", format!("Failed to get latest sequence: {e}"))
             })
     }
 
@@ -825,25 +773,15 @@ impl EventStorage for SqliteEventStorage {
         let wallet_id_owned = wallet_id.to_string();
         self.connection
             .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT COUNT(*) FROM wallet_events WHERE wallet_id = ?")?;
+                let mut stmt = conn.prepare("SELECT COUNT(*) FROM wallet_events WHERE wallet_id = ?")?;
                 let count: i64 = stmt.query_row(params![wallet_id_owned], |row| row.get(0))?;
                 Ok(count as u64)
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "get_event_count",
-                    format!("Failed to get event count: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("get_event_count", format!("Failed to get event count: {e}")))
     }
 
-    async fn get_events_since_sequence(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_events_since_sequence(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<Vec<StoredEvent>> {
         let filter = EventFilter::new()
             .with_wallet_id(wallet_id.to_string())
             .with_sequence_range(sequence + 1, i64::MAX as u64);
@@ -855,18 +793,12 @@ impl EventStorage for SqliteEventStorage {
         let event_id_owned = event_id.to_string();
         self.connection
             .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT 1 FROM wallet_events WHERE event_id = ? LIMIT 1")?;
+                let mut stmt = conn.prepare("SELECT 1 FROM wallet_events WHERE event_id = ? LIMIT 1")?;
                 let exists = stmt.exists(params![event_id_owned])?;
                 Ok(exists)
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "event_exists",
-                    format!("Failed to check event existence: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("event_exists", format!("Failed to check event existence: {e}")))
     }
 
     async fn get_storage_stats(&self) -> WalletEventResult<EventStorageStats> {
@@ -876,14 +808,12 @@ impl EventStorage for SqliteEventStorage {
                 let mut stmt = conn.prepare(
                     "SELECT COUNT(*) as total, COUNT(DISTINCT wallet_id) as unique_wallets FROM wallet_events",
                 )?;
-                let (total_events, unique_wallets): (i64, i64) = stmt.query_row([], |row| {
-                    Ok((row.get("total")?, row.get("unique_wallets")?))
-                })?;
+                let (total_events, unique_wallets): (i64, i64) =
+                    stmt.query_row([], |row| Ok((row.get("total")?, row.get("unique_wallets")?)))?;
 
                 // Get events by type
-                let mut stmt = conn.prepare(
-                    "SELECT event_type, COUNT(*) as count FROM wallet_events GROUP BY event_type",
-                )?;
+                let mut stmt =
+                    conn.prepare("SELECT event_type, COUNT(*) as count FROM wallet_events GROUP BY event_type")?;
                 let type_rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>("event_type")?, row.get::<_, i64>("count")?))
                 })?;
@@ -895,12 +825,10 @@ impl EventStorage for SqliteEventStorage {
                 }
 
                 // Get oldest and newest timestamps
-                let mut stmt = conn.prepare(
-                    "SELECT MIN(timestamp) as oldest, MAX(timestamp) as newest FROM wallet_events",
-                )?;
-                let (oldest_secs, newest_secs): (Option<i64>, Option<i64>) = stmt.query_row([], |row| {
-                    Ok((row.get("oldest")?, row.get("newest")?))
-                })?;
+                let mut stmt =
+                    conn.prepare("SELECT MIN(timestamp) as oldest, MAX(timestamp) as newest FROM wallet_events")?;
+                let (oldest_secs, newest_secs): (Option<i64>, Option<i64>) =
+                    stmt.query_row([], |row| Ok((row.get("oldest")?, row.get("newest")?)))?;
 
                 let oldest_event = oldest_secs.map(|s| UNIX_EPOCH + std::time::Duration::from_secs(s as u64));
                 let newest_event = newest_secs.map(|s| UNIX_EPOCH + std::time::Duration::from_secs(s as u64));
@@ -915,9 +843,7 @@ impl EventStorage for SqliteEventStorage {
                 })
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage("get_storage_stats", format!("Failed to get storage stats: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("get_storage_stats", format!("Failed to get storage stats: {e}")))
     }
 
     // Implementation of specialized query operations for task 4.2
@@ -939,22 +865,14 @@ impl EventStorage for SqliteEventStorage {
         self.get_events(&filter).await
     }
 
-    async fn get_wallet_events_head(
-        &self,
-        wallet_id: &str,
-        limit: usize,
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_wallet_events_head(&self, wallet_id: &str, limit: usize) -> WalletEventResult<Vec<StoredEvent>> {
         let filter = EventFilter::new()
             .with_wallet_id(wallet_id.to_string())
             .with_limit(limit);
         self.get_events(&filter).await
     }
 
-    async fn get_wallet_events_tail(
-        &self,
-        wallet_id: &str,
-        limit: usize,
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_wallet_events_tail(&self, wallet_id: &str, limit: usize) -> WalletEventResult<Vec<StoredEvent>> {
         let filter = EventFilter::new()
             .with_wallet_id(wallet_id.to_string())
             .with_limit(limit)
@@ -962,11 +880,7 @@ impl EventStorage for SqliteEventStorage {
         self.get_events(&filter).await
     }
 
-    async fn get_events_by_sequences(
-        &self,
-        wallet_id: &str,
-        sequences: &[u64],
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_events_by_sequences(&self, wallet_id: &str, sequences: &[u64]) -> WalletEventResult<Vec<StoredEvent>> {
         if sequences.is_empty() {
             return Ok(Vec::new());
         }
@@ -976,13 +890,10 @@ impl EventStorage for SqliteEventStorage {
 
         self.connection
             .call(move |conn| {
-                let placeholders = sequences_owned
-                    .iter()
-                    .map(|_| "?")
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let placeholders = sequences_owned.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
                 let query = format!(
-                    "SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number IN ({placeholders}) ORDER BY sequence_number ASC"
+                    "SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number IN ({placeholders}) ORDER BY \
+                     sequence_number ASC"
                 );
 
                 let mut params: Vec<Box<dyn rusqlite::ToSql + Send>> = Vec::new();
@@ -992,10 +903,8 @@ impl EventStorage for SqliteEventStorage {
                 }
 
                 let mut stmt = conn.prepare(&query)?;
-                let param_refs: Vec<&dyn rusqlite::ToSql> = params
-                    .iter()
-                    .map(|p| p.as_ref() as &dyn rusqlite::ToSql)
-                    .collect();
+                let param_refs: Vec<&dyn rusqlite::ToSql> =
+                    params.iter().map(|p| p.as_ref() as &dyn rusqlite::ToSql).collect();
 
                 let rows = stmt.query_map(&param_refs[..], Self::row_to_stored_event)?;
 
@@ -1008,25 +917,20 @@ impl EventStorage for SqliteEventStorage {
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage("get_events_by_sequences", format!("Failed to get events by sequences: {e}"))
+                WalletEventError::storage(
+                    "get_events_by_sequences",
+                    format!("Failed to get events by sequences: {e}"),
+                )
             })
     }
 
-    async fn get_event_by_sequence(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<Option<StoredEvent>> {
+    async fn get_event_by_sequence(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<Option<StoredEvent>> {
         let wallet_id_owned = wallet_id.to_string();
         self.connection
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number = ?",
-                )?;
-                let mut rows = stmt.query_map(
-                    params![wallet_id_owned, sequence as i64],
-                    Self::row_to_stored_event,
-                )?;
+                let mut stmt =
+                    conn.prepare("SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number = ?")?;
+                let mut rows = stmt.query_map(params![wallet_id_owned, sequence as i64], Self::row_to_stored_event)?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -1036,10 +940,7 @@ impl EventStorage for SqliteEventStorage {
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage(
-                    "get_event_by_sequence",
-                    format!("Failed to get event by sequence: {e}"),
-                )
+                WalletEventError::storage("get_event_by_sequence", format!("Failed to get event by sequence: {e}"))
             })
     }
 
@@ -1105,9 +1006,7 @@ impl EventStorage for SqliteEventStorage {
                 Ok((db_id, sequence_number))
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage("insert_event", format!("Failed to insert event: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("insert_event", format!("Failed to insert event: {e}")))
     }
 
     async fn insert_events_batch(
@@ -1129,9 +1028,8 @@ impl EventStorage for SqliteEventStorage {
 
                 // Get current max sequence number
                 let mut current_sequence: u64 = {
-                    let mut stmt = tx.prepare(
-                        "SELECT COALESCE(MAX(sequence_number), 0) FROM wallet_events WHERE wallet_id = ?",
-                    )?;
+                    let mut stmt =
+                        tx.prepare("SELECT COALESCE(MAX(sequence_number), 0) FROM wallet_events WHERE wallet_id = ?")?;
                     stmt.query_row(params![&wallet_id_owned], |row| {
                         let seq: i64 = row.get(0)?;
                         Ok(seq as u64)
@@ -1203,7 +1101,10 @@ impl EventStorage for SqliteEventStorage {
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage("get_event_count_by_type", format!("Failed to get event count by type: {e}"))
+                WalletEventError::storage(
+                    "get_event_count_by_type",
+                    format!("Failed to get event count by type: {e}"),
+                )
             })
     }
 
@@ -1238,7 +1139,10 @@ impl EventStorage for SqliteEventStorage {
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage("validate_sequence_continuity", format!("Failed to validate sequence continuity: {e}"))
+                WalletEventError::storage(
+                    "validate_sequence_continuity",
+                    format!("Failed to validate sequence continuity: {e}"),
+                )
             })
     }
 
@@ -1273,10 +1177,7 @@ impl EventStorage for SqliteEventStorage {
                 // Generate automatic values
                 let event_id = uuid::Uuid::new_v4().to_string();
                 let timestamp = SystemTime::now();
-                let timestamp_secs = timestamp
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
+                let timestamp_secs = timestamp.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
                 // Create basic metadata automatically
                 let metadata_json = serde_json::json!({
@@ -1284,7 +1185,8 @@ impl EventStorage for SqliteEventStorage {
                     "auto_generated": true,
                     "wallet_id": wallet_id_owned,
                     "sequence": sequence_number
-                }).to_string();
+                })
+                .to_string();
 
                 // Insert event
                 tx.execute(
@@ -1327,9 +1229,7 @@ impl EventStorage for SqliteEventStorage {
                 })
             })
             .await
-            .map_err(|e| {
-                WalletEventError::storage("create_event", format!("Failed to create event: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("create_event", format!("Failed to create event: {e}")))
     }
 
     async fn create_event_with_correlation(
@@ -1362,10 +1262,7 @@ impl EventStorage for SqliteEventStorage {
                 // Generate automatic values
                 let event_id = uuid::Uuid::new_v4().to_string();
                 let timestamp = SystemTime::now();
-                let timestamp_secs = timestamp
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
+                let timestamp_secs = timestamp.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
                 // Create enhanced metadata with correlation info
                 let metadata_json = serde_json::json!({
@@ -1374,7 +1271,8 @@ impl EventStorage for SqliteEventStorage {
                     "wallet_id": wallet_id_owned,
                     "sequence": sequence_number,
                     "correlation_id": correlation_id
-                }).to_string();
+                })
+                .to_string();
 
                 // Insert event
                 tx.execute(
@@ -1418,7 +1316,10 @@ impl EventStorage for SqliteEventStorage {
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage("create_event_with_correlation", format!("Failed to create event with correlation: {e}"))
+                WalletEventError::storage(
+                    "create_event_with_correlation",
+                    format!("Failed to create event with correlation: {e}"),
+                )
             })
     }
 
@@ -1441,9 +1342,8 @@ impl EventStorage for SqliteEventStorage {
 
                 // Get current max sequence number
                 let mut current_sequence: u64 = {
-                    let mut stmt = tx.prepare(
-                        "SELECT COALESCE(MAX(sequence_number), 0) FROM wallet_events WHERE wallet_id = ?",
-                    )?;
+                    let mut stmt =
+                        tx.prepare("SELECT COALESCE(MAX(sequence_number), 0) FROM wallet_events WHERE wallet_id = ?")?;
                     stmt.query_row(params![&wallet_id_owned], |row| {
                         let seq: i64 = row.get(0)?;
                         Ok(seq as u64)
@@ -1451,10 +1351,8 @@ impl EventStorage for SqliteEventStorage {
                 };
 
                 let batch_timestamp = SystemTime::now();
-                let batch_timestamp_secs = batch_timestamp
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
+                let batch_timestamp_secs =
+                    batch_timestamp.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
                 for (event_type, payload_json, source) in events_owned {
                     current_sequence += 1;
@@ -1467,7 +1365,8 @@ impl EventStorage for SqliteEventStorage {
                         "wallet_id": wallet_id_owned,
                         "sequence": current_sequence,
                         "batch_operation": true
-                    }).to_string();
+                    })
+                    .to_string();
 
                     tx.execute(
                         r#"
@@ -1519,35 +1418,35 @@ impl EventStorage for SqliteEventStorage {
         let wallet_id_owned = wallet_id.to_string();
         self.connection
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM wallet_events WHERE wallet_id = ?",
-                )?;
+                let mut stmt = conn
+                    .prepare("SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM wallet_events WHERE wallet_id = ?")?;
                 let sequence: i64 = stmt.query_row(params![wallet_id_owned], |row| row.get(0))?;
                 Ok(sequence as u64)
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage("get_next_sequence_number", format!("Failed to get next sequence number: {e}"))
+                WalletEventError::storage(
+                    "get_next_sequence_number",
+                    format!("Failed to get next sequence number: {e}"),
+                )
             })
     }
 
-    async fn is_sequence_available(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<bool> {
+    async fn is_sequence_available(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<bool> {
         let wallet_id_owned = wallet_id.to_string();
         self.connection
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT 1 FROM wallet_events WHERE wallet_id = ? AND sequence_number = ? LIMIT 1",
-                )?;
+                let mut stmt =
+                    conn.prepare("SELECT 1 FROM wallet_events WHERE wallet_id = ? AND sequence_number = ? LIMIT 1")?;
                 let exists = stmt.exists(params![wallet_id_owned, sequence as i64])?;
                 Ok(!exists) // Available if it doesn't exist
             })
             .await
             .map_err(|e| {
-                WalletEventError::storage("is_sequence_available", format!("Failed to check sequence availability: {e}"))
+                WalletEventError::storage(
+                    "is_sequence_available",
+                    format!("Failed to check sequence availability: {e}"),
+                )
             })
     }
 }
@@ -1556,9 +1455,7 @@ impl EventStorage for SqliteEventStorage {
 #[cfg(feature = "storage")]
 impl PooledSqliteEventStorage {
     /// Create a new pooled SQLite event storage instance
-    pub async fn new(
-        pool: crate::storage::connection_pool::ConnectionPool,
-    ) -> WalletEventResult<Self> {
+    pub async fn new(pool: crate::storage::connection_pool::ConnectionPool) -> WalletEventResult<Self> {
         // Initialize schema using a connection from the pool
         {
             let conn_guard = pool.acquire().await?;
@@ -1570,16 +1467,13 @@ impl PooledSqliteEventStorage {
 
     /// Create a pooled storage with default connection pool configuration
     pub async fn with_database_path(database_path: String) -> WalletEventResult<Self> {
-        let pool =
-            crate::storage::connection_pool::ConnectionPool::with_database_path(database_path)
-                .await?;
+        let pool = crate::storage::connection_pool::ConnectionPool::with_database_path(database_path).await?;
         Self::new(pool).await
     }
 
     /// Create a high-performance pooled storage
     pub async fn high_performance(database_path: String) -> WalletEventResult<Self> {
-        let pool = crate::storage::connection_pool::ConnectionPool::high_performance(database_path)
-            .await?;
+        let pool = crate::storage::connection_pool::ConnectionPool::high_performance(database_path).await?;
         Self::new(pool).await
     }
 
@@ -1648,12 +1542,7 @@ impl PooledSqliteEventStorage {
         connection
             .call(move |conn| Ok(conn.execute_batch(sql)?))
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "create_schema",
-                    format!("Failed to create event schema: {e}"),
-                )
-            })?;
+            .map_err(|e| WalletEventError::storage("create_schema", format!("Failed to create event schema: {e}")))?;
 
         Ok(())
     }
@@ -1701,9 +1590,7 @@ impl EventStorage for PooledSqliteEventStorage {
                 Ok(conn.last_insert_rowid() as u64)
             }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage("store_event", format!("Failed to store event: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("store_event", format!("Failed to store event: {e}")))
     }
 
     async fn store_events_batch(&self, events: &[StoredEvent]) -> WalletEventResult<Vec<u64>> {
@@ -1720,11 +1607,8 @@ impl EventStorage for PooledSqliteEventStorage {
                 let mut event_ids = Vec::new();
 
                 for event in &events_clone {
-                    let timestamp_secs = event
-                        .timestamp
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64;
+                    let timestamp_secs =
+                        event.timestamp.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
                     tx.execute(
                         r#"
@@ -1752,12 +1636,7 @@ impl EventStorage for PooledSqliteEventStorage {
                 Ok(event_ids)
             }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "store_events_batch",
-                    format!("Failed to store events batch: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("store_events_batch", format!("Failed to store events batch: {e}")))
     }
 
     async fn get_events(&self, filter: &EventFilter) -> WalletEventResult<Vec<StoredEvent>> {
@@ -1791,13 +1670,10 @@ impl EventStorage for PooledSqliteEventStorage {
                 }
 
                 let mut stmt = conn.prepare(&base_query)?;
-                let param_refs: Vec<&dyn rusqlite::ToSql> = params
-                    .iter()
-                    .map(|p| p.as_ref() as &dyn rusqlite::ToSql)
-                    .collect();
+                let param_refs: Vec<&dyn rusqlite::ToSql> =
+                    params.iter().map(|p| p.as_ref() as &dyn rusqlite::ToSql).collect();
 
-                let rows =
-                    stmt.query_map(&param_refs[..], SqliteEventStorage::row_to_stored_event)?;
+                let rows = stmt.query_map(&param_refs[..], SqliteEventStorage::row_to_stored_event)?;
 
                 let mut events = Vec::new();
                 for row in rows {
@@ -1807,9 +1683,7 @@ impl EventStorage for PooledSqliteEventStorage {
                 Ok(events)
             }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage("get_events", format!("Failed to get events: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("get_events", format!("Failed to get events: {e}")))
     }
 
     async fn get_event_by_id(&self, event_id: &str) -> WalletEventResult<Option<StoredEvent>> {
@@ -1819,10 +1693,7 @@ impl EventStorage for PooledSqliteEventStorage {
         conn_guard
             .execute_with_timeout(conn_guard.connection().call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallet_events WHERE event_id = ?")?;
-                let mut rows = stmt.query_map(
-                    params![event_id_owned],
-                    SqliteEventStorage::row_to_stored_event,
-                )?;
+                let mut rows = stmt.query_map(params![event_id_owned], SqliteEventStorage::row_to_stored_event)?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -1831,12 +1702,7 @@ impl EventStorage for PooledSqliteEventStorage {
                 }
             }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "get_event_by_id",
-                    format!("Failed to get event by ID: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("get_event_by_id", format!("Failed to get event by ID: {e}")))
     }
 
     async fn get_latest_sequence(&self, wallet_id: &str) -> WalletEventResult<Option<u64>> {
@@ -1845,19 +1711,13 @@ impl EventStorage for PooledSqliteEventStorage {
 
         conn_guard
             .execute_with_timeout(conn_guard.connection().call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT MAX(sequence_number) FROM wallet_events WHERE wallet_id = ?",
-                )?;
-                let sequence: Option<i64> =
-                    stmt.query_row(params![wallet_id_owned], |row| row.get(0))?;
+                let mut stmt = conn.prepare("SELECT MAX(sequence_number) FROM wallet_events WHERE wallet_id = ?")?;
+                let sequence: Option<i64> = stmt.query_row(params![wallet_id_owned], |row| row.get(0))?;
                 Ok(sequence.map(|s| s as u64))
             }))
             .await
             .map_err(|e| {
-                WalletEventError::storage(
-                    "get_latest_sequence",
-                    format!("Failed to get latest sequence: {e}"),
-                )
+                WalletEventError::storage("get_latest_sequence", format!("Failed to get latest sequence: {e}"))
             })
     }
 
@@ -1867,25 +1727,15 @@ impl EventStorage for PooledSqliteEventStorage {
 
         conn_guard
             .execute_with_timeout(conn_guard.connection().call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT COUNT(*) FROM wallet_events WHERE wallet_id = ?")?;
+                let mut stmt = conn.prepare("SELECT COUNT(*) FROM wallet_events WHERE wallet_id = ?")?;
                 let count: i64 = stmt.query_row(params![wallet_id_owned], |row| row.get(0))?;
                 Ok(count as u64)
             }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "get_event_count",
-                    format!("Failed to get event count: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("get_event_count", format!("Failed to get event count: {e}")))
     }
 
-    async fn get_events_since_sequence(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_events_since_sequence(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<Vec<StoredEvent>> {
         let filter = EventFilter::new()
             .with_wallet_id(wallet_id.to_string())
             .with_sequence_range(sequence + 1, i64::MAX as u64);
@@ -1899,73 +1749,59 @@ impl EventStorage for PooledSqliteEventStorage {
 
         conn_guard
             .execute_with_timeout(conn_guard.connection().call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT 1 FROM wallet_events WHERE event_id = ? LIMIT 1")?;
+                let mut stmt = conn.prepare("SELECT 1 FROM wallet_events WHERE event_id = ? LIMIT 1")?;
                 let exists = stmt.exists(params![event_id_owned])?;
                 Ok(exists)
             }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage(
-                    "event_exists",
-                    format!("Failed to check event existence: {e}"),
-                )
-            })
+            .map_err(|e| WalletEventError::storage("event_exists", format!("Failed to check event existence: {e}")))
     }
 
     async fn get_storage_stats(&self) -> WalletEventResult<EventStorageStats> {
         let conn_guard = self.pool.acquire().await?;
 
         conn_guard
-            .execute_with_timeout(
-                conn_guard.connection().call(|conn| {
-                    // Get total events and unique wallets
-                    let mut stmt = conn.prepare(
-                        "SELECT COUNT(*) as total, COUNT(DISTINCT wallet_id) as unique_wallets FROM wallet_events",
-                    )?;
-                    let (total_events, unique_wallets): (i64, i64) = stmt.query_row([], |row| {
-                        Ok((row.get("total")?, row.get("unique_wallets")?))
-                    })?;
+            .execute_with_timeout(conn_guard.connection().call(|conn| {
+                // Get total events and unique wallets
+                let mut stmt = conn.prepare(
+                    "SELECT COUNT(*) as total, COUNT(DISTINCT wallet_id) as unique_wallets FROM wallet_events",
+                )?;
+                let (total_events, unique_wallets): (i64, i64) =
+                    stmt.query_row([], |row| Ok((row.get("total")?, row.get("unique_wallets")?)))?;
 
-                    // Get events by type
-                    let mut stmt = conn.prepare(
-                        "SELECT event_type, COUNT(*) as count FROM wallet_events GROUP BY event_type",
-                    )?;
-                    let type_rows = stmt.query_map([], |row| {
-                        Ok((row.get::<_, String>("event_type")?, row.get::<_, i64>("count")?))
-                    })?;
+                // Get events by type
+                let mut stmt =
+                    conn.prepare("SELECT event_type, COUNT(*) as count FROM wallet_events GROUP BY event_type")?;
+                let type_rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>("event_type")?, row.get::<_, i64>("count")?))
+                })?;
 
-                    let mut events_by_type = std::collections::HashMap::new();
-                    for row in type_rows {
-                        let (event_type, count) = row?;
-                        events_by_type.insert(event_type, count as u64);
-                    }
+                let mut events_by_type = std::collections::HashMap::new();
+                for row in type_rows {
+                    let (event_type, count) = row?;
+                    events_by_type.insert(event_type, count as u64);
+                }
 
-                    // Get oldest and newest timestamps
-                    let mut stmt = conn.prepare(
-                        "SELECT MIN(timestamp) as oldest, MAX(timestamp) as newest FROM wallet_events",
-                    )?;
-                    let (oldest_secs, newest_secs): (Option<i64>, Option<i64>) = stmt.query_row([], |row| {
-                        Ok((row.get("oldest")?, row.get("newest")?))
-                    })?;
+                // Get oldest and newest timestamps
+                let mut stmt =
+                    conn.prepare("SELECT MIN(timestamp) as oldest, MAX(timestamp) as newest FROM wallet_events")?;
+                let (oldest_secs, newest_secs): (Option<i64>, Option<i64>) =
+                    stmt.query_row([], |row| Ok((row.get("oldest")?, row.get("newest")?)))?;
 
-                    let oldest_event = oldest_secs.map(|s| UNIX_EPOCH + std::time::Duration::from_secs(s as u64));
-                    let newest_event = newest_secs.map(|s| UNIX_EPOCH + std::time::Duration::from_secs(s as u64));
+                let oldest_event = oldest_secs.map(|s| UNIX_EPOCH + std::time::Duration::from_secs(s as u64));
+                let newest_event = newest_secs.map(|s| UNIX_EPOCH + std::time::Duration::from_secs(s as u64));
 
-                    Ok(EventStorageStats {
-                        total_events: total_events as u64,
-                        unique_wallets: unique_wallets as u64,
-                        events_by_type,
-                        oldest_event,
-                        newest_event,
-                        storage_size_bytes: None,
-                    })
+                Ok(EventStorageStats {
+                    total_events: total_events as u64,
+                    unique_wallets: unique_wallets as u64,
+                    events_by_type,
+                    oldest_event,
+                    newest_event,
+                    storage_size_bytes: None,
                 })
-            )
+            }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage("get_storage_stats", format!("Failed to get storage stats: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("get_storage_stats", format!("Failed to get storage stats: {e}")))
     }
 
     // For brevity, I'll implement key methods. The remaining methods follow the same pattern
@@ -1988,22 +1824,14 @@ impl EventStorage for PooledSqliteEventStorage {
         self.get_events(&filter).await
     }
 
-    async fn get_wallet_events_head(
-        &self,
-        wallet_id: &str,
-        limit: usize,
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_wallet_events_head(&self, wallet_id: &str, limit: usize) -> WalletEventResult<Vec<StoredEvent>> {
         let filter = EventFilter::new()
             .with_wallet_id(wallet_id.to_string())
             .with_limit(limit);
         self.get_events(&filter).await
     }
 
-    async fn get_wallet_events_tail(
-        &self,
-        wallet_id: &str,
-        limit: usize,
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_wallet_events_tail(&self, wallet_id: &str, limit: usize) -> WalletEventResult<Vec<StoredEvent>> {
         let filter = EventFilter::new()
             .with_wallet_id(wallet_id.to_string())
             .with_limit(limit)
@@ -2011,11 +1839,7 @@ impl EventStorage for PooledSqliteEventStorage {
         self.get_events(&filter).await
     }
 
-    async fn get_events_by_sequences(
-        &self,
-        wallet_id: &str,
-        sequences: &[u64],
-    ) -> WalletEventResult<Vec<StoredEvent>> {
+    async fn get_events_by_sequences(&self, wallet_id: &str, sequences: &[u64]) -> WalletEventResult<Vec<StoredEvent>> {
         if sequences.is_empty() {
             return Ok(Vec::new());
         }
@@ -2025,58 +1849,49 @@ impl EventStorage for PooledSqliteEventStorage {
         let sequences_owned = sequences.to_vec();
 
         conn_guard
-            .execute_with_timeout(
-                conn_guard.connection().call(move |conn| {
-                    let placeholders = sequences_owned
-                        .iter()
-                        .map(|_| "?")
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let query = format!(
-                        "SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number IN ({placeholders}) ORDER BY sequence_number ASC"
-                    );
+            .execute_with_timeout(conn_guard.connection().call(move |conn| {
+                let placeholders = sequences_owned.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                let query = format!(
+                    "SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number IN ({placeholders}) ORDER BY \
+                     sequence_number ASC"
+                );
 
-                    let mut params: Vec<Box<dyn rusqlite::ToSql + Send>> = Vec::new();
-                    params.push(Box::new(wallet_id_owned));
-                    for seq in sequences_owned {
-                        params.push(Box::new(seq as i64));
-                    }
+                let mut params: Vec<Box<dyn rusqlite::ToSql + Send>> = Vec::new();
+                params.push(Box::new(wallet_id_owned));
+                for seq in sequences_owned {
+                    params.push(Box::new(seq as i64));
+                }
 
-                    let mut stmt = conn.prepare(&query)?;
-                    let param_refs: Vec<&dyn rusqlite::ToSql> = params
-                        .iter()
-                        .map(|p| p.as_ref() as &dyn rusqlite::ToSql)
-                        .collect();
+                let mut stmt = conn.prepare(&query)?;
+                let param_refs: Vec<&dyn rusqlite::ToSql> =
+                    params.iter().map(|p| p.as_ref() as &dyn rusqlite::ToSql).collect();
 
-                    let rows = stmt.query_map(&param_refs[..], SqliteEventStorage::row_to_stored_event)?;
+                let rows = stmt.query_map(&param_refs[..], SqliteEventStorage::row_to_stored_event)?;
 
-                    let mut events = Vec::new();
-                    for row in rows {
-                        events.push(row?);
-                    }
+                let mut events = Vec::new();
+                for row in rows {
+                    events.push(row?);
+                }
 
-                    Ok(events)
-                })
-            )
+                Ok(events)
+            }))
             .await
             .map_err(|e| {
-                WalletEventError::storage("get_events_by_sequences", format!("Failed to get events by sequences: {e}"))
+                WalletEventError::storage(
+                    "get_events_by_sequences",
+                    format!("Failed to get events by sequences: {e}"),
+                )
             })
     }
 
-    async fn get_event_by_sequence(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<Option<StoredEvent>> {
+    async fn get_event_by_sequence(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<Option<StoredEvent>> {
         let conn_guard = self.pool.acquire().await?;
         let wallet_id_owned = wallet_id.to_string();
 
         conn_guard
             .execute_with_timeout(conn_guard.connection().call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number = ?",
-                )?;
+                let mut stmt =
+                    conn.prepare("SELECT * FROM wallet_events WHERE wallet_id = ? AND sequence_number = ?")?;
                 let mut rows = stmt.query_map(
                     params![wallet_id_owned, sequence as i64],
                     SqliteEventStorage::row_to_stored_event,
@@ -2090,10 +1905,7 @@ impl EventStorage for PooledSqliteEventStorage {
             }))
             .await
             .map_err(|e| {
-                WalletEventError::storage(
-                    "get_event_by_sequence",
-                    format!("Failed to get event by sequence: {e}"),
-                )
+                WalletEventError::storage("get_event_by_sequence", format!("Failed to get event by sequence: {e}"))
             })
     }
 
@@ -2112,59 +1924,55 @@ impl EventStorage for PooledSqliteEventStorage {
         let source_owned = source.to_string();
 
         conn_guard
-            .execute_with_timeout(
-                conn_guard.connection().call(move |conn| {
-                    let tx = conn.transaction()?;
+            .execute_with_timeout(conn_guard.connection().call(move |conn| {
+                let tx = conn.transaction()?;
 
-                    // Get next sequence number
-                    let sequence_number: u64 = {
-                        let mut stmt = tx.prepare(
-                            "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM wallet_events WHERE wallet_id = ?",
-                        )?;
-                        stmt.query_row(params![&wallet_id_owned], |row| {
-                            let seq: i64 = row.get(0)?;
-                            Ok(seq as u64)
-                        })?
-                    };
+                // Get next sequence number
+                let sequence_number: u64 = {
+                    let mut stmt = tx.prepare(
+                        "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM wallet_events WHERE wallet_id = ?",
+                    )?;
+                    stmt.query_row(params![&wallet_id_owned], |row| {
+                        let seq: i64 = row.get(0)?;
+                        Ok(seq as u64)
+                    })?
+                };
 
-                    // Generate event ID
-                    let event_id = uuid::Uuid::new_v4().to_string();
-                    let timestamp_secs = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64;
+                // Generate event ID
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let timestamp_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
 
-                    // Insert event
-                    tx.execute(
-                        r#"
+                // Insert event
+                tx.execute(
+                    r#"
                         INSERT INTO wallet_events 
                         (event_id, wallet_id, event_type, sequence_number, payload_json, 
                          metadata_json, source, correlation_id, timestamp)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         "#,
-                        params![
-                            event_id,
-                            wallet_id_owned,
-                            event_type_owned,
-                            sequence_number as i64,
-                            payload_json,
-                            metadata_json,
-                            source_owned,
-                            correlation_id,
-                            timestamp_secs,
-                        ],
-                    )?;
+                    params![
+                        event_id,
+                        wallet_id_owned,
+                        event_type_owned,
+                        sequence_number as i64,
+                        payload_json,
+                        metadata_json,
+                        source_owned,
+                        correlation_id,
+                        timestamp_secs,
+                    ],
+                )?;
 
-                    let db_id = tx.last_insert_rowid() as u64;
-                    tx.commit()?;
+                let db_id = tx.last_insert_rowid() as u64;
+                tx.commit()?;
 
-                    Ok((db_id, sequence_number))
-                })
-            )
+                Ok((db_id, sequence_number))
+            }))
             .await
-            .map_err(|e| {
-                WalletEventError::storage("insert_event", format!("Failed to insert event: {e}"))
-            })
+            .map_err(|e| WalletEventError::storage("insert_event", format!("Failed to insert event: {e}")))
     }
 
     async fn insert_events_batch(
@@ -2181,58 +1989,55 @@ impl EventStorage for PooledSqliteEventStorage {
         let events_owned = events.to_vec();
 
         conn_guard
-            .execute_with_timeout(
-                conn_guard.connection().call(move |conn| {
-                    let tx = conn.transaction()?;
-                    let mut results = Vec::new();
+            .execute_with_timeout(conn_guard.connection().call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut results = Vec::new();
 
-                    // Get current max sequence number
-                    let mut current_sequence: u64 = {
-                        let mut stmt = tx.prepare(
-                            "SELECT COALESCE(MAX(sequence_number), 0) FROM wallet_events WHERE wallet_id = ?",
-                        )?;
-                        stmt.query_row(params![&wallet_id_owned], |row| {
-                            let seq: i64 = row.get(0)?;
-                            Ok(seq as u64)
-                        })?
-                    };
+                // Get current max sequence number
+                let mut current_sequence: u64 = {
+                    let mut stmt =
+                        tx.prepare("SELECT COALESCE(MAX(sequence_number), 0) FROM wallet_events WHERE wallet_id = ?")?;
+                    stmt.query_row(params![&wallet_id_owned], |row| {
+                        let seq: i64 = row.get(0)?;
+                        Ok(seq as u64)
+                    })?
+                };
 
-                    for (event_type, payload_json, metadata_json, source, correlation_id) in events_owned {
-                        current_sequence += 1;
-                        let event_id = uuid::Uuid::new_v4().to_string();
-                        let timestamp_secs = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64;
+                for (event_type, payload_json, metadata_json, source, correlation_id) in events_owned {
+                    current_sequence += 1;
+                    let event_id = uuid::Uuid::new_v4().to_string();
+                    let timestamp_secs = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
 
-                        tx.execute(
-                            r#"
+                    tx.execute(
+                        r#"
                             INSERT INTO wallet_events 
                             (event_id, wallet_id, event_type, sequence_number, payload_json, 
                              metadata_json, source, correlation_id, timestamp)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                             "#,
-                            params![
-                                event_id,
-                                wallet_id_owned,
-                                event_type,
-                                current_sequence as i64,
-                                payload_json,
-                                metadata_json,
-                                source,
-                                correlation_id,
-                                timestamp_secs,
-                            ],
-                        )?;
+                        params![
+                            event_id,
+                            wallet_id_owned,
+                            event_type,
+                            current_sequence as i64,
+                            payload_json,
+                            metadata_json,
+                            source,
+                            correlation_id,
+                            timestamp_secs,
+                        ],
+                    )?;
 
-                        let db_id = tx.last_insert_rowid() as u64;
-                        results.push((db_id, current_sequence));
-                    }
+                    let db_id = tx.last_insert_rowid() as u64;
+                    results.push((db_id, current_sequence));
+                }
 
-                    tx.commit()?;
-                    Ok(results)
-                })
-            )
+                tx.commit()?;
+                Ok(results)
+            }))
             .await
             .map_err(|e| {
                 WalletEventError::storage("insert_events_batch", format!("Failed to insert events batch: {e}"))
@@ -2250,27 +2055,28 @@ impl EventStorage for PooledSqliteEventStorage {
         let wallet_id_owned = wallet_id.to_string();
 
         conn_guard
-            .execute_with_timeout(
-                conn_guard.connection().call(move |conn| {
-                    let mut stmt = conn.prepare(
-                        "SELECT event_type, COUNT(*) as count FROM wallet_events WHERE wallet_id = ? GROUP BY event_type",
-                    )?;
-                    let rows = stmt.query_map(params![wallet_id_owned], |row| {
-                        Ok((row.get::<_, String>("event_type")?, row.get::<_, i64>("count")? as u64))
-                    })?;
+            .execute_with_timeout(conn_guard.connection().call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT event_type, COUNT(*) as count FROM wallet_events WHERE wallet_id = ? GROUP BY event_type",
+                )?;
+                let rows = stmt.query_map(params![wallet_id_owned], |row| {
+                    Ok((row.get::<_, String>("event_type")?, row.get::<_, i64>("count")? as u64))
+                })?;
 
-                    let mut result = std::collections::HashMap::new();
-                    for row in rows {
-                        let (event_type, count) = row?;
-                        result.insert(event_type, count);
-                    }
+                let mut result = std::collections::HashMap::new();
+                for row in rows {
+                    let (event_type, count) = row?;
+                    result.insert(event_type, count);
+                }
 
-                    Ok(result)
-                })
-            )
+                Ok(result)
+            }))
             .await
             .map_err(|e| {
-                WalletEventError::storage("get_event_count_by_type", format!("Failed to get event count by type: {e}"))
+                WalletEventError::storage(
+                    "get_event_count_by_type",
+                    format!("Failed to get event count by type: {e}"),
+                )
             })
     }
 
@@ -2279,40 +2085,41 @@ impl EventStorage for PooledSqliteEventStorage {
         let wallet_id_owned = wallet_id.to_string();
 
         conn_guard
-            .execute_with_timeout(
-                conn_guard.connection().call(move |conn| {
-                    // Get all sequence numbers for the wallet
-                    let mut stmt = conn.prepare(
-                        "SELECT sequence_number FROM wallet_events WHERE wallet_id = ? ORDER BY sequence_number",
-                    )?;
-                    let rows = stmt.query_map(params![wallet_id_owned], |row| {
-                        Ok(row.get::<_, i64>("sequence_number")? as u64)
-                    })?;
+            .execute_with_timeout(conn_guard.connection().call(move |conn| {
+                // Get all sequence numbers for the wallet
+                let mut stmt = conn.prepare(
+                    "SELECT sequence_number FROM wallet_events WHERE wallet_id = ? ORDER BY sequence_number",
+                )?;
+                let rows = stmt.query_map(params![wallet_id_owned], |row| {
+                    Ok(row.get::<_, i64>("sequence_number")? as u64)
+                })?;
 
-                    let mut sequences = Vec::new();
-                    for row in rows {
-                        sequences.push(row?);
-                    }
+                let mut sequences = Vec::new();
+                for row in rows {
+                    sequences.push(row?);
+                }
 
-                    // Find missing sequence numbers
-                    let mut missing = Vec::new();
-                    if !sequences.is_empty() {
-                        let mut expected = 1;
-                        for seq in sequences {
-                            while expected < seq {
-                                missing.push(expected);
-                                expected += 1;
-                            }
-                            expected = seq + 1;
+                // Find missing sequence numbers
+                let mut missing = Vec::new();
+                if !sequences.is_empty() {
+                    let mut expected = 1;
+                    for seq in sequences {
+                        while expected < seq {
+                            missing.push(expected);
+                            expected += 1;
                         }
+                        expected = seq + 1;
                     }
+                }
 
-                    Ok(missing)
-                })
-            )
+                Ok(missing)
+            }))
             .await
             .map_err(|e| {
-                WalletEventError::storage("validate_sequence_continuity", format!("Failed to validate sequence continuity: {e}"))
+                WalletEventError::storage(
+                    "validate_sequence_continuity",
+                    format!("Failed to validate sequence continuity: {e}"),
+                )
             })
     }
 
@@ -2337,9 +2144,7 @@ impl EventStorage for PooledSqliteEventStorage {
         // Retrieve the created event
         self.get_event_by_sequence(wallet_id, sequence)
             .await?
-            .ok_or_else(|| {
-                WalletEventError::storage("create_event", "Event not found after creation")
-            })
+            .ok_or_else(|| WalletEventError::storage("create_event", "Event not found after creation"))
     }
 
     async fn create_event_with_correlation(
@@ -2363,12 +2168,7 @@ impl EventStorage for PooledSqliteEventStorage {
 
         self.get_event_by_sequence(wallet_id, sequence)
             .await?
-            .ok_or_else(|| {
-                WalletEventError::storage(
-                    "create_event_with_correlation",
-                    "Event not found after creation",
-                )
-            })
+            .ok_or_else(|| WalletEventError::storage("create_event_with_correlation", "Event not found after creation"))
     }
 
     async fn create_events_batch(
@@ -2400,11 +2200,7 @@ impl EventStorage for PooledSqliteEventStorage {
         Ok(latest.unwrap_or(0) + 1)
     }
 
-    async fn is_sequence_available(
-        &self,
-        wallet_id: &str,
-        sequence: u64,
-    ) -> WalletEventResult<bool> {
+    async fn is_sequence_available(&self, wallet_id: &str, sequence: u64) -> WalletEventResult<bool> {
         let event = self.get_event_by_sequence(wallet_id, sequence).await?;
         Ok(event.is_none())
     }
@@ -2414,8 +2210,9 @@ impl EventStorage for PooledSqliteEventStorage {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::SystemTime;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_stored_event_creation() {
@@ -2534,10 +2331,7 @@ mod tests {
         let wallet_id = "continuity-test-wallet";
 
         // No events - should be valid
-        let missing = storage
-            .validate_sequence_continuity(wallet_id)
-            .await
-            .unwrap();
+        let missing = storage.validate_sequence_continuity(wallet_id).await.unwrap();
         assert!(missing.is_empty());
 
         // Create continuous sequence
@@ -2575,10 +2369,7 @@ mod tests {
             .await
             .unwrap();
 
-        let missing = storage
-            .validate_sequence_continuity(wallet_id)
-            .await
-            .unwrap();
+        let missing = storage.validate_sequence_continuity(wallet_id).await.unwrap();
         assert!(missing.is_empty());
 
         // Create event with gap (manually store event with sequence 5)
@@ -2596,10 +2387,7 @@ mod tests {
             .build();
         storage.store_event(&gap_event).await.unwrap();
 
-        let missing = storage
-            .validate_sequence_continuity(wallet_id)
-            .await
-            .unwrap();
+        let missing = storage.validate_sequence_continuity(wallet_id).await.unwrap();
         assert_eq!(missing, vec![4]);
     }
 
@@ -2651,14 +2439,7 @@ mod tests {
             .await
             .unwrap();
         storage
-            .insert_event(
-                wallet_id,
-                "REORG",
-                "{}".to_string(),
-                "{}".to_string(),
-                "test",
-                None,
-            )
+            .insert_event(wallet_id, "REORG", "{}".to_string(), "{}".to_string(), "test", None)
             .await
             .unwrap();
         storage

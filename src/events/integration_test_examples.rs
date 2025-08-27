@@ -5,12 +5,17 @@
 
 #[cfg(test)]
 mod integration_examples {
+    use std::time::Duration;
+
     use crate::events::{
         listeners::MockEventListener,
         types::{ScanConfig, WalletScanEvent},
-        EventCapture, EventDispatcher, EventPattern, PerformanceAssertion, TestScenario,
+        EventCapture,
+        EventDispatcher,
+        EventPattern,
+        PerformanceAssertion,
+        TestScenario,
     };
-    use std::time::Duration;
 
     /// Example: Basic event capture and assertion
     #[tokio::test]
@@ -42,10 +47,7 @@ mod integration_examples {
 
         let scan_completed = WalletScanEvent::scan_completed(
             "test_wallet_id",
-            std::collections::HashMap::from([
-                ("blocks_processed".to_string(), 100),
-                ("outputs_found".to_string(), 5),
-            ]),
+            std::collections::HashMap::from([("blocks_processed".to_string(), 100), ("outputs_found".to_string(), 5)]),
             true,
             Duration::from_secs(10),
         );
@@ -87,17 +89,11 @@ mod integration_examples {
             // Demonstrate assertions
             assert!(test_mock.assert_event_count(3).is_ok());
             assert!(test_mock.assert_event_type_count("ScanStarted", 1).is_ok());
-            assert!(test_mock
-                .assert_event_type_count("BlockProcessed", 1)
-                .is_ok());
-            assert!(test_mock
-                .assert_event_type_count("ScanCompleted", 1)
-                .is_ok());
+            assert!(test_mock.assert_event_type_count("BlockProcessed", 1).is_ok());
+            assert!(test_mock.assert_event_type_count("ScanCompleted", 1).is_ok());
             assert!(test_mock.assert_first_event_type("ScanStarted").is_ok());
             assert!(test_mock.assert_last_event_type("ScanCompleted").is_ok());
-            assert!(test_mock
-                .assert_contains_event_with_content("batch_size: 10")
-                .is_ok());
+            assert!(test_mock.assert_contains_event_with_content("batch_size: 10").is_ok());
         }
     }
 
@@ -211,8 +207,7 @@ mod integration_examples {
         assert!(perf_assertion.verify(&mock, test_duration).is_ok());
 
         // Test failure case
-        let strict_perf =
-            PerformanceAssertion::new().max_average_duration(Duration::from_millis(40)); // Too strict
+        let strict_perf = PerformanceAssertion::new().max_average_duration(Duration::from_millis(40)); // Too strict
 
         assert!(strict_perf.verify(&mock, test_duration).is_err());
     }
@@ -436,17 +431,10 @@ mod integration_examples {
 
         // Additional detailed assertions
         assert!(test_mock
-            .assert_event_sequence(&[
-                "ScanStarted",
-                "BlockProcessed",
-                "BlockProcessed",
-                "ScanCompleted"
-            ])
+            .assert_event_sequence(&["ScanStarted", "BlockProcessed", "BlockProcessed", "ScanCompleted"])
             .is_ok());
 
-        assert!(test_mock
-            .assert_contains_event_with_content("integration_test")
-            .is_ok());
+        assert!(test_mock.assert_contains_event_with_content("integration_test").is_ok());
 
         // Verify performance meets requirements
         let test_duration = Duration::from_secs(2); // 4 events in 2s = 2 eps (exactly meets requirement)

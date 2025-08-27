@@ -9,14 +9,19 @@
 //! to a specific wallet.
 
 #[cfg(feature = "grpc")]
+use std::time::Duration;
+
+#[cfg(feature = "grpc")]
 use async_trait::async_trait;
 #[cfg(feature = "grpc")]
-use std::time::Duration;
+use tari_transaction_components::transaction_components::Transaction;
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
 #[cfg(feature = "grpc")]
 use tonic::{transport::Channel, Request};
 
+#[cfg(feature = "grpc")]
+use crate::tari_rpc;
 #[cfg(feature = "grpc")]
 use crate::{
     data_structures::{
@@ -24,22 +29,26 @@ use crate::{
         transaction_output::TransactionOutput,
         types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
         wallet_output::{Covenant, OutputFeatures, RangeProof, Script, Signature, WalletOutput},
-        OutputType, RangeProofType,
+        OutputType,
+        RangeProofType,
     },
     errors::{DataStructureError, WalletError, WalletResult},
     extraction::{extract_wallet_output, ExtractionConfig},
     scanning::{
-        BlockInfo, BlockScanResult, BlockchainScanner, DefaultScanningLogic,
-        LegacyProgressCallback, ScanConfig, TipInfo, TransactionBroadcaster, WalletScanConfig,
-        WalletScanResult, WalletScanner,
+        BlockInfo,
+        BlockScanResult,
+        BlockchainScanner,
+        DefaultScanningLogic,
+        LegacyProgressCallback,
+        ScanConfig,
+        TipInfo,
+        TransactionBroadcaster,
+        WalletScanConfig,
+        WalletScanResult,
+        WalletScanner,
     },
     wallet::Wallet,
 };
-#[cfg(feature = "grpc")]
-use tari_transaction_components::transaction_components::Transaction;
-
-#[cfg(feature = "grpc")]
-use crate::tari_rpc;
 
 /// GRPC client for connecting to Tari base node
 #[cfg(feature = "grpc")]
@@ -59,21 +68,17 @@ impl GrpcBlockchainScanner {
         let timeout = Duration::from_secs(30);
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Invalid URL: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Invalid URL: {e}"
+                )))
             })?
             .timeout(timeout)
             .connect()
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Connection failed: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Connection failed: {e}"
+                )))
             })?;
 
         // Set message size limits on the client to handle large blocks (16MB should be sufficient)
@@ -92,21 +97,17 @@ impl GrpcBlockchainScanner {
     pub async fn with_timeout(base_url: String, timeout: Duration) -> WalletResult<Self> {
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Invalid URL: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Invalid URL: {e}"
+                )))
             })?
             .timeout(timeout)
             .connect()
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Connection failed: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Connection failed: {e}"
+                )))
             })?;
 
         // Set message size limits on the client to handle large blocks (16MB should be sufficient)
@@ -122,9 +123,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Convert GRPC transaction output to lightweight transaction output
-    fn convert_transaction_output(
-        grpc_output: &tari_rpc::TransactionOutput,
-    ) -> WalletResult<TransactionOutput> {
+    fn convert_transaction_output(grpc_output: &tari_rpc::TransactionOutput) -> WalletResult<TransactionOutput> {
         // Convert OutputFeatures
 
         use crate::convert_output_features::convert_output_features;
@@ -155,21 +154,19 @@ impl GrpcBlockchainScanner {
                 Ok(bytes) => CompressedCommitment::new(bytes),
                 Err(_) => {
                     // Invalid commitment bytes format - return error instead of fallback
-                    return Err(WalletError::DataStructureError(
-                        DataStructureError::InvalidCommitment(
-                            "Invalid commitment bytes format in GRPC output".to_string(),
-                        ),
-                    ));
-                }
+                    return Err(WalletError::DataStructureError(DataStructureError::InvalidCommitment(
+                        "Invalid commitment bytes format in GRPC output".to_string(),
+                    )));
+                },
             }
         } else {
             // Unexpected commitment size - return error instead of fallback
-            return Err(WalletError::DataStructureError(
-                DataStructureError::InvalidCommitment(format!(
+            return Err(WalletError::DataStructureError(DataStructureError::InvalidCommitment(
+                format!(
                     "Invalid commitment size in GRPC output: expected 32, got {}",
                     grpc_output.commitment.len()
-                )),
-            ));
+                ),
+            )));
         };
 
         // Convert RangeProof
@@ -189,12 +186,12 @@ impl GrpcBlockchainScanner {
             CompressedPublicKey::new(bytes)
         } else {
             // Invalid sender offset public key size - return error instead of fallback
-            return Err(WalletError::DataStructureError(
-                DataStructureError::InvalidPublicKey(format!(
+            return Err(WalletError::DataStructureError(DataStructureError::InvalidPublicKey(
+                format!(
                     "Invalid sender offset public key size in GRPC output: expected 32, got {}",
                     grpc_output.sender_offset_public_key.len()
-                )),
-            ));
+                ),
+            )));
         };
 
         // Convert Metadata Signature
@@ -216,8 +213,7 @@ impl GrpcBlockchainScanner {
         };
 
         // Convert Encrypted Data
-        let encrypted_data =
-            EncryptedData::from_bytes(&grpc_output.encrypted_data).unwrap_or_default();
+        let encrypted_data = EncryptedData::from_bytes(&grpc_output.encrypted_data).unwrap_or_default();
 
         // Convert Minimum Value Promise
         let minimum_value_promise = MicroMinotari::new(grpc_output.minimum_value_promise);
@@ -259,24 +255,12 @@ impl GrpcBlockchainScanner {
             Some(body) => body,
             None => return Ok(None),
         };
-        let outputs: WalletResult<Vec<_>> = body
-            .outputs
-            .iter()
-            .map(Self::convert_transaction_output)
-            .collect();
+        let outputs: WalletResult<Vec<_>> = body.outputs.iter().map(Self::convert_transaction_output).collect();
         let outputs = outputs?;
 
         // Extract inputs and kernels too
-        let inputs = body
-            .inputs
-            .iter()
-            .map(Self::convert_transaction_input)
-            .collect();
-        let kernels = body
-            .kernels
-            .iter()
-            .map(Self::convert_transaction_kernel)
-            .collect();
+        let inputs = body.inputs.iter().map(Self::convert_transaction_input).collect();
+        let kernels = body.kernels.iter().map(Self::convert_transaction_kernel).collect();
 
         Ok(Some(BlockInfo {
             height: header.height,
@@ -324,11 +308,7 @@ impl GrpcBlockchainScanner {
 
         crate::data_structures::transaction_input::TransactionInput::new(
             grpc_input.version as u8,
-            grpc_input
-                .features
-                .as_ref()
-                .map(|f| f.output_type as u8)
-                .unwrap_or(0),
+            grpc_input.features.as_ref().map(|f| f.output_type as u8).unwrap_or(0),
             commitment,
             script_signature,
             sender_offset_public_key,
@@ -388,12 +368,8 @@ impl GrpcBlockchainScanner {
         let metadata = grpc_tip.metadata.as_ref();
         TipInfo {
             best_block_height: metadata.map(|m| m.best_block_height).unwrap_or(0),
-            best_block_hash: metadata
-                .map(|m| m.best_block_hash.clone())
-                .unwrap_or_default(),
-            accumulated_difficulty: metadata
-                .map(|m| m.accumulated_difficulty.clone())
-                .unwrap_or_default(),
+            best_block_hash: metadata.map(|m| m.best_block_hash.clone()).unwrap_or_default(),
+            accumulated_difficulty: metadata.map(|m| m.accumulated_difficulty.clone()).unwrap_or_default(),
             pruned_height: metadata.map(|m| m.pruned_height).unwrap_or(0),
             timestamp: metadata.map(|m| m.timestamp).unwrap_or(0),
         }
@@ -416,10 +392,8 @@ impl GrpcBlockchainScanner {
         // Derive the proper view key using Tari's key derivation specification
         // This uses the "data encryption" branch seed which is the correct key for decrypting encrypted data
         let (view_key, _spend_key) =
-            crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(
-                &entropy,
-            )
-            .map_err(WalletError::KeyManagementError)?;
+            crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
+                .map_err(WalletError::KeyManagementError)?;
 
         // Convert RistrettoSecretKey to PrivateKey
         let view_key_bytes = view_key.as_bytes();
@@ -498,9 +472,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Scan for coinbase outputs (GRPC version)
-    fn scan_for_coinbase_output_grpc(
-        output: &TransactionOutput,
-    ) -> WalletResult<Option<WalletOutput>> {
+    fn scan_for_coinbase_output_grpc(output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
         // Only handle coinbase outputs
         if !matches!(
             output.features().output_type,
@@ -536,10 +508,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Get all outputs from a specific block
-    pub async fn get_outputs_from_block(
-        &mut self,
-        block_height: u64,
-    ) -> WalletResult<Vec<TransactionOutput>> {
+    pub async fn get_outputs_from_block(&mut self, block_height: u64) -> WalletResult<Vec<TransactionOutput>> {
         // Get the block at the specified height
         let request = tari_rpc::GetBlocksRequest {
             heights: vec![block_height],
@@ -551,18 +520,16 @@ impl GrpcBlockchainScanner {
             .get_blocks(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
         })? {
             if let Some(block_info) = Self::convert_block(&grpc_block)? {
                 return Ok(block_info.outputs);
@@ -588,18 +555,16 @@ impl GrpcBlockchainScanner {
             .get_blocks(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
         })? {
             if let Some(block_info) = Self::convert_block(&grpc_block)? {
                 return Ok(block_info.inputs);
@@ -625,18 +590,16 @@ impl GrpcBlockchainScanner {
             .get_blocks(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
         })? {
             if let Some(block_info) = Self::convert_block(&grpc_block)? {
                 return Ok(block_info.kernels);
@@ -662,18 +625,16 @@ impl GrpcBlockchainScanner {
             .get_blocks(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
         })? {
             return Self::convert_block(&grpc_block);
         }
@@ -682,11 +643,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Scan a single block for wallet outputs using the provided entropy
-    pub async fn scan_block(
-        &mut self,
-        block_height: u64,
-        entropy: &[u8; 16],
-    ) -> WalletResult<Vec<WalletOutput>> {
+    pub async fn scan_block(&mut self, block_height: u64, entropy: &[u8; 16]) -> WalletResult<Vec<WalletOutput>> {
         let mut wallet_outputs = Vec::new();
 
         // Get all outputs from the block
@@ -711,10 +668,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Get blocks by their heights in a batch
-    pub async fn get_blocks_by_heights(
-        &mut self,
-        heights: Vec<u64>,
-    ) -> WalletResult<Vec<BlockInfo>> {
+    pub async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<BlockInfo>> {
         if heights.is_empty() {
             return Ok(Vec::new());
         }
@@ -727,19 +681,17 @@ impl GrpcBlockchainScanner {
             .get_blocks(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         let mut blocks = Vec::new();
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("GRPC stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "GRPC stream error: {e}"
+            )))
         })? {
             if let Some(block_info) = Self::convert_block(&grpc_block)? {
                 blocks.push(block_info);
@@ -777,21 +729,17 @@ impl BlockchainScanner for GrpcBlockchainScanner {
                 .get_blocks(Request::new(request))
                 .await
                 .map_err(|e| {
-                    WalletError::ScanningError(
-                        crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "GRPC error: {e}"
-                        )),
-                    )
+                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "GRPC error: {e}"
+                    )))
                 })?
                 .into_inner();
 
             let mut batch_results = Vec::new();
             while let Some(grpc_block) = stream.message().await.map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Stream error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Stream error: {e}"
+                )))
             })? {
                 if let Some(block_info) = Self::convert_block(&grpc_block)? {
                     let mut wallet_outputs = Vec::new();
@@ -803,10 +751,9 @@ impl BlockchainScanner for GrpcBlockchainScanner {
 
                         // Strategy 1: Regular recoverable outputs (encrypted data decryption)
                         if !found_output {
-                            if let Some(wallet_output) = Self::scan_for_recoverable_output_grpc(
-                                output,
-                                &config.extraction_config,
-                            )? {
+                            if let Some(wallet_output) =
+                                Self::scan_for_recoverable_output_grpc(output, &config.extraction_config)?
+                            {
                                 wallet_outputs.push(wallet_output);
                                 found_output = true;
                             }
@@ -814,10 +761,9 @@ impl BlockchainScanner for GrpcBlockchainScanner {
 
                         // Strategy 2: One-sided payments (different detection logic)
                         if !found_output {
-                            if let Some(wallet_output) = Self::scan_for_one_sided_payment_grpc(
-                                output,
-                                &config.extraction_config,
-                            )? {
+                            if let Some(wallet_output) =
+                                Self::scan_for_one_sided_payment_grpc(output, &config.extraction_config)?
+                            {
                                 wallet_outputs.push(wallet_output);
                                 found_output = true;
                             }
@@ -825,9 +771,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
 
                         // Strategy 3: Coinbase outputs (special handling)
                         if !found_output {
-                            if let Some(wallet_output) =
-                                Self::scan_for_coinbase_output_grpc(output)?
-                            {
+                            if let Some(wallet_output) = Self::scan_for_coinbase_output_grpc(output)? {
                                 wallet_outputs.push(wallet_output);
                                 // found_output = true;
                             }
@@ -854,27 +798,17 @@ impl BlockchainScanner for GrpcBlockchainScanner {
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
         let request = Request::new(tari_rpc::Empty {});
 
-        let response = self
-            .client
-            .clone()
-            .get_tip_info(request)
-            .await
-            .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
-            })?;
+        let response = self.client.clone().get_tip_info(request).await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "GRPC error: {e}"
+            )))
+        })?;
 
         let tip_info = response.into_inner();
         Ok(Self::convert_tip_info(&tip_info))
     }
 
-    async fn search_utxos(
-        &mut self,
-        commitments: Vec<Vec<u8>>,
-    ) -> WalletResult<Vec<BlockScanResult>> {
+    async fn search_utxos(&mut self, commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
         let request = tari_rpc::SearchUtxosRequest { commitments };
 
         let mut stream = self
@@ -883,19 +817,17 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             .search_utxos(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         let mut results = Vec::new();
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
         })? {
             if let Some(block_info) = Self::convert_block(&grpc_block)? {
                 let mut wallet_outputs = Vec::new();
@@ -906,10 +838,8 @@ impl BlockchainScanner for GrpcBlockchainScanner {
                     match extract_wallet_output(output, &ExtractionConfig::default()) {
                         Ok(wallet_output) => wallet_outputs.push(wallet_output),
                         Err(e) => {
-                            println!(
-                                "Failed to extract wallet output during commitment search: {e}"
-                            );
-                        }
+                            println!("Failed to extract wallet output during commitment search: {e}");
+                        },
                     }
                 }
                 results.push(BlockScanResult {
@@ -934,19 +864,17 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             .fetch_matching_utxos(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         let mut results = Vec::new();
         while let Some(response) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("Stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
         })? {
             if let Some(output) = response.output {
                 results.push(Self::convert_transaction_output(&output)?);
@@ -969,19 +897,17 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             .get_blocks(Request::new(request))
             .await
             .map_err(|e| {
-                WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )),
-                )
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "GRPC error: {e}"
+                )))
             })?
             .into_inner();
 
         let mut blocks = Vec::new();
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                &format!("GRPC stream error: {e}"),
-            ))
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "GRPC stream error: {e}"
+            )))
         })? {
             if let Some(block_info) = Self::convert_block(&grpc_block)? {
                 blocks.push(block_info);

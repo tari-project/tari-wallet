@@ -5,18 +5,11 @@ use std::path::PathBuf;
 
 #[cfg(feature = "storage")]
 use clap::{Parser, Subcommand};
-
 use lightweight_wallet_libs::outgoing_tx_builder::OutgoingTxBuilder;
-#[cfg(feature = "storage")]
-use lightweight_wallet_libs::wallet::Wallet;
-#[cfg(feature = "storage")]
-use lightweight_wallet_libs::{
-    data_structures::address::TariAddressFeatures,
-    models::types::{SignedOneSidedTransactionResult, TransactionResult},
-};
-
 #[cfg(feature = "grpc")]
 use lightweight_wallet_libs::scanning::GrpcBlockchainScanner;
+#[cfg(feature = "storage")]
+use lightweight_wallet_libs::wallet::Wallet;
 // Storage-related imports
 #[cfg(feature = "storage")]
 use lightweight_wallet_libs::{
@@ -28,14 +21,17 @@ use lightweight_wallet_libs::{
     },
     prepare::one_sided_transaction::OneSidedTransaction,
     storage::{SqliteStorage, StoredWallet, WalletStorage},
-    TransactionBroadcaster, WalletError,
+    TransactionBroadcaster,
+    WalletError,
 };
-
+#[cfg(feature = "storage")]
+use lightweight_wallet_libs::{
+    data_structures::address::TariAddressFeatures,
+    models::types::{SignedOneSidedTransactionResult, TransactionResult},
+};
 use tari_common::configuration::Network;
 #[cfg(feature = "storage")]
-use tari_transaction_components::{
-    tari_amount::MicroMinotari, transaction_components::memo_field::MemoField,
-};
+use tari_transaction_components::{tari_amount::MicroMinotari, transaction_components::memo_field::MemoField};
 #[cfg(feature = "storage")]
 #[cfg(feature = "storage")]
 
@@ -259,7 +255,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             passphrase,
         } => {
             handle_generate(network, payment_id, passphrase).await?;
-        }
+        },
         Commands::NewAddress {
             seed_phrase,
             network,
@@ -267,10 +263,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             passphrase,
         } => {
             handle_new_address(seed_phrase, network, payment_id, passphrase).await?;
-        }
+        },
         Commands::List { database } => {
             handle_list_wallets(database).await?;
-        }
+        },
         Commands::AddWallet {
             seed_phrase,
             view_key,
@@ -279,9 +275,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             network,
             passphrase,
         } => {
-            handle_create_wallet(seed_phrase, view_key, name, database, network, passphrase)
-                .await?;
-        }
+            handle_create_wallet(seed_phrase, view_key, name, database, network, passphrase).await?;
+        },
         Commands::Query {
             database,
             wallet_name,
@@ -289,16 +284,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => match query_command {
             QueryCommands::Balance => {
                 handle_balance(database, wallet_name).await?;
-            }
+            },
             QueryCommands::Utxos { mature_only } => {
                 handle_utxo(database, wallet_name, mature_only).await?;
-            }
+            },
             QueryCommands::Info => {
                 handle_info(database, wallet_name).await?;
-            }
+            },
             QueryCommands::Transactions { limit } => {
                 handle_transactions(database, wallet_name, limit).await?;
-            }
+            },
         },
         Commands::PrepareForSigning {
             database,
@@ -307,15 +302,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             recipient_address,
             output_file,
         } => {
-            handle_prepare_for_signing(
-                database,
-                wallet_name,
-                amount,
-                recipient_address,
-                output_file,
-            )
-            .await?;
-        }
+            handle_prepare_for_signing(database, wallet_name, amount, recipient_address, output_file).await?;
+        },
         Commands::SubmitTransaction {
             database,
             wallet_name,
@@ -323,27 +311,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             recipient_address,
             base_url,
         } => {
-            handle_submit_transaction(database, wallet_name, amount, recipient_address, base_url)
-                .await?;
-        }
-        Commands::BroadcastSignedTransaction {
-            input_file,
-            base_url,
-        } => {
+            handle_submit_transaction(database, wallet_name, amount, recipient_address, base_url).await?;
+        },
+        Commands::BroadcastSignedTransaction { input_file, base_url } => {
             handle_broadcast_transaction(input_file, base_url).await?;
-        }
-        Commands::UnencumberAll {
-            database,
-            wallet_name,
-        } => {
+        },
+        Commands::UnencumberAll { database, wallet_name } => {
             handle_unencumber_all(database, wallet_name).await?;
-        }
-        Commands::ClearDatabase {
-            database,
-            no_prompt,
-        } => {
+        },
+        Commands::ClearDatabase { database, no_prompt } => {
             handle_clear_database(database, no_prompt).await?;
-        }
+        },
     }
 
     Ok(())
@@ -365,9 +343,7 @@ fn main() {
     eprintln!("  generate        Generate a new wallet with seed phrase and one-sided address");
     eprintln!("  new-address     Generate a one-sided address from existing seed phrase");
     eprintln!("  list            List all wallets stored in database");
-    eprintln!(
-        "  add-wallet      Create and store a new wallet in database from seed phrase or view key"
-    );
+    eprintln!("  add-wallet      Create and store a new wallet in database from seed phrase or view key");
     eprintln!("  query           Query wallet information and balances");
     eprintln!("    balance       Show wallet balance and summary");
     eprintln!("    utxos         List unspent transaction outputs (UTXOs)");
@@ -394,9 +370,7 @@ async fn handle_generate(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Validate network
     if !is_valid_network(&network) {
-        eprintln!(
-            "Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet"
-        );
+        eprintln!("Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet");
         return Ok(());
     }
 
@@ -414,10 +388,7 @@ async fn handle_generate(
                     println!("Seed: {seed}");
 
                     // Generate one-sided address using dual address method to support payment ID
-                    match wallet.get_dual_address(
-                        TariAddressFeatures::create_one_sided_only(),
-                        payment_id_bytes,
-                    ) {
+                    match wallet.get_dual_address(TariAddressFeatures::create_one_sided_only(), payment_id_bytes) {
                         Ok(address) => {
                             println!("Base58: {}", address.to_base58());
                             println!("Emoji: {}", address.to_emoji_string());
@@ -427,13 +398,13 @@ async fn handle_generate(
                             if address.features().contains(TariAddressFeatures::PAYMENT_ID) {
                                 println!("Payment ID included: Yes");
                             }
-                        }
+                        },
                         Err(e) => eprintln!("Error generating address: {e}"),
                     }
-                }
+                },
                 Err(e) => eprintln!("Error exporting seed: {e}"),
             }
-        }
+        },
         Err(e) => eprintln!("Error creating wallet: {e}"),
     }
 
@@ -449,9 +420,7 @@ async fn handle_new_address(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Validate network
     if !is_valid_network(&network) {
-        eprintln!(
-            "Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet"
-        );
+        eprintln!("Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet");
         return Ok(());
     }
 
@@ -464,10 +433,7 @@ async fn handle_new_address(
             wallet.set_network(network.clone());
 
             // Generate one-sided address using dual address method to support payment ID
-            match wallet.get_dual_address(
-                TariAddressFeatures::create_one_sided_only(),
-                payment_id_bytes,
-            ) {
+            match wallet.get_dual_address(TariAddressFeatures::create_one_sided_only(), payment_id_bytes) {
                 Ok(address) => {
                     println!("Base58: {}", address.to_base58());
                     println!("Emoji: {}", address.to_emoji_string());
@@ -476,10 +442,10 @@ async fn handle_new_address(
                     if address.features().contains(TariAddressFeatures::PAYMENT_ID) {
                         println!("Payment ID included: Yes");
                     }
-                }
+                },
                 Err(e) => eprintln!("Error generating address: {e}"),
             }
-        }
+        },
         Err(e) => eprintln!("Error creating wallet from seed: {e}"),
     }
 
@@ -488,10 +454,7 @@ async fn handle_new_address(
 
 /// Show wallet balance and summary
 #[cfg(feature = "storage")]
-async fn handle_balance(
-    database_path: String,
-    wallet_name: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_balance(database_path: String, wallet_name: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     let storage: Box<dyn WalletStorage> = if database_path == ":memory:" {
         Box::new(SqliteStorage::new_in_memory().await?)
     } else {
@@ -522,22 +485,10 @@ async fn handle_balance(
     );
     println!();
     println!("📊 Transaction Summary:");
-    println!(
-        "  Inbound transactions:  {}",
-        format_number(stats.inbound_count)
-    );
-    println!(
-        "  Outbound transactions: {}",
-        format_number(stats.outbound_count)
-    );
-    println!(
-        "  Unspent outputs:       {}",
-        format_number(stats.unspent_count)
-    );
-    println!(
-        "  Spent outputs:         {}",
-        format_number(stats.spent_count)
-    );
+    println!("  Inbound transactions:  {}", format_number(stats.inbound_count));
+    println!("  Outbound transactions: {}", format_number(stats.outbound_count));
+    println!("  Unspent outputs:       {}", format_number(stats.unspent_count));
+    println!("  Spent outputs:         {}", format_number(stats.spent_count));
 
     if let (Some(lowest), Some(highest)) = (stats.lowest_block, stats.highest_block) {
         println!(
@@ -581,10 +532,7 @@ async fn handle_utxo(
     };
 
     println!("🔗 UNSPENT OUTPUTS (UTXOs) - {}", wallet.name);
-    println!(
-        "=========================={}",
-        "=".repeat(wallet.name.len())
-    );
+    println!("=========================={}", "=".repeat(wallet.name.len()));
 
     if filtered_utxos.is_empty() {
         println!("No unspent outputs found.");
@@ -625,10 +573,7 @@ async fn handle_utxo(
 
         if !utxo.input_data.is_empty() {
             if let Ok(text) = std::str::from_utf8(&utxo.input_data) {
-                if text
-                    .chars()
-                    .all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
-                {
+                if text.chars().all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace()) {
                     println!("   Input data: \"{text}\"");
                 } else {
                     println!(
@@ -659,10 +604,7 @@ async fn handle_utxo(
 
 /// Show wallet information and statistics
 #[cfg(feature = "storage")]
-async fn handle_info(
-    database_path: String,
-    wallet_name: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_info(database_path: String, wallet_name: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     let storage: Box<dyn WalletStorage> = if database_path == ":memory:" {
         Box::new(SqliteStorage::new_in_memory().await?)
     } else {
@@ -718,18 +660,9 @@ async fn handle_info(
 
     println!();
     println!("📊 Transaction Statistics:");
-    println!(
-        "  Total transactions: {}",
-        format_number(stats.total_transactions)
-    );
-    println!(
-        "  Inbound:            {}",
-        format_number(stats.inbound_count)
-    );
-    println!(
-        "  Outbound:           {}",
-        format_number(stats.outbound_count)
-    );
+    println!("  Total transactions: {}", format_number(stats.total_transactions));
+    println!("  Inbound:            {}", format_number(stats.inbound_count));
+    println!("  Outbound:           {}", format_number(stats.outbound_count));
 
     println!();
     println!("🔗 Output Statistics:");
@@ -741,10 +674,7 @@ async fn handle_info(
         println!("📊 Block Range:");
         println!("  First activity: Block {}", format_number(lowest));
         println!("  Last activity:  Block {}", format_number(highest));
-        println!(
-            "  Block span:     {} blocks",
-            format_number(highest - lowest + 1)
-        );
+        println!("  Block span:     {} blocks", format_number(highest - lowest + 1));
     }
 
     if wallet.has_seed_phrase() {
@@ -817,9 +747,15 @@ async fn handle_transactions(
         };
 
         let amount_display = match tx.transaction_direction {
-            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Inbound => format!("+{} μT", format_number(tx.value)),
-            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Outbound => format!("-{} μT", format_number(tx.value)),
-            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Unknown => format!("±{} μT", format_number(tx.value)),
+            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Inbound => {
+                format!("+{} μT", format_number(tx.value))
+            },
+            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Outbound => {
+                format!("-{} μT", format_number(tx.value))
+            },
+            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Unknown => {
+                format!("±{} μT", format_number(tx.value))
+            },
         };
 
         let status_text = if tx.is_spent { "SPENT" } else { "UNSPENT" };
@@ -837,15 +773,12 @@ async fn handle_transactions(
 
         // Show payment ID if available
         if !tx.payment_id.user_data_as_string().is_empty() {
-            println!(
-                "   💬 Payment ID: \"{}\"",
-                tx.payment_id.user_data_as_string()
-            );
+            println!("   💬 Payment ID: \"{}\"", tx.payment_id.user_data_as_string());
         }
 
         // Show spending details for outbound transactions
-        if tx.transaction_direction
-            == lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Outbound
+        if tx.transaction_direction ==
+            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Outbound
         {
             if let Some(input_index) = tx.input_index {
                 println!("   └─ Spent as input #{}", format_number(input_index));
@@ -853,9 +786,9 @@ async fn handle_transactions(
         }
 
         // Show spending details for spent inbound transactions
-        if tx.transaction_direction
-            == lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Inbound
-            && tx.is_spent
+        if tx.transaction_direction ==
+            lightweight_wallet_libs::data_structures::transaction::TransactionDirection::Inbound &&
+            tx.is_spent
         {
             if let Some(spent_block) = tx.spent_in_block {
                 if let Some(spent_input) = tx.spent_in_input {
@@ -879,10 +812,7 @@ async fn handle_transactions(
             format_number(stats.total_transactions)
         );
     } else {
-        println!(
-            "  Total transactions: {}",
-            format_number(stats.total_transactions)
-        );
+        println!("  Total transactions: {}", format_number(stats.total_transactions));
     }
     println!(
         "  Current balance: {} μT ({:.6} T)",
@@ -940,10 +870,7 @@ async fn select_wallet(
         }
 
         println!("\nSelect a wallet:");
-        print!(
-            "Enter wallet number (1-{}), or 'q' to quit: ",
-            wallets.len()
-        );
+        print!("Enter wallet number (1-{}), or 'q' to quit: ", wallets.len());
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
         let mut input = String::new();
@@ -960,7 +887,7 @@ async fn select_wallet(
                 let selected_wallet = &wallets[selection - 1];
                 println!("✅ Selected wallet: {}", selected_wallet.name);
                 Ok(selected_wallet.clone())
-            }
+            },
             _ => Err(format!(
                 "Invalid selection. Please enter a number between 1 and {}, or 'q' to quit.",
                 wallets.len()
@@ -1022,23 +949,19 @@ async fn handle_create_wallet(
     // Validate that exactly one of seed_phrase or view_key is provided
     match (&seed_phrase, &view_key) {
         (Some(_), Some(_)) => {
-            eprintln!(
-                "Error: Cannot specify both --seed-phrase and --view-key. Please provide only one."
-            );
+            eprintln!("Error: Cannot specify both --seed-phrase and --view-key. Please provide only one.");
             return Ok(());
-        }
+        },
         (None, None) => {
             eprintln!("Error: Must specify either --seed-phrase or --view-key.");
             return Ok(());
-        }
-        _ => {} // Exactly one is provided, continue
+        },
+        _ => {}, // Exactly one is provided, continue
     }
 
     // Validate network
     if !is_valid_network(&network) {
-        eprintln!(
-            "Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet"
-        );
+        eprintln!("Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet");
         return Ok(());
     }
 
@@ -1069,24 +992,19 @@ async fn handle_create_wallet(
         let entropy = cipher_seed.entropy();
 
         let entropy_array: [u8; 16] = entropy.try_into().map_err(|_| {
-            WalletError::KeyManagementError(
-                lightweight_wallet_libs::KeyManagementError::key_derivation_failed(
-                    "Invalid entropy length",
-                ),
-            )
+            WalletError::KeyManagementError(lightweight_wallet_libs::KeyManagementError::key_derivation_failed(
+                "Invalid entropy length",
+            ))
         })?;
 
         // Derive view key
-        let view_key_raw =
-            key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)?;
+        let view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)?;
         let view_key = PrivateKey::new({
             use tari_utilities::ByteArray;
             view_key_raw.as_bytes().try_into().map_err(|_| {
-                WalletError::KeyManagementError(
-                    lightweight_wallet_libs::KeyManagementError::key_derivation_failed(
-                        "Failed to convert view key",
-                    ),
-                )
+                WalletError::KeyManagementError(lightweight_wallet_libs::KeyManagementError::key_derivation_failed(
+                    "Failed to convert view key",
+                ))
             })?
         });
 
@@ -1104,8 +1022,7 @@ async fn handle_create_wallet(
         )
     } else if let Some(view_key_hex) = view_key {
         // Create view-only wallet from view key
-        let view_key_bytes =
-            hex::decode(&view_key_hex).map_err(|_| "Invalid hex format for view key")?;
+        let view_key_bytes = hex::decode(&view_key_hex).map_err(|_| "Invalid hex format for view key")?;
 
         if view_key_bytes.len() != 32 {
             return Err("View key must be exactly 32 bytes (64 hex characters)".into());
@@ -1135,13 +1052,8 @@ async fn handle_create_wallet(
         "view-only wallet"
     };
 
-    println!(
-        "✅ Created {wallet_type} '{wallet_name}' with ID {wallet_id} in database: {database_path}"
-    );
-    println!(
-        "   Birthday: block {}",
-        format_number(stored_wallet.birthday_block)
-    );
+    println!("✅ Created {wallet_type} '{wallet_name}' with ID {wallet_id} in database: {database_path}");
+    println!("   Birthday: block {}", format_number(stored_wallet.birthday_block));
     println!("   Network: {network}");
 
     if !stored_wallet.has_seed_phrase() {
@@ -1160,10 +1072,9 @@ async fn handle_prepare_for_signing(
     recipient_address: String,
     output_file: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use std::{fs::File, io::Write, sync::Arc};
+
     use lightweight_wallet_libs::models::types::TransactionResult;
-    use std::fs::File;
-    use std::io::Write;
-    use std::sync::Arc;
     use tari_common_types::tari_address::TariAddress;
 
     let storage = if database_path == ":memory:" {
@@ -1181,22 +1092,14 @@ async fn handle_prepare_for_signing(
 
     let builder = OneSidedTransaction::build(Arc::new(storage), wallet.id.unwrap()).await?;
     let result = builder
-        .prepare(
-            dest_address,
-            MicroMinotari(amount),
-            fee_per_gram,
-            payment_id,
-        )
+        .prepare(dest_address, MicroMinotari(amount), fee_per_gram, payment_id)
         .await?;
 
     let json_string = result.to_json()?;
     let mut file = File::create(&output_file)?;
     file.write_all(json_string.as_bytes())?;
 
-    println!(
-        "✅ Prepared transaction data saved to: {}",
-        output_file.display()
-    );
+    println!("✅ Prepared transaction data saved to: {}", output_file.display());
     Ok(())
 }
 
@@ -1208,6 +1111,7 @@ async fn handle_submit_transaction(
     base_url: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::Arc;
+
     use tari_common_types::tari_address::TariAddress;
 
     let storage = if database_path == ":memory:" {
@@ -1241,10 +1145,7 @@ async fn handle_submit_transaction(
     Ok(())
 }
 
-async fn handle_broadcast_transaction(
-    input_file: PathBuf,
-    base_url: String,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_broadcast_transaction(input_file: PathBuf, base_url: String) -> Result<(), Box<dyn std::error::Error>> {
     let json_string = std::fs::read_to_string(&input_file)?;
     let request = SignedOneSidedTransactionResult::from_json(&json_string)?;
     let mut client = GrpcBlockchainScanner::new(base_url).await?;
@@ -1281,10 +1182,7 @@ async fn handle_unencumber_all(
 
 /// Clear all data from the database
 #[cfg(feature = "storage")]
-async fn handle_clear_database(
-    database_path: String,
-    no_prompt: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_clear_database(database_path: String, no_prompt: bool) -> Result<(), Box<dyn std::error::Error>> {
     if database_path == ":memory:" {
         println!("Cannot clear in-memory database");
         return Ok(());

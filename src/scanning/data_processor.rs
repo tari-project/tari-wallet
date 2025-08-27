@@ -4,8 +4,9 @@
 //! scanning operations. Instead of coupling the scanner to a specific storage backend,
 //! the scanner accepts callback functions that can handle different types of data.
 
-use crate::{data_structures::wallet_transaction::WalletTransaction, errors::WalletResult};
 use async_trait::async_trait;
+
+use crate::{data_structures::wallet_transaction::WalletTransaction, errors::WalletResult};
 
 /// Block data that can be processed during scanning
 #[derive(Debug, Clone)]
@@ -154,7 +155,7 @@ impl CompletionData {
 /// This trait allows different implementations to handle the data generated
 /// during wallet scanning operations. Implementations can:
 /// - Store data to a database
-/// - Write data to files  
+/// - Write data to files
 /// - Send data over a network
 /// - Process data in memory only
 /// - Forward data to multiple processors
@@ -245,26 +246,17 @@ impl MemoryDataProcessor {
 
     /// Get all transactions from processed blocks
     pub fn get_all_transactions(&self) -> Vec<&WalletTransaction> {
-        self.blocks
-            .iter()
-            .flat_map(|block| &block.transactions)
-            .collect()
+        self.blocks.iter().flat_map(|block| &block.transactions).collect()
     }
 
     /// Get total number of transactions processed
     pub fn total_transactions(&self) -> usize {
-        self.blocks
-            .iter()
-            .map(|block| block.transactions.len())
-            .sum()
+        self.blocks.iter().map(|block| block.transactions.len()).sum()
     }
 
     /// Get blocks with wallet activity
     pub fn get_active_blocks(&self) -> Vec<&BlockData> {
-        self.blocks
-            .iter()
-            .filter(|block| block.has_activity())
-            .collect()
+        self.blocks.iter().filter(|block| block.has_activity()).collect()
     }
 
     /// Clear all collected data
@@ -332,9 +324,7 @@ pub struct CompositeDataProcessor {
 impl CompositeDataProcessor {
     /// Create a new composite processor
     pub fn new() -> Self {
-        Self {
-            processors: Vec::new(),
-        }
+        Self { processors: Vec::new() }
     }
 
     /// Add a processor to the composition
@@ -368,9 +358,7 @@ impl DataProcessor for CompositeDataProcessor {
 
     async fn process_completion(&mut self, completion_data: CompletionData) -> WalletResult<()> {
         for processor in &mut self.processors {
-            processor
-                .process_completion(completion_data.clone())
-                .await?;
+            processor.process_completion(completion_data.clone()).await?;
         }
         Ok(())
     }

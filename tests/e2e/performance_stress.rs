@@ -3,21 +3,26 @@
 //! Tests system performance under load with large datasets, memory usage profiling,
 //! and concurrent operation validation to ensure scalability.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use tokio::sync::{Mutex, Semaphore};
-use tokio::time::timeout;
-
-use lightweight_wallet_libs::data_structures::{
-    address::{TariAddress, TariAddressFeatures},
-    transaction_output::TransactionOutput,
-    types::PrivateKey,
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
 };
-use lightweight_wallet_libs::extraction::ExtractionConfig;
-use lightweight_wallet_libs::scanning::*;
-use lightweight_wallet_libs::wallet::*;
+
+use lightweight_wallet_libs::{
+    data_structures::{
+        address::{TariAddress, TariAddressFeatures},
+        transaction_output::TransactionOutput,
+        types::PrivateKey,
+    },
+    extraction::ExtractionConfig,
+    scanning::*,
+    wallet::*,
+};
+use tokio::{
+    sync::{Mutex, Semaphore},
+    time::timeout,
+};
 
 /// Performance metrics collection
 #[derive(Debug, Clone)]
@@ -104,8 +109,7 @@ impl DatasetGenerator {
         for i in 0..count {
             // Use deterministic seed generation for reproducible tests
             let _wallet_seed = format!("test_wallet_{}_{}", self.seed, i);
-            let wallet =
-                Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
+            let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
             wallets.push(wallet);
         }
 
@@ -172,9 +176,7 @@ impl DatasetGenerator {
             encrypted_data::EncryptedData,
             transaction_output::TransactionOutput,
             types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
-            wallet_output::{
-                Covenant, OutputFeatures, OutputType, RangeProofType, Script, Signature,
-            },
+            wallet_output::{Covenant, OutputFeatures, OutputType, RangeProofType, Script, Signature},
         };
 
         let features = OutputFeatures {
@@ -184,8 +186,7 @@ impl DatasetGenerator {
         };
 
         let commitment = CompressedCommitment::new([0x42; 32]);
-        let sender_offset_public_key =
-            CompressedPublicKey::from_private_key(&PrivateKey::new([0x42; 32]));
+        let sender_offset_public_key = CompressedPublicKey::from_private_key(&PrivateKey::new([0x42; 32]));
         let metadata_signature = Signature::default();
 
         let micro_value = MicroMinotari::from(value);
@@ -226,18 +227,11 @@ async fn test_large_scale_wallet_generation() {
     let mut unique_keys = std::collections::HashSet::new();
     for wallet in &wallets {
         let master_key = wallet.master_key_bytes();
-        assert!(
-            unique_keys.insert(master_key),
-            "Duplicate wallet master key found"
-        );
+        assert!(unique_keys.insert(master_key), "Duplicate wallet master key found");
     }
 
-    let metrics = PerformanceMetrics::new(
-        "wallet_generation".to_string(),
-        generation_duration,
-        WALLET_COUNT,
-    )
-    .with_memory(memory_monitor.peak_delta_mb());
+    let metrics = PerformanceMetrics::new("wallet_generation".to_string(), generation_duration, WALLET_COUNT)
+        .with_memory(memory_monitor.peak_delta_mb());
 
     // Performance assertions
     assert_eq!(wallets.len(), WALLET_COUNT);
@@ -249,10 +243,7 @@ async fn test_large_scale_wallet_generation() {
 
     println!("✓ Large-scale wallet generation test passed");
     println!("  Generated {WALLET_COUNT} wallets in {generation_duration:?}");
-    println!(
-        "  Throughput: {:.2} wallets/sec",
-        metrics.throughput_per_second
-    );
+    println!("  Throughput: {:.2} wallets/sec", metrics.throughput_per_second);
     println!("  Memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
 }
 
@@ -291,19 +282,12 @@ async fn test_large_scale_address_generation() {
         }
     }
 
-    let metrics = PerformanceMetrics::new(
-        "address_generation".to_string(),
-        generation_duration,
-        ADDRESS_COUNT,
-    )
-    .with_memory(memory_monitor.peak_delta_mb());
+    let metrics = PerformanceMetrics::new("address_generation".to_string(), generation_duration, ADDRESS_COUNT)
+        .with_memory(memory_monitor.peak_delta_mb());
 
     // Performance assertions
     assert_eq!(addresses.len(), ADDRESS_COUNT);
-    assert!(
-        dual_count > 0 && single_count > 0,
-        "Should generate both address types"
-    );
+    assert!(dual_count > 0 && single_count > 0, "Should generate both address types");
     assert!(
         metrics.throughput_per_second > 500.0,
         "Address generation too slow: {:.2} addresses/sec",
@@ -313,10 +297,7 @@ async fn test_large_scale_address_generation() {
     println!("✓ Large-scale address generation test passed");
     println!("  Generated {ADDRESS_COUNT} addresses in {generation_duration:?}");
     println!("  Distribution: {dual_count} dual, {single_count} single");
-    println!(
-        "  Throughput: {:.2} addresses/sec",
-        metrics.throughput_per_second
-    );
+    println!("  Throughput: {:.2} addresses/sec", metrics.throughput_per_second);
     println!("  Memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
 }
 
@@ -330,8 +311,7 @@ async fn test_large_dataset_scanning_performance() {
     let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
     let master_key_bytes = wallet.master_key_bytes();
-    let view_key =
-        PrivateKey::from_canonical_bytes(&master_key_bytes).expect("Failed to create view key");
+    let view_key = PrivateKey::from_canonical_bytes(&master_key_bytes).expect("Failed to create view key");
 
     let generator = DatasetGenerator::new(98765);
     let mut memory_monitor = MemoryMonitor::new();
@@ -342,29 +322,23 @@ async fn test_large_dataset_scanning_performance() {
     let dataset_duration = dataset_start.elapsed();
     memory_monitor.update();
 
-    println!(
-        "Dataset generation: {BLOCK_COUNT} blocks with {TOTAL_OUTPUTS} outputs in {dataset_duration:?}"
-    );
+    println!("Dataset generation: {BLOCK_COUNT} blocks with {TOTAL_OUTPUTS} outputs in {dataset_duration:?}");
 
     // Test scanning performance
     println!("Starting large dataset scanning test...");
     let extraction_config = ExtractionConfig::with_private_key(view_key);
 
     let scan_start = Instant::now();
-    let scan_results = DefaultScanningLogic::process_blocks(blocks, &extraction_config)
-        .expect("Failed to process blocks");
+    let scan_results =
+        DefaultScanningLogic::process_blocks(blocks, &extraction_config).expect("Failed to process blocks");
     let scan_duration = scan_start.elapsed();
     memory_monitor.update();
 
     // Analyze results
     let total_wallet_outputs: usize = scan_results.iter().map(|r| r.wallet_outputs.len()).sum();
 
-    let metrics = PerformanceMetrics::new(
-        "large_dataset_scanning".to_string(),
-        scan_duration,
-        TOTAL_OUTPUTS,
-    )
-    .with_memory(memory_monitor.peak_delta_mb());
+    let metrics = PerformanceMetrics::new("large_dataset_scanning".to_string(), scan_duration, TOTAL_OUTPUTS)
+        .with_memory(memory_monitor.peak_delta_mb());
 
     // Performance assertions
     assert_eq!(scan_results.len(), BLOCK_COUNT);
@@ -377,10 +351,7 @@ async fn test_large_dataset_scanning_performance() {
     println!("✓ Large dataset scanning test passed");
     println!("  Scanned {TOTAL_OUTPUTS} outputs in {BLOCK_COUNT} blocks in {scan_duration:?}");
     println!("  Found {total_wallet_outputs} wallet outputs");
-    println!(
-        "  Throughput: {:.2} outputs/sec",
-        metrics.throughput_per_second
-    );
+    println!("  Throughput: {:.2} outputs/sec", metrics.throughput_per_second);
     println!("  Memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
 }
 
@@ -406,8 +377,7 @@ async fn test_concurrent_wallet_operations() {
         let handle = tokio::spawn(async move {
             let _permit = semaphore.acquire().await.unwrap();
 
-            let wallet =
-                Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
+            let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
             let mut wallet_results = Vec::new();
 
@@ -421,35 +391,25 @@ async fn test_concurrent_wallet_operations() {
                         let address = wallet
                             .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
                             .expect("Failed to generate address");
-                        wallet_results.push((
-                            "address_gen",
-                            op_start.elapsed(),
-                            address.to_hex().len(),
-                        ));
-                    }
+                        wallet_results.push(("address_gen", op_start.elapsed(), address.to_hex().len()));
+                    },
                     1 => {
                         // Single address generation
                         let address = wallet
                             .get_single_address(TariAddressFeatures::create_one_sided_only())
                             .expect("Failed to generate single address");
-                        wallet_results.push((
-                            "single_address",
-                            op_start.elapsed(),
-                            address.to_hex().len(),
-                        ));
-                    }
+                        wallet_results.push(("single_address", op_start.elapsed(), address.to_hex().len()));
+                    },
                     2 => {
                         // Seed phrase export
-                        let seed = wallet
-                            .export_seed_phrase()
-                            .expect("Failed to export seed phrase");
+                        let seed = wallet.export_seed_phrase().expect("Failed to export seed phrase");
                         wallet_results.push(("seed_export", op_start.elapsed(), seed.len()));
-                    }
+                    },
                     3 => {
                         // Master key access
                         let master_key = wallet.master_key_bytes();
                         wallet_results.push(("master_key", op_start.elapsed(), master_key.len()));
-                    }
+                    },
                     _ => unreachable!(),
                 }
             }
@@ -505,7 +465,8 @@ async fn test_concurrent_wallet_operations() {
 
     println!("✓ Concurrent wallet operations test passed");
     println!(
-        "  {CONCURRENT_WALLETS} wallets × {OPERATIONS_PER_WALLET} operations = {total_operations} total ops in {total_duration:?}"
+        "  {CONCURRENT_WALLETS} wallets × {OPERATIONS_PER_WALLET} operations = {total_operations} total ops in \
+         {total_duration:?}"
     );
     println!("  Operation distribution: {operation_counts:?}");
     println!("  Throughput: {:.2} ops/sec", metrics.throughput_per_second);
@@ -531,14 +492,10 @@ async fn test_memory_usage_stress() {
         let mut addresses = Vec::new();
 
         for _ in 0..OBJECTS_PER_ITERATION {
-            let wallet =
-                Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
+            let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
             let address = wallet
-                .get_dual_address(
-                    TariAddressFeatures::create_interactive_and_one_sided(),
-                    None,
-                )
+                .get_dual_address(TariAddressFeatures::create_interactive_and_one_sided(), None)
                 .expect("Failed to generate address");
 
             wallets.push(wallet);
@@ -567,9 +524,7 @@ async fn test_memory_usage_stress() {
     let total_objects = STRESS_ITERATIONS * OBJECTS_PER_ITERATION * 2; // wallets + addresses
     let average_memory_per_iteration: f64 =
         peak_memory_per_iteration.iter().sum::<f64>() / peak_memory_per_iteration.len() as f64;
-    let max_memory_per_iteration = peak_memory_per_iteration
-        .iter()
-        .fold(0.0f64, |a, &b| a.max(b));
+    let max_memory_per_iteration = peak_memory_per_iteration.iter().fold(0.0f64, |a, &b| a.max(b));
 
     // Memory assertions (these are rough estimates)
     assert!(
@@ -590,10 +545,7 @@ async fn test_memory_usage_stress() {
     );
     println!("  Average memory per iteration: {average_memory_per_iteration:.2} MB",);
     println!("  Peak memory per iteration: {max_memory_per_iteration:.2} MB",);
-    println!(
-        "  Total memory delta: {:.2} MB",
-        memory_monitor.peak_delta_mb()
-    );
+    println!("  Total memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
 }
 
 /// Test performance degradation over time
@@ -636,11 +588,7 @@ async fn test_performance_degradation() {
         let window_duration = window_start.elapsed();
         memory_monitor.update();
 
-        let window_metric = PerformanceMetrics::new(
-            format!("window_{window}"),
-            window_duration,
-            OPERATIONS_PER_WINDOW,
-        );
+        let window_metric = PerformanceMetrics::new(format!("window_{window}"), window_duration, OPERATIONS_PER_WINDOW);
 
         window_metrics.push(window_metric.clone());
 
@@ -653,14 +601,10 @@ async fn test_performance_degradation() {
     // Analyze performance degradation
     let first_window_throughput = window_metrics[0].throughput_per_second;
     let last_window_throughput = window_metrics[TIME_WINDOWS - 1].throughput_per_second;
-    let degradation_percentage =
-        ((first_window_throughput - last_window_throughput) / first_window_throughput) * 100.0;
+    let degradation_percentage = ((first_window_throughput - last_window_throughput) / first_window_throughput) * 100.0;
 
-    let average_throughput: f64 = window_metrics
-        .iter()
-        .map(|m| m.throughput_per_second)
-        .sum::<f64>()
-        / window_metrics.len() as f64;
+    let average_throughput: f64 =
+        window_metrics.iter().map(|m| m.throughput_per_second).sum::<f64>() / window_metrics.len() as f64;
 
     // Performance assertions
     assert!(
@@ -714,24 +658,19 @@ async fn test_concurrent_scanning_operations() {
             let blocks = generator.generate_mock_blocks(BLOCKS_PER_SCANNER, OUTPUTS_PER_BLOCK);
 
             // Create extraction config
-            let wallet =
-                Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
+            let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
             let master_key_bytes = wallet.master_key_bytes();
-            let view_key = PrivateKey::from_canonical_bytes(&master_key_bytes)
-                .expect("Failed to create view key");
+            let view_key = PrivateKey::from_canonical_bytes(&master_key_bytes).expect("Failed to create view key");
             let extraction_config = ExtractionConfig::with_private_key(view_key);
 
             // Perform scanning
             let scan_start = Instant::now();
-            let scan_results = DefaultScanningLogic::process_blocks(blocks, &extraction_config)
-                .expect("Failed to process blocks");
+            let scan_results =
+                DefaultScanningLogic::process_blocks(blocks, &extraction_config).expect("Failed to process blocks");
             let scan_duration = scan_start.elapsed();
 
             let total_outputs = scan_results.iter().map(|r| r.outputs.len()).sum::<usize>();
-            let wallet_outputs = scan_results
-                .iter()
-                .map(|r| r.wallet_outputs.len())
-                .sum::<usize>();
+            let wallet_outputs = scan_results.iter().map(|r| r.wallet_outputs.len()).sum::<usize>();
 
             // Store results
             let mut results_guard = results.lock().await;
@@ -755,10 +694,7 @@ async fn test_concurrent_scanning_operations() {
 
     // Analyze results
     let results_guard = results.lock().await;
-    let total_outputs_scanned: usize = results_guard
-        .iter()
-        .map(|(_, _, outputs, _)| *outputs)
-        .sum();
+    let total_outputs_scanned: usize = results_guard.iter().map(|(_, _, outputs, _)| *outputs).sum();
     let total_wallet_outputs: usize = results_guard
         .iter()
         .map(|(_, _, _, wallet_outputs)| *wallet_outputs)
@@ -767,15 +703,11 @@ async fn test_concurrent_scanning_operations() {
     let average_scan_duration: Duration = results_guard
         .iter()
         .map(|(_, duration, _, _)| *duration)
-        .sum::<Duration>()
-        / results_guard.len() as u32;
+        .sum::<Duration>() /
+        results_guard.len() as u32;
 
-    let metrics = PerformanceMetrics::new(
-        "concurrent_scanning".to_string(),
-        total_duration,
-        total_outputs_scanned,
-    )
-    .with_memory(memory_monitor.peak_delta_mb());
+    let metrics = PerformanceMetrics::new("concurrent_scanning".to_string(), total_duration, total_outputs_scanned)
+        .with_memory(memory_monitor.peak_delta_mb());
 
     // Performance assertions
     assert_eq!(results_guard.len(), CONCURRENT_SCANNERS);
@@ -790,9 +722,6 @@ async fn test_concurrent_scanning_operations() {
     println!("  Total outputs scanned: {total_outputs_scanned}");
     println!("  Total wallet outputs found: {total_wallet_outputs}");
     println!("  Average scan duration: {average_scan_duration:?}");
-    println!(
-        "  Total throughput: {:.2} outputs/sec",
-        metrics.throughput_per_second
-    );
+    println!("  Total throughput: {:.2} outputs/sec", metrics.throughput_per_second);
     println!("  Memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
 }

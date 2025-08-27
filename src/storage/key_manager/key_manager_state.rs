@@ -1,9 +1,7 @@
 use chacha20poly1305::XChaCha20Poly1305;
 use chrono::{NaiveDateTime, Utc};
 use rusqlite::{params, Row};
-use tari_common_types::encryption::{
-    decrypt_bytes_integral_nonce, encrypt_bytes_integral_nonce, Encryptable,
-};
+use tari_common_types::encryption::{decrypt_bytes_integral_nonce, encrypt_bytes_integral_nonce, Encryptable};
 use tari_transaction_components::key_manager::{error::KeyManagerStorageError, KeyManagerState};
 use tari_utilities::{ByteArray, Hidden};
 use tokio_rusqlite::Connection;
@@ -73,9 +71,7 @@ impl NewKeyManagerStateSql {
             Ok(())
         })
         .await
-        .map_err(|e| {
-            KeyManagerStorageError::StorageError(format!("Failed to save key manager state: {e}"))
-        })
+        .map_err(|e| KeyManagerStorageError::StorageError(format!("Failed to save key manager state: {e}")))
     }
 }
 
@@ -92,14 +88,10 @@ impl KeyManagerStateSql {
 
     /// Retrieve every key manager branch currently in the database.
     /// Returns a `Vec` of [KeyManagerStateSql], if none are found, it will return an empty `Vec`.
-    pub async fn index(
-        conn: &Connection,
-        wallet_id: u32,
-    ) -> Result<Vec<Self>, KeyManagerStorageError> {
+    pub async fn index(conn: &Connection, wallet_id: u32) -> Result<Vec<Self>, KeyManagerStorageError> {
         conn.call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM key_manager_states WHERE wallet_id = ? ORDER BY timestamp DESC",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT * FROM key_manager_states WHERE wallet_id = ? ORDER BY timestamp DESC")?;
             let rows = stmt.query_map(params![wallet_id as i64], Self::row_to_state)?;
 
             let mut statuses = Vec::new();
@@ -110,25 +102,16 @@ impl KeyManagerStateSql {
             Ok(statuses)
         })
         .await
-        .map_err(|e| {
-            KeyManagerStorageError::StorageError(format!("Failed to list key manager states: {e}"))
-        })
+        .map_err(|e| KeyManagerStorageError::StorageError(format!("Failed to list key manager states: {e}")))
     }
 
     /// Retrieve the key manager for the provided branch
     /// Will return Err if the branch does not exist in the database
-    pub async fn get_state(
-        branch: &str,
-        wallet_id: u32,
-        conn: &Connection,
-    ) -> Result<Self, KeyManagerStorageError> {
+    pub async fn get_state(branch: &str, wallet_id: u32, conn: &Connection) -> Result<Self, KeyManagerStorageError> {
         let branch_owned = branch.to_string();
         conn.call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM key_manager_states WHERE branch_seed = ? AND wallet_id = ?",
-            )?;
-            let mut rows =
-                stmt.query_map(params![branch_owned, wallet_id as i64], Self::row_to_state)?;
+            let mut stmt = conn.prepare("SELECT * FROM key_manager_states WHERE branch_seed = ? AND wallet_id = ?")?;
+            let mut rows = stmt.query_map(params![branch_owned, wallet_id as i64], Self::row_to_state)?;
 
             if let Some(row) = rows.next() {
                 Ok(Some(row?))
@@ -137,9 +120,7 @@ impl KeyManagerStateSql {
             }
         })
         .await
-        .map_err(|e| {
-            KeyManagerStorageError::StorageError(format!("Failed to get key manager state: {e}"))
-        })?
+        .map_err(|e| KeyManagerStorageError::StorageError(format!("Failed to get key manager state: {e}")))?
         .ok_or(KeyManagerStorageError::KeyManagerNotInitialized)
     }
 
@@ -164,20 +145,16 @@ impl KeyManagerStateSql {
                         )?;
 
                         if rows_affected == 0 {
-                            Err(tokio_rusqlite::Error::Rusqlite(
-                                rusqlite::Error::QueryReturnedNoRows,
-                            ))
+                            Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows))
                         } else {
                             Ok(())
                         }
                     })
                     .await
                     .map_err(|e| {
-                        KeyManagerStorageError::StorageError(format!(
-                            "Failed to update key manager state: {e}"
-                        ))
+                        KeyManagerStorageError::StorageError(format!("Failed to update key manager state: {e}"))
                     });
-            }
+            },
             Err(_) => {
                 let inserter = NewKeyManagerStateSql {
                     wallet_id: self.wallet_id,
@@ -186,17 +163,13 @@ impl KeyManagerStateSql {
                     timestamp: self.timestamp,
                 };
                 inserter.commit(conn).await?;
-            }
+            },
         }
         Ok(())
     }
 
     /// Updates the key index of the of the provided key manager indicated by the id.
-    pub async fn set_index(
-        id: i32,
-        index: Vec<u8>,
-        conn: &Connection,
-    ) -> Result<(), KeyManagerStorageError> {
+    pub async fn set_index(id: i32, index: Vec<u8>, conn: &Connection) -> Result<(), KeyManagerStorageError> {
         let rows_affected = conn
             .call(move |conn| {
                 let rows_affected = conn.execute(
@@ -210,9 +183,7 @@ impl KeyManagerStateSql {
                 Ok(rows_affected)
             })
             .await
-            .map_err(|e| {
-                KeyManagerStorageError::StorageError(format!("Failed to save wallet: {e}"))
-            })?;
+            .map_err(|e| KeyManagerStorageError::StorageError(format!("Failed to save wallet: {e}")))?;
         if rows_affected == 0 {
             return Err(KeyManagerStorageError::KeyManagerNotInitialized);
         }
@@ -245,11 +216,8 @@ impl Encryptable<XChaCha20Poly1305> for KeyManagerStateSql {
     }
 
     fn decrypt(mut self, cipher: &XChaCha20Poly1305) -> Result<Self, String> {
-        self.primary_key_index = decrypt_bytes_integral_nonce(
-            cipher,
-            self.domain("primary_key_index"),
-            &self.primary_key_index,
-        )?;
+        self.primary_key_index =
+            decrypt_bytes_integral_nonce(cipher, self.domain("primary_key_index"), &self.primary_key_index)?;
 
         Ok(self)
     }

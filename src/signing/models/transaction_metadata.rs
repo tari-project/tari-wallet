@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tari_common_types::types::CompressedCommitment;
-use tari_transaction_components::{
-    tari_amount::MicroMinotari, transaction_components::KernelFeatures,
-};
+use tari_transaction_components::{tari_amount::MicroMinotari, transaction_components::KernelFeatures};
 
 /// Transaction metadata, this includes all the fields that needs to be signed on the kernel
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -27,11 +25,7 @@ impl TransactionMetadata {
         }
     }
 
-    pub fn new_with_features(
-        fee: MicroMinotari,
-        lock_height: u64,
-        kernel_features: KernelFeatures,
-    ) -> Self {
+    pub fn new_with_features(fee: MicroMinotari, lock_height: u64, kernel_features: KernelFeatures) -> Self {
         Self {
             fee,
             lock_height,

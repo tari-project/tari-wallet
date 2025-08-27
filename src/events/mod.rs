@@ -31,8 +31,11 @@
 //! # Example Usage
 //!
 //! ```rust,no_run
-//! use lightweight_wallet_libs::events::{EventDispatcher, EventListener};
-//! use lightweight_wallet_libs::events::listeners::{ProgressTrackingListener, ConsoleLoggingListener};
+//! use lightweight_wallet_libs::events::{
+//!     listeners::{ConsoleLoggingListener, ProgressTrackingListener},
+//!     EventDispatcher,
+//!     EventListener,
+//! };
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create an event dispatcher
@@ -62,13 +65,15 @@
 //!
 //! ```rust,no_run
 //! use async_trait::async_trait;
-//! use lightweight_wallet_libs::events::{EventListener, WalletScanEvent};
-//! use lightweight_wallet_libs::events::SharedEvent;
+//! use lightweight_wallet_libs::events::{EventListener, SharedEvent, WalletScanEvent};
 //! struct CustomListener;
 //!
 //! #[async_trait]
 //! impl EventListener for CustomListener {
-//!     async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     async fn handle_event(
+//!         &mut self,
+//!         event: &SharedEvent,
+//!     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!         // Handle the event
 //!         println!("Received event: {:?}", event);
 //!         Ok(())
@@ -76,12 +81,15 @@
 //! }
 //! ```
 
+use std::{
+    collections::HashSet,
+    error::Error,
+    fmt,
+    time::{Duration, Instant},
+};
+
 use async_trait::async_trait;
 use serde::Serialize;
-use std::collections::HashSet;
-use std::error::Error;
-use std::fmt;
-use std::time::{Duration, Instant};
 
 // Public module exports
 pub mod error_recovery;
@@ -93,21 +101,41 @@ pub mod test_utils;
 pub mod types;
 
 // Re-export core types for convenience
-pub use error_recovery::{
-    ErrorRecord, ErrorRecoveryConfig, ErrorRecoveryManager, ErrorStats, RetryableOperation,
-};
+pub use error_recovery::{ErrorRecord, ErrorRecoveryConfig, ErrorRecoveryManager, ErrorStats, RetryableOperation};
 pub use listener::{EventListener as WalletEventListener, EventRegistry, RegistryStats};
 #[cfg(feature = "storage")]
 pub use replay::{
-    BalanceComparison, EventReplayEngine, ReplayConfig, ReplayProgress, ReplayResult,
-    ReplayedWalletState, SpentUtxoState, StateComparison, StateDiscrepancy,
-    StateVerificationResult, TransactionComparison, UtxoComparison, UtxoState, ValidationIssue,
-    ValidationIssueType, ValidationSeverity, VerificationStatus, VerificationSummary,
+    BalanceComparison,
+    EventReplayEngine,
+    ReplayConfig,
+    ReplayProgress,
+    ReplayResult,
+    ReplayedWalletState,
+    SpentUtxoState,
+    StateComparison,
+    StateDiscrepancy,
+    StateVerificationResult,
+    TransactionComparison,
+    UtxoComparison,
+    UtxoState,
+    ValidationIssue,
+    ValidationIssueType,
+    ValidationSeverity,
+    VerificationStatus,
+    VerificationSummary,
 };
 pub use test_utils::{EventCapture, EventPattern, PerformanceAssertion, TestScenario};
 pub use types::{
-    EventListenerError, ReorgPayload, SharedWalletEvent, UtxoReceivedPayload, UtxoSpentPayload,
-    WalletEvent, WalletEventError, WalletEventResult, WalletEventValidationError, *,
+    EventListenerError,
+    ReorgPayload,
+    SharedWalletEvent,
+    UtxoReceivedPayload,
+    UtxoSpentPayload,
+    WalletEvent,
+    WalletEventError,
+    WalletEventResult,
+    WalletEventValidationError,
+    *,
 };
 
 /// Errors that can occur during event dispatcher operations
@@ -126,16 +154,16 @@ impl fmt::Display for EventDispatcherError {
         match self {
             EventDispatcherError::DuplicateListener(name) => {
                 write!(f, "Listener with name '{name}' is already registered")
-            }
+            },
             EventDispatcherError::TooManyListeners { current, max } => {
                 write!(
                     f,
                     "Cannot register listener: maximum of {max} listeners allowed, currently have {current}"
                 )
-            }
+            },
             EventDispatcherError::InvalidListenerName(name) => {
                 write!(f, "Invalid listener name: '{name}'")
-            }
+            },
         }
     }
 }
@@ -223,10 +251,7 @@ pub trait EventListener: Send + Sync {
     ///
     /// Returns `Ok(())` on successful handling, or an error if processing fails.
     /// Errors are logged but do not interrupt the scanning process or other listeners.
-    async fn handle_event(
-        &mut self,
-        event: &SharedEvent,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Optional: Get a name for this listener (used for debugging and logging)
     fn name(&self) -> &'static str {
@@ -376,10 +401,7 @@ impl EventDispatcher {
     /// * `DuplicateListener` - If a listener with the same name is already registered
     /// * `TooManyListeners` - If the maximum listener limit would be exceeded
     /// * `InvalidListenerName` - If the listener name is invalid
-    pub fn register(
-        &mut self,
-        listener: Box<dyn EventListener>,
-    ) -> Result<(), EventDispatcherError> {
+    pub fn register(&mut self, listener: Box<dyn EventListener>) -> Result<(), EventDispatcherError> {
         let listener_name = listener.name().to_string();
 
         // Validate listener name
@@ -428,9 +450,7 @@ impl EventDispatcher {
 
         if self.debug_mode {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(
-                &format!("Registering event listener (unchecked): {listener_name}").into(),
-            );
+            web_sys::console::log_1(&format!("Registering event listener (unchecked): {listener_name}").into());
             #[cfg(not(target_arch = "wasm32"))]
             println!("Registering event listener (unchecked): {listener_name}");
         }
@@ -462,11 +482,7 @@ impl EventDispatcher {
 
         // Update statistics
         self.stats.total_events_dispatched += 1;
-        *self
-            .stats
-            .events_by_type
-            .entry(event_type.clone())
-            .or_insert(0) += 1;
+        *self.stats.events_by_type.entry(event_type.clone()).or_insert(0) += 1;
 
         // Collect traces to add after processing (to avoid borrowing conflicts)
         let mut traces_to_add = Vec::new();
@@ -489,22 +505,16 @@ impl EventDispatcher {
                 Ok(_) => (true, None),
                 Err(e) => {
                     self.stats.total_listener_errors += 1;
-                    *self
-                        .stats
-                        .errors_by_listener
-                        .entry(listener_name.clone())
-                        .or_insert(0) += 1;
+                    *self.stats.errors_by_listener.entry(listener_name.clone()).or_insert(0) += 1;
 
                     // Log the error but continue with other listeners
                     #[cfg(target_arch = "wasm32")]
-                    web_sys::console::error_1(
-                        &format!("Event listener '{listener_name}' failed: {e}").into(),
-                    );
+                    web_sys::console::error_1(&format!("Event listener '{listener_name}' failed: {e}").into());
                     #[cfg(not(target_arch = "wasm32"))]
                     eprintln!("Event listener '{listener_name}' failed: {e}");
 
                     (false, Some(e.to_string()))
-                }
+                },
             };
 
             // Create trace entry if debugging is enabled
@@ -523,7 +533,8 @@ impl EventDispatcher {
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(
                     &format!(
-                        "Listener '{listener_name}' processed {event_type} in {processing_duration:?} - Success: {success}"
+                        "Listener '{listener_name}' processed {event_type} in {processing_duration:?} - Success: \
+                         {success}"
                     )
                     .into(),
                 );
@@ -541,8 +552,8 @@ impl EventDispatcher {
 
         // Check if auto cleanup should be triggered after all events in this dispatch
         // Only do auto cleanup if threshold is meaningfully higher than max
-        if self.should_trigger_auto_cleanup()
-            && self.memory_config.auto_cleanup_threshold > self.memory_config.max_trace_entries
+        if self.should_trigger_auto_cleanup() &&
+            self.memory_config.auto_cleanup_threshold > self.memory_config.max_trace_entries
         {
             self.perform_auto_cleanup();
         }
@@ -553,8 +564,7 @@ impl EventDispatcher {
         if self.debug_mode {
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(
-                &format!("Event {event_type} dispatch completed in {total_dispatch_duration:?}")
-                    .into(),
+                &format!("Event {event_type} dispatch completed in {total_dispatch_duration:?}").into(),
             );
             #[cfg(not(target_arch = "wasm32"))]
             println!("Event {event_type} dispatch completed in {total_dispatch_duration:?}");
@@ -684,16 +694,11 @@ impl EventDispatcher {
         let max_trace_entries = self.memory_config.max_trace_entries;
 
         format!(
-            "Event Dispatcher Debug Summary:\n\
-             - Total events dispatched: {total_events_dispatched}\n\
-             - Total listener calls: {total_listener_calls}\n\
-             - Total listener errors: {total_listener_errors}\n\
-             - Total processing time: {total_processing_time:?}\n\
-             - Average time per event: {avg_time_per_event:?}\n\
-             - Events by type: {events_by_type:?}\n\
-             - Errors by listener: {errors_by_listener:?}\n\
-             - Active listeners: {active_listeners}\n\
-             - Trace entries: {trace_entries}/{max_trace_entries}"
+            "Event Dispatcher Debug Summary:\n- Total events dispatched: {total_events_dispatched}\n- Total listener \
+             calls: {total_listener_calls}\n- Total listener errors: {total_listener_errors}\n- Total processing \
+             time: {total_processing_time:?}\n- Average time per event: {avg_time_per_event:?}\n- Events by type: \
+             {events_by_type:?}\n- Errors by listener: {errors_by_listener:?}\n- Active listeners: \
+             {active_listeners}\n- Trace entries: {trace_entries}/{max_trace_entries}"
         )
     }
 
@@ -743,12 +748,7 @@ impl EventDispatcher {
     fn cleanup_statistics_maps(&mut self) {
         // Clean up events_by_type map if it gets too large
         if self.stats.events_by_type.len() > self.memory_config.max_stats_map_entries {
-            let mut entries: Vec<_> = self
-                .stats
-                .events_by_type
-                .iter()
-                .map(|(k, v)| (k.clone(), *v))
-                .collect();
+            let mut entries: Vec<_> = self.stats.events_by_type.iter().map(|(k, v)| (k.clone(), *v)).collect();
             entries.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by count descending
             entries.truncate(self.memory_config.max_stats_map_entries);
 
@@ -772,8 +772,8 @@ impl EventDispatcher {
 
     /// Perform automatic cleanup when threshold is exceeded
     fn perform_auto_cleanup(&mut self) {
-        let target_size = (self.memory_config.max_trace_entries as f32
-            * self.memory_config.cleanup_retention_ratio) as usize;
+        let target_size =
+            (self.memory_config.max_trace_entries as f32 * self.memory_config.cleanup_retention_ratio) as usize;
         let current_size = self.event_traces.len();
 
         if current_size > target_size {
@@ -784,9 +784,7 @@ impl EventDispatcher {
         if self.debug_mode {
             let removed_entries = current_size - self.event_traces.len();
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(
-                &format!("Auto cleanup: removed {removed_entries} trace entries").into(),
-            );
+            web_sys::console::log_1(&format!("Auto cleanup: removed {removed_entries} trace entries").into());
             #[cfg(not(target_arch = "wasm32"))]
             println!("Auto cleanup: removed {removed_entries} trace entries");
         }
@@ -815,8 +813,9 @@ impl Default for EventDispatcher {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod native_tests {
-    use super::*;
     use std::sync::{Arc, Mutex};
+
+    use super::*;
 
     // Test listener that records events
     struct TestListener {
@@ -850,10 +849,7 @@ mod native_tests {
 
     #[async_trait]
     impl EventListener for TestListener {
-        async fn handle_event(
-            &mut self,
-            event: &SharedEvent,
-        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             if self.should_fail {
                 return Err("Test listener failure".into());
             }
@@ -913,12 +909,7 @@ mod native_tests {
         dispatcher.register(Box::new(listener3)).unwrap();
 
         // Create a test event
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (0, 100),
-            "test".to_string(),
-        );
+        let event = WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "test".to_string());
 
         // Dispatch the event
         dispatcher.dispatch(event).await;
@@ -998,6 +989,7 @@ mod native_tests {
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 Ok(())
             }
+
             fn name(&self) -> &'static str {
                 ""
             }
@@ -1021,6 +1013,7 @@ mod native_tests {
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 Ok(())
             }
+
             fn name(&self) -> &'static str {
                 "   "
             }
@@ -1062,12 +1055,7 @@ mod native_tests {
         dispatcher.register(Box::new(listener3)).unwrap();
 
         // Create test events
-        let event1 = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (0, 100),
-            "test".to_string(),
-        );
+        let event1 = WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "test".to_string());
 
         let event2 = WalletScanEvent::scan_progress(
             "test_wallet",
@@ -1127,12 +1115,8 @@ mod native_tests {
 
         // Dispatch 5 events (more than the limit of 3)
         for i in 0..5 {
-            let event = WalletScanEvent::scan_started(
-                "test_wallet",
-                ScanConfig::default(),
-                (i, i + 1),
-                format!("test_{i}"),
-            );
+            let event =
+                WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (i, i + 1), format!("test_{i}"));
             dispatcher.dispatch(event).await;
         }
 
@@ -1186,12 +1170,7 @@ mod native_tests {
         let listener = TestListener::new("summary_listener");
         dispatcher.register(Box::new(listener)).unwrap();
 
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (0, 100),
-            "test".to_string(),
-        );
+        let event = WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "test".to_string());
 
         dispatcher.dispatch(event).await;
 
@@ -1210,12 +1189,7 @@ mod native_tests {
         let listener = TestListener::new("clear_test_listener");
         dispatcher.register(Box::new(listener)).unwrap();
 
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (0, 100),
-            "test".to_string(),
-        );
+        let event = WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "test".to_string());
 
         dispatcher.dispatch(event).await;
 
@@ -1252,12 +1226,8 @@ mod native_tests {
 
         // Dispatch some events to test memory limits
         for i in 0..10 {
-            let event = WalletScanEvent::scan_started(
-                "test_wallet",
-                ScanConfig::default(),
-                (i, i + 1),
-                format!("test_{i}"),
-            );
+            let event =
+                WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (i, i + 1), format!("test_{i}"));
             dispatcher.dispatch(event).await;
         }
 
@@ -1285,12 +1255,9 @@ mod native_tests {
         // Create events with many different types to test map cleanup
         for i in 0..10 {
             let event = match i % 5 {
-                0 => WalletScanEvent::scan_started(
-                    "test_wallet",
-                    ScanConfig::default(),
-                    (i, i + 1),
-                    format!("test_{i}"),
-                ),
+                0 => {
+                    WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (i, i + 1), format!("test_{i}"))
+                },
                 1 => WalletScanEvent::block_processed(
                     "test_wallet",
                     i,
@@ -1346,12 +1313,8 @@ mod native_tests {
 
         // Dispatch 7 events to reach the auto cleanup threshold (threshold is 7)
         for i in 0..7 {
-            let event = WalletScanEvent::scan_started(
-                "test_wallet",
-                ScanConfig::default(),
-                (i, i + 1),
-                format!("test_{i}"),
-            );
+            let event =
+                WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (i, i + 1), format!("test_{i}"));
             dispatcher.dispatch(event).await;
         }
 
@@ -1392,11 +1355,12 @@ mod native_tests {
 // WASM-compatible tests - these run on both native and WASM
 #[cfg(test)]
 mod cross_platform_tests {
-    use super::*;
     use std::sync::{Arc, Mutex};
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
+
+    use super::*;
 
     // Test listener that records events (WASM compatible)
     struct WasmTestListener {
@@ -1425,10 +1389,7 @@ mod cross_platform_tests {
 
     #[async_trait]
     impl EventListener for WasmTestListener {
-        async fn handle_event(
-            &mut self,
-            event: &SharedEvent,
-        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        async fn handle_event(&mut self, event: &SharedEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             if self.should_fail {
                 return Err("Test listener failure".into());
             }
@@ -1488,16 +1449,10 @@ mod cross_platform_tests {
 
         dispatcher.register(Box::new(working_listener)).unwrap();
         dispatcher.register(Box::new(failing_listener)).unwrap();
-        dispatcher
-            .register(Box::new(another_working_listener))
-            .unwrap();
+        dispatcher.register(Box::new(another_working_listener)).unwrap();
 
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (0, 100),
-            "error_test".to_string(),
-        );
+        let event =
+            WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "error_test".to_string());
 
         // Error isolation should work the same on both platforms
         dispatcher.dispatch(event).await;
@@ -1511,10 +1466,7 @@ mod cross_platform_tests {
         assert!(traces[2].success); // another_working_listener
 
         assert!(traces[1].error_message.is_some());
-        assert_eq!(
-            traces[1].error_message.as_ref().unwrap(),
-            "Test listener failure"
-        );
+        assert_eq!(traces[1].error_message.as_ref().unwrap(), "Test listener failure");
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
@@ -1527,12 +1479,8 @@ mod cross_platform_tests {
         dispatcher.register(Box::new(listener)).unwrap();
         assert_eq!(dispatcher.listener_count(), 1);
 
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (0, 100),
-            "basic_test".to_string(),
-        );
+        let event =
+            WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "basic_test".to_string());
 
         dispatcher.dispatch(event).await;
 

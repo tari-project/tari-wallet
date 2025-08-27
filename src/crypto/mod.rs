@@ -5,13 +5,10 @@
 
 // Re-export domain separated hashing from tari-crypto
 pub use tari_crypto::hashing::{DomainSeparatedHash, DomainSeparatedHasher, DomainSeparation};
-
-// Re-export Ristretto keys from tari-crypto
-pub use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
-
 // Re-export key traits from tari-crypto
 pub use tari_crypto::keys::{PublicKey, SecretKey};
-
+// Re-export Ristretto keys from tari-crypto
+pub use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
 // Re-export signature types from tari-crypto
 pub use tari_crypto::signatures::SchnorrSignature;
 

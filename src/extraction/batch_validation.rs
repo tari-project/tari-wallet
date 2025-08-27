@@ -1,5 +1,4 @@
-use crate::data_structures::transaction_output::TransactionOutput;
-use crate::errors::ValidationError;
+use crate::{data_structures::transaction_output::TransactionOutput, errors::ValidationError};
 
 /// Batch validation result containing validation status for multiple outputs
 #[derive(Debug, Clone)]
@@ -111,9 +110,7 @@ fn validate_single_output(
     // Validate range proofs
     if options.validate_range_proofs {
         if let Some(proof) = output.proof() {
-            if let Err(e) =
-                validate_range_proof(proof, output.commitment(), output.minimum_value_promise())
-            {
+            if let Err(e) = validate_range_proof(proof, output.commitment(), output.minimum_value_promise()) {
                 errors.push(e);
                 is_valid = false;
                 if !options.continue_on_error || errors.len() >= options.max_errors_per_output {
@@ -137,10 +134,7 @@ fn validate_single_output(
 }
 
 /// Validate a batch of transaction outputs with optimized performance
-pub fn validate_output_batch(
-    outputs: &[TransactionOutput],
-    options: &BatchValidationOptions,
-) -> BatchValidationResult {
+pub fn validate_output_batch(outputs: &[TransactionOutput], options: &BatchValidationOptions) -> BatchValidationResult {
     let results: Vec<OutputValidationResult> = outputs
         .iter()
         .enumerate()

@@ -7,16 +7,20 @@ use tari_crypto::tari_utilities::ByteArray;
 use tari_transaction_components::{
     aggregated_body::AggregateBody,
     transaction_components::{
-        OutputFeatures, SideChainFeature, SideChainFeatureData, SideChainId, Transaction,
-        TransactionInput, TransactionKernel, TransactionOutput,
+        OutputFeatures,
+        SideChainFeature,
+        SideChainFeatureData,
+        SideChainId,
+        Transaction,
+        TransactionInput,
+        TransactionKernel,
+        TransactionOutput,
     },
 };
 
 use crate::tari_rpc;
 
-fn convert_sidechain_feature_data(
-    _data: SideChainFeatureData,
-) -> tari_rpc::side_chain_feature::Feature {
+fn convert_sidechain_feature_data(_data: SideChainFeatureData) -> tari_rpc::side_chain_feature::Feature {
     unimplemented!()
 }
 
@@ -106,9 +110,7 @@ fn convert_transaction_input(input: TransactionInput) -> tari_rpc::TransactionIn
                 .expect("Non-compact Transaction input should contain encrypted value")
                 .to_byte_vec(),
             metadata_signature: Some(tari_rpc::ComAndPubSignature {
-                ephemeral_commitment: Vec::from(
-                    metadata_signature.ephemeral_commitment().as_bytes(),
-                ),
+                ephemeral_commitment: Vec::from(metadata_signature.ephemeral_commitment().as_bytes()),
                 ephemeral_pubkey: Vec::from(metadata_signature.ephemeral_pubkey().as_bytes()),
                 u_a: Vec::from(metadata_signature.u_a().as_bytes()),
                 u_x: Vec::from(metadata_signature.u_x().as_bytes()),
@@ -126,10 +128,7 @@ fn convert_transaction_input(input: TransactionInput) -> tari_rpc::TransactionIn
     }
 }
 
-fn convert_transaction_output(
-    output: TransactionOutput,
-    block_hash: Option<BlockHash>,
-) -> tari_rpc::TransactionOutput {
+fn convert_transaction_output(output: TransactionOutput, block_hash: Option<BlockHash>) -> tari_rpc::TransactionOutput {
     let output_hash = output.hash();
     let mut covenant = Vec::new();
     BorshSerialize::serialize(&output.covenant, &mut covenant).unwrap();
@@ -144,9 +143,7 @@ fn convert_transaction_output(
         script: output.script.to_bytes(),
         sender_offset_public_key: output.sender_offset_public_key.as_bytes().to_vec(),
         metadata_signature: Some(tari_rpc::ComAndPubSignature {
-            ephemeral_commitment: Vec::from(
-                output.metadata_signature.ephemeral_commitment().as_bytes(),
-            ),
+            ephemeral_commitment: Vec::from(output.metadata_signature.ephemeral_commitment().as_bytes()),
             ephemeral_pubkey: Vec::from(output.metadata_signature.ephemeral_pubkey().as_bytes()),
             u_a: Vec::from(output.metadata_signature.u_a().as_bytes()),
             u_x: Vec::from(output.metadata_signature.u_x().as_bytes()),
@@ -188,29 +185,16 @@ fn convert_transaction_kernel(kernel: TransactionKernel) -> tari_rpc::Transactio
     }
 }
 
-fn convert_aggregate_body(
-    body: AggregateBody,
-    block_hash: Option<BlockHash>,
-) -> tari_rpc::AggregateBody {
+fn convert_aggregate_body(body: AggregateBody, block_hash: Option<BlockHash>) -> tari_rpc::AggregateBody {
     tari_rpc::AggregateBody {
-        inputs: body
-            .inputs()
-            .iter()
-            .cloned()
-            .map(convert_transaction_input)
-            .collect(),
+        inputs: body.inputs().iter().cloned().map(convert_transaction_input).collect(),
         outputs: body
             .outputs()
             .iter()
             .cloned()
             .map(|o| convert_transaction_output(o, block_hash))
             .collect(),
-        kernels: body
-            .kernels()
-            .iter()
-            .cloned()
-            .map(convert_transaction_kernel)
-            .collect(),
+        kernels: body.kernels().iter().cloned().map(convert_transaction_kernel).collect(),
     }
 }
 

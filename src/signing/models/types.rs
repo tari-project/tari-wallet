@@ -8,7 +8,8 @@ use tari_transaction_components::{
 
 use crate::{
     models::{marshal_output_pair::MarshalOutputPair, transaction_metadata::TransactionMetadata},
-    SerializationError, WalletError,
+    SerializationError,
+    WalletError,
 };
 
 const SUPPORTED_VERSION: &str = "1.0.0";
@@ -23,11 +24,11 @@ pub trait HasVersion {
 
 pub trait TransactionResult: HasVersion + Serialize + DeserializeOwned + Sized {
     fn from_json(s: &str) -> Result<Self, WalletError> {
-        let value: serde_json::Value = serde_json::from_str(s)
-            .map_err(|e| SerializationError::JsonDeserializationError(e.to_string()))?;
-        let version = value.get("version").ok_or_else(|| {
-            SerializationError::JsonDeserializationError("Missing version".into())
-        })?;
+        let value: serde_json::Value =
+            serde_json::from_str(s).map_err(|e| SerializationError::JsonDeserializationError(e.to_string()))?;
+        let version = value
+            .get("version")
+            .ok_or_else(|| SerializationError::JsonDeserializationError("Missing version".into()))?;
         let version: Version = serde_json::from_value(version.clone())
             .map_err(|e| SerializationError::JsonDeserializationError(e.to_string()))?;
         if version != get_supported_version() {
@@ -39,15 +40,14 @@ pub trait TransactionResult: HasVersion + Serialize + DeserializeOwned + Sized {
             .into());
         }
 
-        let deserialized_obj: Self = serde_json::from_str(s)
-            .map_err(|e| SerializationError::JsonDeserializationError(e.to_string()))?;
+        let deserialized_obj: Self =
+            serde_json::from_str(s).map_err(|e| SerializationError::JsonDeserializationError(e.to_string()))?;
 
         Ok(deserialized_obj)
     }
 
     fn to_json(&self) -> Result<String, WalletError> {
-        serde_json::to_string(&self)
-            .map_err(|e| SerializationError::JsonSerializationError(e.to_string()).into())
+        serde_json::to_string(&self).map_err(|e| SerializationError::JsonSerializationError(e.to_string()).into())
     }
 }
 

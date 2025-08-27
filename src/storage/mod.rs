@@ -29,8 +29,6 @@ pub use output_status::*;
 pub use performance_optimizations::*;
 #[cfg(feature = "storage")]
 pub use sqlite::*;
-
 #[cfg(feature = "storage")]
 pub use storage_trait::*;
-
 pub use stored_output::*;
