@@ -7,7 +7,7 @@ use crate::extraction::ExtractionConfig;
 // Only import HTTP scanner types when available
 #[cfg(feature = "http")]
 use crate::scanning::{
-    http_scanner::{HttpBlockData, HttpBlockResponse, HttpBlockchainScanner, HttpOutputData},
+    http_scanner::{BlockUtxoInfo, HttpBlockResponse, HttpBlockchainScanner, MinimalUtxoSyncInfo},
     BlockchainScanner,
     ScanConfig,
 };
@@ -64,16 +64,16 @@ impl From<crate::scanning::BlockInfo> for WasmBlockInfo {
 #[cfg(not(feature = "http"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpBlockResponse {
-    pub blocks: Vec<HttpBlockData>,
+    pub blocks: Vec<BlockUtxoInfo>,
     pub has_next_page: bool,
 }
 
 #[cfg(not(feature = "http"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpBlockData {
+pub struct BlockUtxoInfo {
     pub header_hash: Vec<u8>,
     pub height: u64,
-    pub outputs: Vec<HttpOutputData>,
+    pub outputs: Vec<MinimalUtxoSyncInfo>,
     /// Inputs are now just arrays of 32-byte hashes (commitments) that have been spent
     /// This matches the actual API response format
     #[serde(default)]
@@ -83,7 +83,7 @@ pub struct HttpBlockData {
 
 #[cfg(not(feature = "http"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpOutputData {
+pub struct MinimalUtxoSyncInfo {
     pub output_hash: Vec<u8>,
     pub commitment: Vec<u8>,
     pub encrypted_data: Vec<u8>,
@@ -418,7 +418,7 @@ impl WasmScanner {
     }
 
     /// Process single HTTP block using the new HTTP scanner if available, otherwise fallback to legacy method
-    fn process_single_http_block(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
+    fn process_single_http_block(&mut self, http_block: &BlockUtxoInfo) -> Result<(usize, usize), String> {
         // If we have an HTTP scanner, try to use it for better integration
         #[cfg(feature = "http")]
         if self.http_scanner.is_some() {
@@ -431,7 +431,7 @@ impl WasmScanner {
 
     /// Process single HTTP block using HTTP scanner (new method)
     #[cfg(feature = "http")]
-    fn process_single_http_block_with_scanner(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
+    fn process_single_http_block_with_scanner(&mut self, http_block: &BlockUtxoInfo) -> Result<(usize, usize), String> {
         // Convert HTTP block to our internal format and process
         // For now, use the same conversion logic but with better integration potential
         self.process_single_http_block_legacy(http_block)
@@ -442,7 +442,7 @@ impl WasmScanner {
     /// This method converts HTTP block data to the Block struct and uses the same
     /// `process_outputs()` method. For inputs, it now handles the simplified structure
     /// where inputs are just arrays of 32-byte commitment hashes.
-    fn process_single_http_block_legacy(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
+    fn process_single_http_block_legacy(&mut self, http_block: &BlockUtxoInfo) -> Result<(usize, usize), String> {
         // Convert HTTP outputs to TransactionOutput (same as scanner.rs expects)
         let outputs = self.convert_http_outputs_to_lightweight(&http_block.outputs)?;
 
@@ -533,7 +533,7 @@ impl WasmScanner {
     /// Convert HTTP output data to TransactionOutput (minimal viable format)
     fn convert_http_outputs_to_lightweight(
         &self,
-        http_outputs: &[HttpOutputData],
+        http_outputs: &[MinimalUtxoSyncInfo],
     ) -> Result<Vec<TransactionOutput>, String> {
         let mut outputs = Vec::new();
 

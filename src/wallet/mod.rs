@@ -14,6 +14,7 @@ use tari_common_types::{
     types::{CompressedPublicKey, PrivateKey},
 };
 use tari_common_types::seeds::cipher_seed::CipherSeed;
+use tari_common_types::seeds::mnemonic::Mnemonic;
 use tari_common_types::seeds::seed_words::SeedWords;
 use tari_common_types::wallet_types::WalletType;
 use tari_transaction_components::crypto_factories::CryptoFactories;
@@ -62,19 +63,15 @@ impl<KMBackend> Wallet<KMBackend> where
 
     /// Create a new wallet from a seed phrase and optional passphrase
     pub async fn new_from_seed_phrase(seed_words: &SeedWords,
-                                      passphrase: Option<SafePassword>, crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Result<Self, KeyManagementError> {
+                                      passphrase: Option<SafePassword>, crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Result<Self, String> {
         // Convert seed phrase to master key
-        let master_key = CipherSeed::from_mnemonic(seed_words, passphrase)
+        let master_key = match CipherSeed::from_mnemonic(seed_words, passphrase){
+            Ok(seed) => seed,
+            Err(e) => return Err(format!("Failed to create CipherSeed from mnemonic: {}", e)),
+        };
 
-        // Calculate current birthday as days since genesis
-        let birthday = Self::calculate_current_birthday();
+        Ok(Wallet::new(master_key, crypto_factories, wallet_type, backend).await)
 
-        Ok(Self {
-            master_key: SafeArray::new(master_key),
-            birthday,
-            metadata: WalletMetadata::default(),
-            original_seed_phrase: Some(phrase.to_string()),
-        })
     }
 
     /// Generate a new wallet with random entropy
@@ -83,66 +80,17 @@ impl<KMBackend> Wallet<KMBackend> where
     /// Note: The passphrase parameter is included for API consistency but is not
     /// currently used since we generate random entropy directly rather than
     /// deriving from a mnemonic phrase.
-    pub fn generate_new(_passphrase: Option<&str>) -> Self {
-        // Generate 32 bytes of cryptographically secure random entropy
-        let mut master_key_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut master_key_bytes);
-
-        // Calculate current birthday
-        let birthday = Self::calculate_current_birthday();
-
-        Self {
-            master_key: SafeArray::new(master_key_bytes),
-            birthday,
-            metadata: WalletMetadata::default(),
-            original_seed_phrase: None,
-        }
-    }
-
-    /// Generate a new wallet with a fresh seed phrase
-    ///
-    /// Creates a wallet using a randomly generated 24-word BIP39 seed phrase.
-    /// The original seed phrase is stored and can be exported using `export_seed_phrase()`.
-    pub fn generate_new_with_seed_phrase(passphrase: Option<&str>) -> Result<Self, KeyManagementError> {
-        // Create a new CipherSeed with random entropy
-        let cipher_seed = CipherSeed::new();
-
-        // Encrypt the CipherSeed with the provided passphrase (or default if None)
-        let encrypted_bytes = cipher_seed
-            .encipher(passphrase)
-            .map_err(|e| KeyManagementError::cipher_seed_encryption_failed(&e.to_string()))?;
-
-        // Convert encrypted bytes to mnemonic words
-        let seed_phrase = bytes_to_mnemonic(&encrypted_bytes)?;
-
-        // Create wallet from the generated seed phrase with the same passphrase
-        Self::new_from_seed_phrase(&seed_phrase, passphrase)
-    }
-
-    /// Calculate the current birthday (days since Tari genesis date)
-    fn calculate_current_birthday() -> u64 {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default() // default to epoch on error
-            .as_secs();
-
-        if now < BIRTHDAY_GENESIS_FROM_UNIX_EPOCH {
-            return 0; // Before genesis date
-        }
-
-        let seconds_since_genesis = now - BIRTHDAY_GENESIS_FROM_UNIX_EPOCH;
-        seconds_since_genesis / SECONDS_PER_DAY
+    pub async fn generate_new(crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Self {
+       let master_key = CipherSeed::new();
+        Wallet::new(master_key, crypto_factories, wallet_type, backend).await
     }
 
     /// Get the wallet birthday (creation timestamp)
     pub fn birthday(&self) -> u64 {
-        self.birthday
+        5
+        //implement in keymanager with cipher seed, as it has the birthday encoded
     }
 
-    /// Set the wallet birthday
-    pub fn set_birthday(&mut self, birthday: u64) {
-        self.birthday = birthday;
-    }
 
     /// Get a reference to the wallet metadata
     pub fn metadata(&self) -> &WalletMetadata {
@@ -164,25 +112,7 @@ impl<KMBackend> Wallet<KMBackend> where
         self.metadata.label.as_ref()
     }
 
-    /// Set the network
-    pub fn set_network(&mut self, network: String) {
-        self.metadata.network = network;
-    }
 
-    /// Get the network
-    pub fn network(&self) -> &str {
-        &self.metadata.network
-    }
-
-    /// Get the current key index
-    pub fn current_key_index(&self) -> u64 {
-        self.metadata.current_key_index
-    }
-
-    /// Set the current key index
-    pub fn set_current_key_index(&mut self, index: u64) {
-        self.metadata.current_key_index = index;
-    }
 
     /// Add a custom property to the wallet metadata
     pub fn set_property(&mut self, key: String, value: String) {
@@ -204,72 +134,31 @@ impl<KMBackend> Wallet<KMBackend> where
     /// Returns the original seed phrase that was used to create this wallet.
     /// Returns an error if the wallet was created using `generate_new()` or other
     /// methods that don't use a seed phrase.
-    pub fn export_seed_phrase(&self) -> Result<String, KeyManagementError> {
-        self.original_seed_phrase
-            .clone()
-            .ok_or_else(|| KeyManagementError::SeedPhraseError("Wallet was not created from a seed phrase".to_string()))
+    pub fn export_seed_phrase(&self) -> Result<String, String> {
+        Err("Export this from the key manager".to_string())
     }
 
     /// Generate a dual address with view and spend keys
     ///
     /// Creates a dual Tari address using derived view and spend keys from the master key.
     /// This allows for stealth payments and other advanced functionality.
-    pub fn get_dual_address(
+    pub async fn get_dual_address(
         &self,
         features: TariAddressFeatures,
         payment_id: Option<Vec<u8>>,
     ) -> Result<TariAddress, KeyManagementError> {
-        // Derive view and spend keys from master key
-        let (view_key, spend_key) = self.derive_key_pair()?;
-
-        // Convert to CompressedPublicKey
-        let view_public_key = CompressedPublicKey::from_private_key(&view_key);
-        let spend_public_key = CompressedPublicKey::from_private_key(&spend_key);
-
-        // Use the network from wallet metadata or default to Esmeralda
-        let network = string_to_network(&self.metadata.network);
-
-        // Create dual address
-        let dual_address =
-            TariAddress::new_dual_address(view_public_key, spend_public_key, network, features, payment_id)
-                .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create dual address: {e}")))?;
-
-        Ok(dual_address)
+        let view_key = self.key_manager_service.get_view_key().await?;
+        let spend_key = self.key_manager_service.get_spend_key().await?;
+        Ok(TariAddress::new_dual_address(
+            view_key.pub_key,
+            spend_key.pub_key,
+            self.network.as_network(),
+            features,
+            payment_id,
+        )?)
     }
 }
 
-impl Zeroize for Wallet {
-    fn zeroize(&mut self) {
-        self.master_key.zeroize();
-        self.birthday = 0;
-        self.metadata.zeroize();
-        if let Some(ref mut seed_phrase) = self.original_seed_phrase {
-            seed_phrase.zeroize();
-        }
-        self.original_seed_phrase = None;
-    }
-}
-
-impl Drop for Wallet {
-    fn drop(&mut self) {
-        self.zeroize();
-    }
-}
-
-impl Zeroize for WalletMetadata {
-    fn zeroize(&mut self) {
-        if let Some(ref mut label) = self.label {
-            label.zeroize();
-        }
-        self.network.zeroize();
-        self.current_key_index = 0;
-        for (_key, _value) in self.properties.iter_mut() {
-            // Note: We can't zeroize String keys/values directly in HashMap iteration
-            // This is a limitation, but the metadata is not as sensitive as the master key
-        }
-        self.properties.clear();
-    }
-}
 
 #[cfg(test)]
 mod tests {

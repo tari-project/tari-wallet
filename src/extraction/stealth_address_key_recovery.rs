@@ -5,7 +5,7 @@
 
 use tari_common_types::types::PrivateKey;
 
-use crate::{errors::WalletError, key_management::StealthAddress};
+use crate::{errors::WalletError, };
 
 /// Result of stealth address key recovery
 #[derive(Debug, Clone)]

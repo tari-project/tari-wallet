@@ -132,6 +132,7 @@ pub use event_emitter::{
     create_default_event_emitter,
     ScanEventEmitter,
 };
+use crate::data_structures::incompleted_scanned_output::IncompleteScannedOutput;
 
 /// Legacy progress callback for scanning operations (for compatibility)
 pub type LegacyProgressCallback = Box<dyn Fn(ScanProgress) + Send + Sync>;
@@ -337,10 +338,8 @@ pub struct BlockScanResult {
     pub height: u64,
     /// Block hash
     pub block_hash: Vec<u8>,
-    /// Transaction outputs found in this block
-    pub outputs: Vec<TransactionOutput>,
     /// Wallet outputs extracted from transaction outputs
-    pub wallet_outputs: Vec<WalletOutput>,
+    pub wallet_outputs: Vec<IncompleteScannedOutput>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
 }

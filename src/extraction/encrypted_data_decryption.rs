@@ -11,7 +11,6 @@ use tari_transaction_components::{
 
 use crate::{
     errors::{EncryptionError, KeyManagementError, WalletError},
-    key_management::{ImportedPrivateKey, KeyStore},
 };
 /// Options for encrypted data decryption
 #[derive(Debug, Clone)]

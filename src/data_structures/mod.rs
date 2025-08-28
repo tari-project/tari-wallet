@@ -15,6 +15,7 @@ pub mod block;
 // pub mod types;
 // pub mod wallet_output;
 pub mod wallet_transaction;
+pub mod incompleted_scanned_output;
 
 #[cfg(test)]
 pub mod serialization_tests;
