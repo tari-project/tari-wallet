@@ -4,16 +4,10 @@
 //! in transaction outputs, ensuring they are consistent with range proofs
 //! and meet all cryptographic requirements.
 
-use crate::{
-    errors::ValidationError,
-};
-use tari_common_types::{types::{CompressedCommitment, PrivateKey, RangeProof}};
-use tari_transaction_components::{
-    transaction_components::{
-        RangeProofType,
-    },
-    MicroMinotari,
-};
+use tari_common_types::types::{CompressedCommitment, PrivateKey, RangeProof};
+use tari_transaction_components::{transaction_components::RangeProofType, MicroMinotari};
+
+use crate::errors::ValidationError;
 
 /// Options for minimum value promise verification
 #[derive(Debug, Clone)]

@@ -7,7 +7,7 @@
 //! This module is part of the scanner.rs binary refactoring effort.
 
 use hex;
-use tari_common_types::types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey};
+use tari_common_types::types::{PrivateKey};
 use tari_utilities::ByteArray;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 

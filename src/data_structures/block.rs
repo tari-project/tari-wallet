@@ -10,37 +10,23 @@
 // Add rayon for parallel processing
 #[cfg(feature = "grpc")]
 use rayon::prelude::*;
-use tari_script::{Opcode, TariScript};
-use crate::data_structures::WalletState;
-use tari_transaction_components::transaction_components::MemoField;
-use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, PrivateKey};
-use tari_transaction_components::{
-    aggregated_body::AggregateBody,
-    transaction_components::{
-        CoinBaseExtra,
-        EncryptedData,
-        KernelFeatures,
-        OutputFeatures,
-        OutputFeaturesVersion,
-        OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
-        TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
-        TransactionOutput,
-        TransactionOutputVersion,
-    },
-    MicroMinotari,
+use tari_common_types::{
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
 };
-use tari_common_types::transaction::{TransactionDirection, TransactionStatus};
+use tari_script::{Opcode, TariScript};
+use tari_transaction_components::transaction_components::{
+    EncryptedData,
+    MemoField,
+    OutputType,
+    TransactionInput,
+    TransactionOutput,
+};
 use tari_utilities::{hex::Hex, ByteArray};
 
-use crate::errors::WalletResult;
 #[cfg(feature = "grpc")]
 use crate::scanning::BlockInfo;
+use crate::{data_structures::WalletState, errors::WalletResult};
 
 /// A block with wallet-focused processing capabilities
 ///
@@ -373,8 +359,7 @@ impl Block {
                             // Additional verification: Only include transactions that were properly decrypted wallet
                             // outputs This filters out any incorrectly added transactions
                             if transaction.value > 0 &&
-                                transaction.transaction_direction ==
-                                    TransactionDirection::Inbound
+                                transaction.transaction_direction == TransactionDirection::Inbound
                             {
                                 spent_outputs.push(SpentOutputInfo {
                                     spent_transaction: transaction.clone(),
@@ -398,10 +383,7 @@ impl Block {
                     if transaction.commitment.as_bytes() == commitment.as_bytes() && !transaction.is_spent {
                         // Additional verification: Only include transactions that were properly decrypted wallet
                         // outputs This filters out any incorrectly added transactions
-                        if transaction.value > 0 &&
-                            transaction.transaction_direction ==
-                                TransactionDirection::Inbound
-                        {
+                        if transaction.value > 0 && transaction.transaction_direction == TransactionDirection::Inbound {
                             spent_outputs.push(SpentOutputInfo {
                                 spent_transaction: transaction.clone(),
                                 input_index,

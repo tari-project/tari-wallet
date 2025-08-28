@@ -27,37 +27,15 @@ pub use corruption_detection::{CorruptionDetectionResult, CorruptionDetector, Co
 pub use encrypted_data_decryption::{DecryptionOptions, DecryptionResult, EncryptedDataDecryptor};
 pub use payment_id_extraction::{MemoFieldExtractionResult, MemoFieldExtractor, MemoFieldMetadata, MemoFieldType};
 pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions, StealthKeyRecoveryResult};
-use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
-};
+use tari_common_types::types::{CompressedPublicKey, PrivateKey};
 use tari_script::ExecutionStack;
 use tari_transaction_components::{
-    aggregated_body::AggregateBody,
+    key_manager::TariKeyId,
     transaction_components::{
-        covenants::Covenant,
-        CoinBaseExtra,
-        EncryptedData,
-        KernelFeatures,
-        MemoField,
-        OutputFeatures,
-        OutputFeaturesVersion,
-        OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
-        TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
         TransactionOutput,
-        TransactionOutputVersion,
+        WalletOutput,
     },
-    MicroMinotari,
 };
-use tari_transaction_components::key_manager::TariKeyId;
-use tari_transaction_components::transaction_components::WalletOutput;
 pub use wallet_output_reconstruction::{
     WalletOutputReconstructionError,
     WalletOutputReconstructionOptions,
@@ -183,7 +161,7 @@ pub fn extract_wallet_output(
     // Create wallet output with the decrypted value and payment ID
     let wallet_output = WalletOutput::new(
         transaction_output.version,
-        value,                                              // Use the actual decrypted value
+        value,           // Use the actual decrypted value
         TariKeyId::Zero, // Default key ID
         transaction_output.features.clone(),
         transaction_output.script.clone(),

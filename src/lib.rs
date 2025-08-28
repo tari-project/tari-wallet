@@ -4,13 +4,13 @@
 //! including UTXO management, transaction validation, and key management.
 
 pub mod common;
-pub mod crypto;
+// pub mod crypto;
 pub mod data_structures;
 pub mod errors;
 pub mod events;
 pub mod extraction;
 pub mod hex_utils;
-pub mod key_management;
+// pub mod key_management;
 pub mod scanning;
 
 #[allow(dead_code)]
@@ -32,7 +32,7 @@ pub mod tari_rpc {
 pub use errors::*;
 pub use extraction::*;
 pub use hex_utils::*;
-pub use key_management::*;
+// pub use key_management::*;
 pub use scanning::*;
 #[cfg(feature = "storage")]
 pub use signing::*;

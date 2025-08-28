@@ -3,33 +3,9 @@
 //! This module provides functionality to decrypt encrypted data from transaction outputs
 //! using various types of keys (derived keys, imported keys, etc.).
 
-use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
-};
-use tari_common_types::types::CompressedCommitment;
+use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, PrivateKey};
 use tari_transaction_components::{
-    aggregated_body::AggregateBody,
-    transaction_components::{
-        covenants::Covenant,
-        CoinBaseExtra,
-        EncryptedData,
-        KernelFeatures,
-        MemoField,
-        OutputFeatures,
-        OutputFeaturesVersion,
-        OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
-        TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
-        TransactionOutput,
-        TransactionOutputVersion,
-    },
+    transaction_components::{EncryptedData, MemoField, TransactionOutput},
     MicroMinotari,
 };
 

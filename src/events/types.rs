@@ -11,35 +11,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
-};
-use tari_common_types::types::ComAndPubSignature;
-use tari_transaction_components::{
-    aggregated_body::AggregateBody,
-    transaction_components::{
-        covenants::Covenant,
-        CoinBaseExtra,
-        EncryptedData,
-        KernelFeatures,
-        MemoField,
-        OutputFeatures,
-        OutputFeaturesVersion,
-        OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
-        TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
-        TransactionOutput,
-        TransactionOutputVersion,
-    },
-    MicroMinotari,
-};
+use tari_transaction_components::transaction_components::{WalletOutput};
 use thiserror::Error;
 use zeroize::Zeroize;
 
@@ -181,41 +153,41 @@ pub struct ScanConfig {
 }
 
 /// Complete output data information for OutputFound events
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputData {
-    /// The commitment value of the output
-    pub commitment: String,
-    /// The range proof associated with the output
-    pub range_proof: String,
-    /// The encrypted value of the output (if available)
-    pub encrypted_value: Option<Vec<u8>>,
-    /// The script associated with the output (if any)
-    pub script: Option<String>,
-    /// Features flags for this output
-    pub features: u32,
-    /// Maturity height (if applicable)
-    pub maturity_height: Option<u64>,
-    /// The amount value (if decrypted successfully)
-    pub amount: Option<u64>,
-    /// Whether this output belongs to our wallet
-    pub is_mine: bool,
-    /// Spending key index used (if this is our output)
-    pub key_index: Option<u64>,
-    /// The minimum value of the commitment that is proven by the range proof
-    pub minimum_value_promise: u64,
-    /// UTXO signature with the script offset private key, k_O
-    pub metadata_signature: ComAndPubSignature,
-    /// The covenant that will be executed when spending this output
-    pub covenant: Covenant,
-    /// Tari script offset pubkey, K_O
-    pub sender_offset_public_key: CompressedPublicKey,
-    /// Commitment mask private key
-    pub commitment_mask_private_key: Option<PrivateKey>,
-    /// Script key
-    pub script_key: Option<CompressedPublicKey>,
-    /// Output features
-    pub output_features: OutputFeatures,
-}
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct OutputData {
+//     /// The commitment value of the output
+//     pub commitment: String,
+//     /// The range proof associated with the output
+//     pub range_proof: String,
+//     /// The encrypted value of the output (if available)
+//     pub encrypted_value: Option<Vec<u8>>,
+//     /// The script associated with the output (if any)
+//     pub script: Option<String>,
+//     /// Features flags for this output
+//     pub features: u32,
+//     /// Maturity height (if applicable)
+//     pub maturity_height: Option<u64>,
+//     /// The amount value (if decrypted successfully)
+//     pub amount: Option<u64>,
+//     /// Whether this output belongs to our wallet
+//     pub is_mine: bool,
+//     /// Spending key index used (if this is our output)
+//     pub key_index: Option<u64>,
+//     /// The minimum value of the commitment that is proven by the range proof
+//     pub minimum_value_promise: u64,
+//     /// UTXO signature with the script offset private key, k_O
+//     pub metadata_signature: ComAndPubSignature,
+//     /// The covenant that will be executed when spending this output
+//     pub covenant: Covenant,
+//     /// Tari script offset pubkey, K_O
+//     pub sender_offset_public_key: CompressedPublicKey,
+//     /// Commitment mask private key
+//     pub commitment_mask_private_key: Option<PrivateKey>,
+//     /// Script key
+//     pub script_key: Option<CompressedPublicKey>,
+//     /// Output features
+//     pub output_features: OutputFeatures,
+// }
 
 /// Information about a spent output for SpentOutputFound events
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,76 +241,76 @@ impl SpentOutputData {
     }
 }
 
-impl OutputData {
-    /// Create a new OutputData with required fields
-    pub fn new(commitment: String, range_proof: String, features: u32, is_mine: bool) -> Self {
-        Self {
-            commitment,
-            range_proof,
-            encrypted_value: None,
-            script: None,
-            features,
-            maturity_height: None,
-            amount: None,
-            is_mine,
-            key_index: None,
-            minimum_value_promise: 0,
-            metadata_signature: Default::default(),
-            covenant: Covenant::default(),
-            sender_offset_public_key: CompressedPublicKey::default(),
-            commitment_mask_private_key: None,
-            script_key: None,
-            output_features: OutputFeatures::default(),
-        }
-    }
-
-    /// Set the decrypted amount
-    pub fn with_amount(mut self, amount: u64) -> Self {
-        self.amount = Some(amount);
-        self
-    }
-
-    /// Set the key index for owned outputs
-    pub fn with_key_index(mut self, key_index: u64) -> Self {
-        self.key_index = Some(key_index);
-        self
-    }
-
-    /// Set the maturity height
-    pub fn with_maturity_height(mut self, height: u64) -> Self {
-        self.maturity_height = Some(height);
-        self
-    }
-
-    /// Set the script
-    pub fn with_script(mut self, script: String) -> Self {
-        self.script = Some(script);
-        self
-    }
-
-    /// Set encrypted value
-    pub fn with_encrypted_value(mut self, encrypted_value: Vec<u8>) -> Self {
-        self.encrypted_value = Some(encrypted_value);
-        self
-    }
-}
-
-impl Zeroize for OutputData {
-    fn zeroize(&mut self) {
-        // Zeroize sensitive fields
-        if let Some(ref mut encrypted_data) = self.encrypted_value {
-            encrypted_data.zeroize();
-        }
-        // Note: Other fields like commitment and range_proof contain cryptographic data
-        // but are considered public information in the context of blockchain outputs
-    }
-}
-
-impl Drop for OutputData {
-    fn drop(&mut self) {
-        self.zeroize();
-    }
-}
+// impl OutputData {
+//     /// Create a new OutputData with required fields
+//     pub fn new(commitment: String, range_proof: String, features: u32, is_mine: bool) -> Self {
+//         Self {
+//             commitment,
+//             range_proof,
+//             encrypted_value: None,
+//             script: None,
+//             features,
+//             maturity_height: None,
+//             amount: None,
+//             is_mine,
+//             key_index: None,
+//             minimum_value_promise: 0,
+//             metadata_signature: Default::default(),
+//             covenant: Covenant::default(),
+//             sender_offset_public_key: CompressedPublicKey::default(),
+//             commitment_mask_private_key: None,
+//             script_key: None,
+//             output_features: OutputFeatures::default(),
+//         }
+//     }
+//
+//     /// Set the decrypted amount
+//     pub fn with_amount(mut self, amount: u64) -> Self {
+//         self.amount = Some(amount);
+//         self
+//     }
+//
+//     /// Set the key index for owned outputs
+//     pub fn with_key_index(mut self, key_index: u64) -> Self {
+//         self.key_index = Some(key_index);
+//         self
+//     }
+//
+//     /// Set the maturity height
+//     pub fn with_maturity_height(mut self, height: u64) -> Self {
+//         self.maturity_height = Some(height);
+//         self
+//     }
+//
+//     /// Set the script
+//     pub fn with_script(mut self, script: String) -> Self {
+//         self.script = Some(script);
+//         self
+//     }
+//
+//     /// Set encrypted value
+//     pub fn with_encrypted_value(mut self, encrypted_value: Vec<u8>) -> Self {
+//         self.encrypted_value = Some(encrypted_value);
+//         self
+//     }
+// }
+//
+// impl Zeroize for OutputData {
+//     fn zeroize(&mut self) {
+//         // Zeroize sensitive fields
+//         if let Some(ref mut encrypted_data) = self.encrypted_value {
+//             encrypted_data.zeroize();
+//         }
+//         // Note: Other fields like commitment and range_proof contain cryptographic data
+//         // but are considered public information in the context of blockchain outputs
+//     }
+// }
+//
+// impl Drop for OutputData {
+//     fn drop(&mut self) {
+//         self.zeroize();
+//     }
+// }
 
 /// Block information associated with an output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1221,7 +1193,7 @@ pub enum WalletScanEvent {
     /// Emitted when an output is found for the wallet
     OutputFound {
         metadata: EventMetadata,
-        output_data: OutputData,
+        output_data: WalletOutput,
         block_info: BlockInfo,
         address_info: AddressInfo,
         transaction_data: TransactionData,
@@ -1231,7 +1203,7 @@ pub enum WalletScanEvent {
         metadata: EventMetadata,
         spent_output_data: SpentOutputData,
         spending_block_info: BlockInfo,
-        original_output_info: OutputData,
+        original_output_info: WalletOutput,
         spending_transaction_data: TransactionData,
     },
     /// Emitted periodically to report scan progress
@@ -1755,7 +1727,7 @@ impl WalletScanEvent {
     /// Create a new OutputFound event
     pub fn output_found(
         wallet_id: &str,
-        output_data: OutputData,
+        output_data: WalletOutput,
         block_info: BlockInfo,
         address_info: AddressInfo,
         transaction_data: TransactionData,
@@ -1774,7 +1746,7 @@ impl WalletScanEvent {
         wallet_id: &str,
         spent_output_data: SpentOutputData,
         spending_block_info: BlockInfo,
-        original_output_info: OutputData,
+        original_output_info: WalletOutput,
         spending_transaction_data: TransactionData,
     ) -> Self {
         Self::SpentOutputFound {

@@ -7,36 +7,9 @@
 use std::str::FromStr;
 
 use primitive_types::U256;
-use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
-};
-use tari_common_types::types::CompressedCommitment;
-use tari_transaction_components::{
-    aggregated_body::AggregateBody,
-    transaction_components::{
-        covenants::Covenant,
-        CoinBaseExtra,
-        EncryptedData,
-        KernelFeatures,
-        MemoField,
-        OutputFeatures,
-        OutputFeaturesVersion,
-        OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
-        TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
-        TransactionOutput,
-        TransactionOutputVersion,
-    },
-    MicroMinotari,
-};
-use tari_transaction_components::transaction_components::memo_field::TxType;
+use tari_common_types::types::{CompressedCommitment, PrivateKey};
+use tari_transaction_components::transaction_components::{memo_field::TxType, EncryptedData, MemoField};
+
 use crate::hex_utils::HexEncodable;
 
 /// Result of payment ID extraction

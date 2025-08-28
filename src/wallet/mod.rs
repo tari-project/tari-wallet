@@ -7,32 +7,31 @@ use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tari_utilities::safe_array::SafeArray;
-
+use std::sync::Arc;
 use rand_core::{OsRng, RngCore};
+use tari_common_types::{
+    tari_address::{TariAddress, TariAddressFeatures},
+    types::{CompressedPublicKey, PrivateKey},
+};
+use tari_common_types::seeds::cipher_seed::CipherSeed;
+use tari_common_types::seeds::seed_words::SeedWords;
+use tari_common_types::wallet_types::WalletType;
+use tari_transaction_components::crypto_factories::CryptoFactories;
+use tari_transaction_components::key_manager::TransactionKeyManagerWrapper;
+use tari_utilities::safe_array::SafeArray;
+use tari_utilities::SafePassword;
 use zeroize::Zeroize;
 
-use crate::{
-    errors::KeyManagementError,
-    key_management::{bytes_to_mnemonic, mnemonic_to_master_key, CipherSeed},
-};
-use tari_common_types::{tari_address::TariAddress, types::{CompressedPublicKey, PrivateKey}};
-
-// Constants from Tari CipherSeed specification for birthday calculation
-const BIRTHDAY_GENESIS_FROM_UNIX_EPOCH: u64 = 1640995200; // seconds to 2022-01-01 00:00:00 UTC
-const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 
 /// Core wallet struct containing master key, birthday, and metadata
 #[derive(Debug, Clone)]
-pub struct Wallet {
-    /// Master key derived from seed phrase (32 bytes, securely stored)
-    master_key: SafeArray<32>,
-    /// Wallet creation timestamp for scanning optimization (Unix timestamp)
-    birthday: u64,
+pub struct Wallet<KMBackend> {
     /// Wallet metadata for additional configuration and state
     metadata: WalletMetadata,
     /// Original seed phrase (stored only if wallet was created from a seed phrase)
     original_seed_phrase: Option<String>,
+    // Key manager used by the wallet
+    key_manager: TransactionKeyManagerWrapper<KMBackend>,
 }
 
 /// Wallet metadata containing additional configuration and state information
@@ -40,29 +39,32 @@ pub struct Wallet {
 pub struct WalletMetadata {
     /// Optional wallet label/name
     pub label: Option<String>,
-    /// Network the wallet is configured for (mainnet, stagenet, etc.)
-    pub network: String,
-    /// Current key index for deterministic key derivation
-    pub current_key_index: u64,
     /// Additional custom properties
     pub properties: HashMap<String, String>,
 }
 
-impl Wallet {
+impl<KMBackend> Wallet<KMBackend> where
+    KMBackend: TransactionKeyManagerBackend + 'static{
     /// Create a new wallet with the given master key and birthday
-    pub fn new(master_key: [u8; 32], birthday: u64) -> Self {
+    pub async fn new(master_seed: CipherSeed, crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Self {
+        let key_manager = TransactionKeyManagerWrapper::new(
+            master_seed,
+            backend,
+            crypto_factories,
+            wallet_type,
+        ).await.expect("Failed to create key manager");
         Self {
-            master_key: SafeArray::new(master_key),
-            birthday,
+            key_manager,
             metadata: WalletMetadata::default(),
             original_seed_phrase: None,
         }
     }
 
     /// Create a new wallet from a seed phrase and optional passphrase
-    pub fn new_from_seed_phrase(phrase: &str, passphrase: Option<&str>) -> Result<Self, KeyManagementError> {
+    pub async fn new_from_seed_phrase(seed_words: &SeedWords,
+                                      passphrase: Option<SafePassword>, crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Result<Self, KeyManagementError> {
         // Convert seed phrase to master key
-        let master_key = mnemonic_to_master_key(phrase, passphrase)?;
+        let master_key = CipherSeed::from_mnemonic(seed_words, passphrase)
 
         // Calculate current birthday as days since genesis
         let birthday = Self::calculate_current_birthday();
@@ -228,72 +230,11 @@ impl Wallet {
         let network = string_to_network(&self.metadata.network);
 
         // Create dual address
-        let dual_address = DualAddress::new(view_public_key, spend_public_key, network, features, payment_id)
-            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create dual address: {e}")))?;
+        let dual_address =
+            TariAddress::new_dual_address(view_public_key, spend_public_key, network, features, payment_id)
+                .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create dual address: {e}")))?;
 
-        Ok(TariAddress::Dual(dual_address))
-    }
-
-    /// Generate a single address with spend key only
-    ///
-    /// Creates a single Tari address using only a spend key derived from the master key.
-    /// This is simpler than dual addresses but has fewer features.
-    pub fn get_single_address(&self, features: TariAddressFeatures) -> Result<TariAddress, KeyManagementError> {
-        // Derive spend key from master key
-        let (_, spend_key) = self.derive_key_pair()?;
-
-        // Convert to CompressedPublicKey
-        let spend_public_key = CompressedPublicKey::from_private_key(&spend_key);
-
-        // Use the network from wallet metadata or default to Esmeralda
-        let network = string_to_network(&self.metadata.network);
-
-        // Create single address
-        let single_address = SingleAddress::new(spend_public_key, network, features)
-            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create single address: {e}")))?;
-
-        Ok(TariAddress::Single(single_address))
-    }
-
-    /// Derive view and spend key pair from master key
-    ///
-    /// Uses the master key to derive a view key and spend key following Tari's
-    /// key derivation specification.
-    fn derive_key_pair(&self) -> Result<(PrivateKey, PrivateKey), KeyManagementError> {
-        // Get master key bytes
-        let master_key_bytes = self.master_key.as_bytes();
-
-        // For now, we'll use a simple approach where:
-        // - view_key = master_key
-        // - spend_key = hash(master_key || "spend")
-        //
-        // TODO: In the future, this should use proper hierarchical key derivation
-        // with branch seeds as specified in the Tari key management documentation
-
-        let view_key = PrivateKey::from_canonical_bytes(master_key_bytes)
-            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create view key: {e}")))?;
-
-        // Create spend key by hashing master_key + "spend" string
-        use blake2b_simd::blake2b;
-        let mut hasher_input = Vec::new();
-        hasher_input.extend_from_slice(master_key_bytes);
-        hasher_input.extend_from_slice(b"spend");
-
-        let spend_key_hash = blake2b(&hasher_input);
-        let spend_key_bytes: [u8; 32] = spend_key_hash.as_bytes()[0..32]
-            .try_into()
-            .map_err(|_| KeyManagementError::SeedPhraseError("Failed to create spend key bytes".to_string()))?;
-
-        let spend_key = PrivateKey::from_canonical_bytes(&spend_key_bytes)
-            .map_err(|e| KeyManagementError::SeedPhraseError(format!("Failed to create spend key: {e}")))?;
-
-        Ok((view_key, spend_key))
-    }
-
-    /// Get a copy of the master key bytes (for demonstration purposes)
-    /// WARNING: This exposes sensitive cryptographic material. Use with caution.
-    pub fn master_key_bytes(&self) -> [u8; 32] {
-        *self.master_key.as_bytes()
+        Ok(dual_address)
     }
 }
 

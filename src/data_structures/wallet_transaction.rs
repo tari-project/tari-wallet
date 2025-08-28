@@ -8,31 +8,8 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use tari_common_types::{
-    tari_address::TariAddress,
     transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, FixedHash, PrivateKey},
-};
-use tari_common_types::types::CompressedCommitment;
-use tari_transaction_components::{
-    aggregated_body::AggregateBody,
-    transaction_components::{
-        CoinBaseExtra,
-        EncryptedData,
-        KernelFeatures,
-        OutputFeatures,
-        OutputFeaturesVersion,
-        OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
-        TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
-        TransactionOutput,
-        TransactionOutputVersion,
-    },
-    MicroMinotari,
+    types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
 };
 use tari_transaction_components::transaction_components::memo_field::MemoField;
 // Simple number formatting (removed utils::number module)

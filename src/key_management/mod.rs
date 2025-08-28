@@ -7,7 +7,7 @@ pub mod key_derivation;
 pub mod seed_phrase;
 pub mod stealth_address;
 
-use tari_common_types::types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey};
+use tari_common_types::types::{CompressedPublicKey, PrivateKey};
 use zeroize::Zeroize;
 
 use crate::errors::KeyManagementError;
@@ -100,10 +100,7 @@ pub trait KeyManager {
     fn derive_private_key(&self, path: &KeyDerivationPath) -> Result<PrivateKey, KeyManagementError>;
 
     /// Derive a public key from the given path
-    fn derive_public_key(
-        &self,
-        path: &KeyDerivationPath,
-    ) -> Result<CompressedPublicKey, KeyManagementError>;
+    fn derive_public_key(&self, path: &KeyDerivationPath) -> Result<CompressedPublicKey, KeyManagementError>;
 
     /// Get the next key pair in sequence
     fn next_key_pair(&mut self) -> Result<DerivedKeyPair, KeyManagementError>;

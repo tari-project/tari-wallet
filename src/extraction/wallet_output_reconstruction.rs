@@ -1,18 +1,9 @@
-
-use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
-};
 use tari_transaction_components::{
-    aggregated_body::AggregateBody,
-    transaction_components::{
-        MemoField,
-    },
     key_manager::TariKeyId,
+    transaction_components::{MemoField, WalletOutput},
+    MicroMinotari,
 };
-use tari_transaction_components::MicroMinotari;
-use tari_transaction_components::transaction_components::WalletOutput;
+
 use crate::errors::WalletError;
 
 /// Result of wallet output reconstruction

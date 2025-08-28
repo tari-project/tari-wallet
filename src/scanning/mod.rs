@@ -19,35 +19,23 @@ use async_trait::async_trait;
 use blake2::{Blake2b, Digest};
 use serde::{Deserialize, Serialize};
 use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
+    types::{CompressedPublicKey,  PrivateKey},
 };
 use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
+use tari_script::ExecutionStack;
 use tari_transaction_components::{
-    aggregated_body::AggregateBody,
+    key_manager::TariKeyId,
     transaction_components::{
-        covenants::Covenant,
-        CoinBaseExtra,
         EncryptedData,
-        KernelFeatures,
         MemoField,
-        OutputFeatures,
-        OutputFeaturesVersion,
         OutputType,
-        RangeProofType,
-        SideChainFeature,
         Transaction,
         TransactionInput,
-        TransactionInputVersion,
         TransactionKernel,
-        TransactionKernelVersion,
         TransactionOutput,
-        TransactionOutputVersion,
+        WalletOutput,
     },
-    MicroMinotari,
 };
-use tari_transaction_components::transaction_components::WalletOutput;
 use tari_utilities::ByteArray;
 
 use crate::{
@@ -650,10 +638,7 @@ impl DefaultScanningLogic {
         extraction_config: &ExtractionConfig,
     ) -> WalletResult<Option<WalletOutput>> {
         // Skip non-payment outputs for this scan type
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Payment
-        ) {
+        if !matches!(output.features().output_type, OutputType::Payment) {
             return Ok(None);
         }
 
@@ -670,10 +655,7 @@ impl DefaultScanningLogic {
         extraction_config: &ExtractionConfig,
     ) -> WalletResult<Option<WalletOutput>> {
         // Skip non-payment outputs for this scan type
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Payment
-        ) {
+        if !matches!(output.features().output_type, OutputType::Payment) {
             return Ok(None);
         }
 
@@ -688,25 +670,20 @@ impl DefaultScanningLogic {
     /// Scan for coinbase outputs (special handling for mining rewards)
     fn scan_for_coinbase_output(output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
         // Only handle coinbase outputs
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Coinbase
-        ) {
+        if !matches!(output.features().output_type, OutputType::Coinbase) {
             return Ok(None);
         }
 
         // For coinbase outputs, the value is typically revealed in the minimum value promise
         if output.minimum_value_promise().as_u64() > 0 {
-
-
             let wallet_output = WalletOutput::new(
                 output.version(),
                 output.minimum_value_promise(),
-                KeyId::Zero,
+                TariKeyId::Zero,
                 output.features().clone(),
                 output.script().clone(),
                 ExecutionStack::default(),
-                KeyId::Zero,
+                TariKeyId::Zero,
                 output.sender_offset_public_key().clone(),
                 output.metadata_signature().clone(),
                 0,

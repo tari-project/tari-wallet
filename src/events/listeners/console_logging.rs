@@ -12,14 +12,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-
-use crate::events::{
-    types::{BlockInfo, EventType, OutputData, SpentOutputData},
-    EventListener,
-    SerializableEvent,
-    SharedEvent,
-    WalletScanEvent,
-};
+use tari_transaction_components::transaction_components::WalletOutput;
+use crate::events::{types::{BlockInfo, EventType, SpentOutputData}, AddressInfo, EventListener, SerializableEvent, SharedEvent, WalletScanEvent};
 
 /// Verbosity levels for console logging
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -480,9 +474,9 @@ impl ConsoleLoggingListener {
     /// Handle OutputFound events
     fn handle_output_found(
         &self,
-        output_data: &crate::events::types::OutputData,
-        block_info: &crate::events::types::BlockInfo,
-        address_info: &crate::events::types::AddressInfo,
+        output_data: &WalletOutput,
+        block_info: &BlockInfo,
+        address_info: &AddressInfo,
     ) {
         if let Ok(mut stats) = self.stats.lock() {
             stats.outputs_found += 1;

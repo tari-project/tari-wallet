@@ -44,37 +44,28 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use serde_wasm_bindgen;
 use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
+    types::{
+        ComAndPubSignature,
+        CompressedCommitment,
+        CompressedPublicKey,
+        PrivateKey,
+    },
 };
-use tari_common_types::types::{ComAndPubSignature, CompressedCommitment};
 use tari_script::{ExecutionStack, TariScript};
 use tari_transaction_components::{
-    aggregated_body::AggregateBody,
+    key_manager::TariKeyId,
     transaction_components::{
         covenants::Covenant,
-        CoinBaseExtra,
         EncryptedData,
-        KernelFeatures,
         MemoField,
         OutputFeatures,
-        OutputFeaturesVersion,
         OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
         TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
         TransactionOutput,
-        TransactionOutputVersion,
+        WalletOutput,
     },
     MicroMinotari,
 };
-use tari_transaction_components::key_manager::TariKeyId;
-use tari_transaction_components::transaction_components::WalletOutput;
 #[cfg(feature = "http")]
 use tari_utilities::ByteArray;
 #[cfg(all(feature = "http", feature = "tracing"))]
@@ -583,12 +574,12 @@ impl HttpBlockchainScanner {
             [0u8; 64],                      // script_signature (not available)
             CompressedPublicKey::default(), // sender_offset_public_key (not available)
             Vec::new(),                     // covenant (not available)
-            ExecutionStack::new(), // input_data (not available)
+            ExecutionStack::new(),          // input_data (not available)
             output_hash,                    // output_hash (this is the actual data from HTTP API)
             0,                              // output_features (not available)
             [0u8; 64],                      // output_metadata_signature (not available)
             0,                              // maturity (not available)
-            MicroMinotari(0),          // value (not available)
+            MicroMinotari(0),               // value (not available)
         ))
     }
 

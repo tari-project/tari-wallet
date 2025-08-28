@@ -1,10 +1,8 @@
-use tari_common_types::types::RangeProof;
 use tari_transaction_components::{
-    aggregated_body::AggregateBody,
-    transaction_components::{covenants::Covenant, TransactionOutput},
-    MicroMinotari,
+    crypto_factories::CryptoFactories,
+    transaction_components::{TransactionOutput},
 };
-use tari_transaction_components::crypto_factories::CryptoFactories;
+
 use crate::errors::ValidationError;
 
 /// Batch validation result containing validation status for multiple outputs
@@ -117,7 +115,6 @@ fn validate_single_output(
     // Validate range proofs
     if options.validate_range_proofs {
         if let Some(proof) = output.proof() {
-
             if let Err(e) = output.verify_range_proof(&CryptoFactories::default().range_proof) {
                 errors.push(e);
                 is_valid = false;

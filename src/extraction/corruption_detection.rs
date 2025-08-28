@@ -3,37 +3,20 @@
 //! This module provides functionality to detect and handle corrupted or invalid
 //! data during the UTXO extraction process.
 
-use tari_common_types::{
-    tari_address::TariAddress,
-    transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
-};
-use tari_common_types::types::{CompressedCommitment, RangeProof};
+use tari_common_types::types::{CompressedCommitment, CompressedSignature, RangeProof};
 use tari_script::TariScript;
 use tari_transaction_components::{
-    aggregated_body::AggregateBody,
     transaction_components::{
         covenants::Covenant,
-        CoinBaseExtra,
         EncryptedData,
-        KernelFeatures,
         MemoField,
         OutputFeatures,
-        OutputFeaturesVersion,
-        OutputType,
-        RangeProofType,
-        SideChainFeature,
-        Transaction,
-        TransactionInput,
-        TransactionInputVersion,
-        TransactionKernel,
-        TransactionKernelVersion,
         TransactionOutput,
-        TransactionOutputVersion,
+        WalletOutput,
     },
     MicroMinotari,
 };
-use tari_transaction_components::transaction_components::WalletOutput;
+
 use crate::errors::{DataStructureError, WalletError};
 
 /// Result of corruption detection
@@ -349,10 +332,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in range proof
-    fn detect_range_proof_corruption(
-        &self,
-        proof: &RangeProof,
-    ) -> CorruptionDetectionResult {
+    fn detect_range_proof_corruption(&self, proof: &RangeProof) -> CorruptionDetectionResult {
         // Check if range proof is empty
         if proof.bytes.is_empty() {
             return CorruptionDetectionResult::corrupted(
@@ -387,10 +367,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in signature
-    fn detect_signature_corruption(
-        &self,
-        signature: &CompressedSignature,
-    ) -> CorruptionDetectionResult {
+    fn detect_signature_corruption(&self, signature: &CompressedSignature) -> CorruptionDetectionResult {
         // Check if signature is empty
         if signature.u_a.is_empty() {
             return CorruptionDetectionResult::corrupted(
@@ -415,19 +392,13 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in script
-    fn detect_script_corruption(
-        &self,
-        _script: &TariScript,
-    ) -> CorruptionDetectionResult {
+    fn detect_script_corruption(&self, _script: &TariScript) -> CorruptionDetectionResult {
         // Script can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }
 
     /// Detect corruption in covenant
-    fn detect_covenant_corruption(
-        &self,
-        _covenant: &Covenant,
-    ) -> CorruptionDetectionResult {
+    fn detect_covenant_corruption(&self, _covenant: &Covenant) -> CorruptionDetectionResult {
         // Covenant can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }
@@ -510,10 +481,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in features
-    fn detect_features_corruption(
-        &self,
-        features: &OutputFeatures,
-    ) -> CorruptionDetectionResult {
+    fn detect_features_corruption(&self, features: &OutputFeatures) -> CorruptionDetectionResult {
         // Check if maturity is unreasonably large (more than 1 million blocks)
         if features.maturity > 1_000_000 {
             return CorruptionDetectionResult::corrupted(
