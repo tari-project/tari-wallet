@@ -11,7 +11,7 @@
 #[cfg(feature = "grpc")]
 use rayon::prelude::*;
 use tari_script::{Opcode, TariScript};
-use tari_utilities::{hex::Hex, ByteArray};
+use tari_utilities::ByteArray;
 
 #[cfg(feature = "grpc")]
 use crate::scanning::BlockInfo;
@@ -154,7 +154,7 @@ impl Block {
     fn extract_script_key(&self, script: &Script) -> Option<CompressedPublicKey> {
         let tari_script = TariScript::from_bytes(&script.bytes).ok()?;
         if let [Opcode::PushPubKey(pk)] = tari_script.as_slice() {
-            let compressed_pk = CompressedPublicKey::from_hex(&pk.to_hex()).ok()?;
+            let compressed_pk = CompressedPublicKey::from_canonical_bytes(&pk.as_bytes()).ok()?;
             return Some(compressed_pk);
         }
         None
@@ -179,7 +179,8 @@ impl Block {
 
         // Handle coinbase outputs
         if is_coinbase {
-            if let Some(result) = self.try_coinbase_output_optimized(output_index, output, view_key, script_key.clone())
+            if let Some(result) =
+                self.try_coinbase_output_optimized(output_index, output, view_key, script_key.as_ref())
             {
                 return Some(result);
             }
@@ -192,17 +193,15 @@ impl Block {
         }
 
         // Try regular decryption first (most common case)
-        if let Some(script_key) = script_key {
-            if let Some(result) = self.try_regular_decryption_optimized(
-                output_index,
-                output,
-                view_key,
-                script_key,
-                TransactionStatus::MinedConfirmed,
-                true,
-            ) {
-                return Some(result);
-            }
+        if let Some(result) = self.try_regular_decryption_optimized(
+            output_index,
+            output,
+            view_key,
+            script_key.as_ref(),
+            TransactionStatus::MinedConfirmed,
+            true,
+        ) {
+            return Some(result);
         }
 
         // Try one-sided decryption only if sender offset key is present
@@ -211,6 +210,7 @@ impl Block {
                 output_index,
                 output,
                 view_key,
+                script_key.as_ref(),
                 TransactionStatus::OneSidedConfirmed,
                 true,
             ) {
@@ -227,7 +227,7 @@ impl Block {
         output_index: usize,
         output: &TransactionOutput,
         view_key: &PrivateKey,
-        script_key: Option<CompressedPublicKey>,
+        script_key: Option<&CompressedPublicKey>,
     ) -> Option<OutputProcessingResult> {
         let coinbase_value = output.minimum_value_promise.as_u64();
         if coinbase_value == 0 {
@@ -242,19 +242,27 @@ impl Block {
         };
 
         // Try regular decryption for ownership verification first (faster)
-        if let Some(sk) = script_key {
-            if let Some(result) =
-                self.try_regular_decryption_optimized(output_index, output, view_key, sk, transaction_status, is_mature)
-            {
-                return Some(result);
-            }
+        if let Some(result) = self.try_regular_decryption_optimized(
+            output_index,
+            output,
+            view_key,
+            script_key,
+            transaction_status,
+            is_mature,
+        ) {
+            return Some(result);
         }
 
         // Only try one-sided decryption if regular failed and sender offset key exists
         if !output.sender_offset_public_key.as_bytes().is_empty() {
-            if let Some(result) =
-                self.try_one_sided_decryption_optimized(output_index, output, view_key, transaction_status, is_mature)
-            {
+            if let Some(result) = self.try_one_sided_decryption_optimized(
+                output_index,
+                output,
+                view_key,
+                script_key,
+                transaction_status,
+                is_mature,
+            ) {
                 return Some(result);
             }
         }
@@ -269,7 +277,7 @@ impl Block {
         output_index: usize,
         output: &TransactionOutput,
         view_key: &PrivateKey,
-        script_key: CompressedPublicKey,
+        script_key: Option<&CompressedPublicKey>,
         transaction_status: TransactionStatus,
         is_mature: bool,
     ) -> Option<OutputProcessingResult> {
@@ -283,7 +291,7 @@ impl Block {
                 transaction_status,
                 is_mature,
                 commitment_mask_private_key,
-                script_key: Some(script_key),
+                script_key: script_key.map(|k| k.clone()),
             });
         }
         None
@@ -295,6 +303,7 @@ impl Block {
         output_index: usize,
         output: &TransactionOutput,
         view_key: &PrivateKey,
+        script_key: Option<&CompressedPublicKey>,
         transaction_status: TransactionStatus,
         is_mature: bool,
     ) -> Option<OutputProcessingResult> {
@@ -311,7 +320,7 @@ impl Block {
                 transaction_status,
                 is_mature,
                 commitment_mask_private_key,
-                script_key: None,
+                script_key: script_key.map(|k| k.clone()),
             });
         }
         None

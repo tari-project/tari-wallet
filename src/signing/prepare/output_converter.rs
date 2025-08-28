@@ -69,14 +69,16 @@ impl OutputConverter {
             "TODO: commitment_mask_key_id: {}, export_safe_script_key_id: {}",
             commitment_mask_key_id, export_safe_script_key_id
         );
-        let rangeproof = o
-            .rangeproof
-            .map(|p| {
-                let hex = String::from_utf8(p).map_err(|e| WalletError::ConversionError(e.to_string()))?;
+        let rangeproof = match o.rangeproof {
+            Some(rp) if !rp.is_empty() => {
+                let hex = String::from_utf8(rp).map_err(|e| WalletError::ConversionError(e.to_string()))?;
                 let binary = HexUtils::from_hex(&hex).map_err(|e| WalletError::ConversionError(e.to_string()))?;
-                BulletRangeProof::from_vec(&binary).map_err(|e| WalletError::ConversionError(e.to_string()))
-            })
-            .transpose()?;
+                let result =
+                    BulletRangeProof::from_vec(&binary).map_err(|e| WalletError::ConversionError(e.to_string()))?;
+                Some(result)
+            },
+            Some(_) | None => None,
+        };
 
         let wallet_output = WalletOutput::new_with_rangeproof(
             TransactionOutputVersion::get_current_version(),

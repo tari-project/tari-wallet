@@ -25,6 +25,8 @@ use tari_transaction_components::key_manager::{
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "storage")]
+use crate::data_structures::CompressedPublicKey;
+#[cfg(feature = "storage")]
 use crate::events::types::{AddressInfo, BlockInfo, OutputData, SpentOutputData, TransactionData};
 #[cfg(feature = "storage")]
 use crate::events::{ErrorRecord, ErrorRecoveryConfig, ErrorRecoveryManager, WalletScanEvent};
@@ -606,6 +608,8 @@ impl DatabaseStorageListener {
         block_info: &BlockInfo,
         _address_info: &AddressInfo,
         transaction_data: &crate::events::types::TransactionData,
+        comms_pub_key: CompressedPublicKey,
+        comms_key_id: TariKeyId,
         key_manager: &Arc<TransactionKeyManager>,
     ) -> Result<StoredOutput, Box<dyn Error + Send + Sync>> {
         // Parse commitment from hex string
@@ -638,12 +642,9 @@ impl DatabaseStorageListener {
 
         let script_key = match &output_data.script_key {
             // UTXO of a normal transaction
-            Some(_) => TariKeyId::Managed {
-                branch: KeyManagerBranch::Comms.get_branch_key(),
-                index: 0,
-            },
+            Some(script_key) if script_key == &comms_pub_key => comms_key_id,
             // UTXO of a stealth transaction
-            None => TariKeyId::Derived {
+            Some(_) | None => TariKeyId::Derived {
                 key: SerializedKeyString::from(commitment_mask_private_key.clone().to_string()),
             },
         };
@@ -1062,7 +1063,14 @@ impl DatabaseStorageListener {
         address_info: &AddressInfo,
         transaction_data: &crate::events::types::TransactionData,
     ) -> Result<Vec<u32>, Box<dyn Error + Send + Sync>> {
+        use tari_utilities::ByteArray;
         let key_manager = self.create_transaction_manager(wallet_id).await?;
+        let comms_key_id = TariKeyId::Managed {
+            branch: KeyManagerBranch::Comms.get_branch_key(),
+            index: 0,
+        };
+        let core_comms_key = key_manager.get_public_key_at_key_id(&comms_key_id).await?;
+        let comms_pub_key = CompressedPublicKey::from_canonical_bytes(core_comms_key.as_bytes())?;
         // Convert event data to StoredOutput
         let stored_output = self
             .convert_to_stored_output(
@@ -1071,6 +1079,8 @@ impl DatabaseStorageListener {
                 block_info,
                 address_info,
                 transaction_data,
+                comms_pub_key,
+                comms_key_id,
                 &key_manager,
             )
             .await?;
@@ -1673,6 +1683,8 @@ mod tests {
                     &block_info,
                     &address_info,
                     &transaction_data,
+                    CompressedPublicKey::default(),
+                    TariKeyId::default(),
                     &key_manager,
                 )
                 .await;
