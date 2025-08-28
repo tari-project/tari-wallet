@@ -804,6 +804,10 @@ async fn main_unified() -> WalletResult<()> {
         },
     }
 
+    // Wait for event emitter for finish all outstanding tasks
+    if let Some(event_emitter) = &mut wallet_scanner.config_mut().event_emitter {
+        event_emitter.flush().await;
+    }
     // Stop background writer gracefully
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     if !storage_backend.is_memory_only {
