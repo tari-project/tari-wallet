@@ -7,20 +7,16 @@ use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tari_utilities::safe_array::SafeArray;
 
 use rand_core::{OsRng, RngCore};
 use zeroize::Zeroize;
 
 use crate::{
-    common::string_to_network,
-    data_structures::{
-        address::{DualAddress, SingleAddress, TariAddress, TariAddressFeatures},
-        types::{CompressedPublicKey, PrivateKey},
-        SafeArray,
-    },
     errors::KeyManagementError,
     key_management::{bytes_to_mnemonic, mnemonic_to_master_key, CipherSeed},
 };
+use tari_common_types::{tari_address::TariAddress, types::{CompressedPublicKey, PrivateKey}};
 
 // Constants from Tari CipherSeed specification for birthday calculation
 const BIRTHDAY_GENESIS_FROM_UNIX_EPOCH: u64 = 1640995200; // seconds to 2022-01-01 00:00:00 UTC

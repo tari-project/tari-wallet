@@ -5,12 +5,10 @@
 
 use blake2::Blake2b;
 use digest::consts::U64;
+use tari_common_types::types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey};
 use tari_crypto::{hash_domain, hashing::DomainSeparatedHasher};
 
-use crate::{
-    data_structures::types::{CompressedPublicKey, PrivateKey},
-    errors::WalletResult,
-};
+use crate::errors::WalletResult;
 
 // Domain separators for stealth address operations
 hash_domain!(

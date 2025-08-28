@@ -11,11 +11,37 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tari_transaction_components::transaction_components::OutputFeatures;
+use tari_common_types::{
+    tari_address::TariAddress,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
+};
+use tari_common_types::types::ComAndPubSignature;
+use tari_transaction_components::{
+    aggregated_body::AggregateBody,
+    transaction_components::{
+        covenants::Covenant,
+        CoinBaseExtra,
+        EncryptedData,
+        KernelFeatures,
+        MemoField,
+        OutputFeatures,
+        OutputFeaturesVersion,
+        OutputType,
+        RangeProofType,
+        SideChainFeature,
+        Transaction,
+        TransactionInput,
+        TransactionInputVersion,
+        TransactionKernel,
+        TransactionKernelVersion,
+        TransactionOutput,
+        TransactionOutputVersion,
+    },
+    MicroMinotari,
+};
 use thiserror::Error;
 use zeroize::Zeroize;
-
-use crate::data_structures::{CompressedPublicKey, Covenant, PrivateKey, Signature};
 
 /// Thread-safe sequence number generator for event ordering
 /// Each wallet maintains its own sequence counter
@@ -178,7 +204,7 @@ pub struct OutputData {
     /// The minimum value of the commitment that is proven by the range proof
     pub minimum_value_promise: u64,
     /// UTXO signature with the script offset private key, k_O
-    pub metadata_signature: Signature,
+    pub metadata_signature: ComAndPubSignature,
     /// The covenant that will be executed when spending this output
     pub covenant: Covenant,
     /// Tari script offset pubkey, K_O
@@ -257,7 +283,7 @@ impl OutputData {
             is_mine,
             key_index: None,
             minimum_value_promise: 0,
-            metadata_signature: Signature::default(),
+            metadata_signature: Default::default(),
             covenant: Covenant::default(),
             sender_offset_public_key: CompressedPublicKey::default(),
             commitment_mask_private_key: None,

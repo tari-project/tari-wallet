@@ -21,7 +21,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     data_structures::{
-        payment_id::PaymentId,
+        payment_id::MemoField,
         types::{CompressedCommitment, CompressedPublicKey, EncryptedDataKey, MicroMinotari, PrivateKey},
     },
     errors::{DataStructureError, EncryptionError, WalletError},
@@ -85,7 +85,7 @@ impl EncryptedData {
         commitment: &CompressedCommitment,
         value: MicroMinotari,
         mask: &PrivateKey,
-        payment_id: PaymentId,
+        payment_id: MemoField,
     ) -> Result<EncryptedData, WalletError> {
         // Encode the value and mask
         let mut bytes = Zeroizing::new(vec![0; SIZE_VALUE + SIZE_MASK + payment_id.get_size()]);
@@ -120,7 +120,7 @@ impl EncryptedData {
         encryption_key: &PrivateKey,
         commitment: &CompressedCommitment,
         encrypted_data: &EncryptedData,
-    ) -> Result<(MicroMinotari, PrivateKey, PaymentId), EncryptedDataError> {
+    ) -> Result<(MicroMinotari, PrivateKey, MemoField), EncryptedDataError> {
         // Extract the nonce, ciphertext, and tag - REFERENCE_tari layout: TAG || NONCE || CIPHERTEXT
         let data = encrypted_data.as_bytes();
 
@@ -162,7 +162,7 @@ impl EncryptedData {
             u64::from_le_bytes(value_bytes).into(),
             PrivateKey::from_canonical_bytes(&bytes[SIZE_VALUE..SIZE_VALUE + SIZE_MASK])
                 .map_err(|e| EncryptedDataError::InvalidData(format!("Invalid mask: {e}")))?,
-            PaymentId::from_bytes(&bytes[SIZE_VALUE + SIZE_MASK..]),
+            MemoField::from_bytes(&bytes[SIZE_VALUE + SIZE_MASK..]),
         ))
     }
 
@@ -219,7 +219,7 @@ impl EncryptedData {
         commitment: &CompressedCommitment,
         sender_offset_public_key: &CompressedPublicKey,
         encrypted_data: &EncryptedData,
-    ) -> Option<(String, MicroMinotari, PrivateKey, PaymentId)> {
+    ) -> Option<(String, MicroMinotari, PrivateKey, MemoField)> {
         // Try change output decryption first (mechanism 1)
         if let Ok((value, mask, payment_id)) = Self::decrypt_data(view_key, commitment, encrypted_data) {
             return Some(("change_output".to_string(), value, mask, payment_id));
@@ -244,7 +244,7 @@ impl EncryptedData {
         commitment: &CompressedCommitment,
         sender_offset_public_key: &CompressedPublicKey,
         encrypted_data: &EncryptedData,
-    ) -> Result<(MicroMinotari, PrivateKey, PaymentId), EncryptedDataError> {
+    ) -> Result<(MicroMinotari, PrivateKey, MemoField), EncryptedDataError> {
         // Step 1: Perform Diffie-Hellman to get shared secret
         let shared_secret = diffie_hellman_shared_secret(view_private_key, sender_offset_public_key)
             .map_err(|e| EncryptedDataError::DecryptionFailed(format!("Diffie-Hellman failed: {e}")))?;
@@ -398,7 +398,7 @@ mod test {
         let commitment = CompressedCommitment::new([2u8; 32]);
         let value = MicroMinotari::new(1000000);
         let mask = PrivateKey::new([3u8; 32]);
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         let encrypted =
             EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
@@ -417,7 +417,7 @@ mod test {
         let commitment = CompressedCommitment::new([2u8; 32]);
         let value = MicroMinotari::new(5000000);
         let mask = PrivateKey::new([3u8; 32]);
-        let payment_id = PaymentId::U256(U256::from(12345));
+        let payment_id = MemoField::U256(U256::from(12345));
 
         let encrypted =
             EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id.clone()).unwrap();
@@ -436,7 +436,7 @@ mod test {
         let commitment = CompressedCommitment::new([2u8; 32]);
         let value = MicroMinotari::new(1000000);
         let mask = PrivateKey::new([3u8; 32]);
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         let encrypted = EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
 
@@ -453,7 +453,7 @@ mod test {
         let commitment = CompressedCommitment::new([2u8; 32]);
         let value = MicroMinotari::new(1000000);
         let mask = PrivateKey::new([3u8; 32]);
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         let encrypted = EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
 
@@ -801,16 +801,16 @@ mod test {
     /// These test vectors validate exact compatibility with the main Tari implementation
     #[test]
     fn test_encrypted_data_test_vectors_simple_open_payment_id() {
-        use crate::data_structures::payment_id::{PaymentId, TxType};
+        use crate::data_structures::payment_id::{MemoField, TxType};
 
-        // Test Case: Simple values with Open PaymentId
+        // Test Case: Simple values with Open MemoField
         let value = MicroMinotari::new(123456);
         let mask = PrivateKey::from_hex("e703000000000000000000000000000000000000000000000000000000000000").unwrap();
         let encryption_key =
             PrivateKey::from_hex("a7e101000000000040e201000000000000000000000000000000000000000000").unwrap();
         let commitment =
             CompressedCommitment::from_hex("c83df28387bfab6f33421fbc5f8fddefad63614adb9aff96135bc60c5d907f7c").unwrap();
-        let payment_id = PaymentId::Open {
+        let payment_id = MemoField::Open {
             user_data: vec![231, 3, 0, 0, 0, 0, 0, 0],
             tx_type: TxType::PaymentToOther,
         };
@@ -841,7 +841,7 @@ mod test {
         assert_eq!(
             encrypted_bytes.len(),
             90,
-            "Encrypted data length mismatch for Open PaymentId"
+            "Encrypted data length mismatch for Open MemoField"
         );
 
         // Verify components can be extracted (TAG || NONCE || CIPHERTEXT layout)
@@ -853,14 +853,14 @@ mod test {
 
     #[test]
     fn test_encrypted_data_test_vectors_zero_empty_payment_id() {
-        // Test Case: Zero value with Empty PaymentId
+        // Test Case: Zero value with Empty MemoField
         let value = MicroMinotari::new(0);
         let mask = PrivateKey::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let encryption_key =
             PrivateKey::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let commitment =
             CompressedCommitment::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         // Test key derivation
         let aead_key = kdf_aead(&encryption_key, &commitment);
@@ -887,7 +887,7 @@ mod test {
         assert_eq!(
             encrypted_bytes.len(),
             80,
-            "Encrypted data length mismatch for Empty PaymentId"
+            "Encrypted data length mismatch for Empty MemoField"
         );
 
         // Verify components can be extracted
@@ -899,16 +899,16 @@ mod test {
 
     #[test]
     fn test_encrypted_data_test_vectors_large_unicode_payment_id() {
-        use crate::data_structures::payment_id::{PaymentId, TxType};
+        use crate::data_structures::payment_id::{MemoField, TxType};
 
-        // Test Case: Large value with Unicode PaymentId
+        // Test Case: Large value with Unicode MemoField
         let value = MicroMinotari::new(18446744073709551615); // u64::MAX
         let mask = PrivateKey::from_hex("2a00000000000000000000000000000000000000000000000000000000000000").unwrap();
         let encryption_key =
             PrivateKey::from_hex("d5ffffffffffffffffffffffffffffff00000000000000000000000000000000").unwrap();
         let commitment =
             CompressedCommitment::from_hex("e67159598723660c9d8c004bcb2972a2173f1498fbe2257988f69f4e86bf8060").unwrap();
-        let payment_id = PaymentId::Open {
+        let payment_id = MemoField::Open {
             user_data: vec![240, 159, 154, 128, 240, 159, 146, 142], // Unicode rocket and money emojis
             tx_type: TxType::PaymentToSelf,
         };
@@ -941,7 +941,7 @@ mod test {
         assert_eq!(
             encrypted_bytes.len(),
             90,
-            "Encrypted data length mismatch for Unicode PaymentId"
+            "Encrypted data length mismatch for Unicode MemoField"
         );
 
         // Verify components can be extracted
@@ -958,7 +958,7 @@ mod test {
         let commitment = CompressedCommitment::new([2u8; 32]);
         let value = MicroMinotari::new(1000000);
         let mask = PrivateKey::new([3u8; 32]);
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         let encrypted = EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
 
@@ -1048,7 +1048,7 @@ mod test {
 
     #[test]
     fn test_comprehensive_encrypted_data_validation() {
-        use crate::data_structures::payment_id::{PaymentId, TxType};
+        use crate::data_structures::payment_id::{MemoField, TxType};
 
         // Comprehensive test covering various scenarios
         let test_cases = vec![
@@ -1058,7 +1058,7 @@ mod test {
                 "0000000000000000000000000000000000000000000000000000000000000000",
                 "0000000000000000000000000000000000000000000000000000000000000000",
                 "0000000000000000000000000000000000000000000000000000000000000000",
-                PaymentId::Empty,
+                MemoField::Empty,
                 "All zeros with empty payment ID",
             ),
             (
@@ -1066,7 +1066,7 @@ mod test {
                 "e703000000000000000000000000000000000000000000000000000000000000",
                 "a7e101000000000040e201000000000000000000000000000000000000000000",
                 "c83df28387bfab6f33421fbc5f8fddefad63614adb9aff96135bc60c5d907f7c",
-                PaymentId::Open {
+                MemoField::Open {
                     user_data: vec![231, 3, 0, 0, 0, 0, 0, 0],
                     tx_type: TxType::PaymentToOther,
                 },
@@ -1077,7 +1077,7 @@ mod test {
                 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                PaymentId::Open {
+                MemoField::Open {
                     user_data: vec![255, 255, 255, 255, 255, 255, 255, 255],
                     tx_type: TxType::PaymentToSelf,
                 },
@@ -1492,7 +1492,7 @@ mod test {
         let commitment = CompressedCommitment::new([3u8; 32]);
         let value = MicroMinotari::new(1000000);
         let mask = PrivateKey::new([4u8; 32]);
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         let view_key_hex = hex::encode(view_key.as_bytes());
         println!("🔑 View key: {view_key_hex}");

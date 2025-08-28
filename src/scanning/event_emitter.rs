@@ -46,13 +46,17 @@ use js_sys;
 use tokio::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures;
-
+use tari_transaction_components::{
+    transaction_components::{
+        TransactionOutput,
+    },
+};
 use crate::{
     data_structures::{
         block::Block,
-        transaction_output::TransactionOutput,
         wallet_transaction::{WalletState, WalletTransaction},
     },
+
     errors::WalletError,
     events::{
         types::{

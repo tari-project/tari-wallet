@@ -250,7 +250,7 @@ mod tests {
         CompressedCommitment,
         CompressedPublicKey,
         EncryptedData,
-        PaymentId,
+        MemoField,
         PrivateKey,
         SafeArray,
         TransactionOutput,
@@ -444,29 +444,29 @@ mod tests {
     #[test]
     fn test_payment_id_hex() {
         // Test Empty payment ID
-        let empty_payment_id = PaymentId::Empty;
+        let empty_payment_id = MemoField::Empty;
         let hex = empty_payment_id.to_hex();
         assert_eq!(hex, "");
-        let parsed = PaymentId::from_hex(&hex).unwrap();
+        let parsed = MemoField::from_hex(&hex).unwrap();
         assert_eq!(parsed, empty_payment_id);
 
         // Test U256 payment ID - roundtrip with proper tag
         let u256_value = U256::from(0x123456789abcdef0u64);
-        let u256_payment_id = PaymentId::U256(u256_value);
+        let u256_payment_id = MemoField::U256(u256_value);
         let hex = u256_payment_id.to_hex();
-        let parsed = PaymentId::from_hex(&hex).unwrap();
+        let parsed = MemoField::from_hex(&hex).unwrap();
         assert_eq!(parsed, u256_payment_id);
 
         // Test Raw payment ID - roundtrip
         let raw_data = vec![0xaa, 0xbb, 0xcc, 0xdd];
-        let raw_payment_id = PaymentId::Raw(raw_data.clone());
+        let raw_payment_id = MemoField::Raw(raw_data.clone());
         let hex = raw_payment_id.to_hex();
-        let parsed = PaymentId::from_hex(&hex).unwrap();
+        let parsed = MemoField::from_hex(&hex).unwrap();
         assert_eq!(parsed, raw_payment_id);
 
-        // Test validation with proper PaymentId hex (includes tags)
-        assert!(PaymentId::is_valid_hex(""));
-        assert!(PaymentId::is_valid_hex(&hex));
+        // Test validation with proper MemoField hex (includes tags)
+        assert!(MemoField::is_valid_hex(""));
+        assert!(MemoField::is_valid_hex(&hex));
     }
 
     #[test]
@@ -511,7 +511,7 @@ mod tests {
         let public_key = CompressedPublicKey::new([0x56; 32]);
         let safe_array = SafeArray::new([0x78; 16]);
         let encrypted_data = EncryptedData::from_bytes(&[0x9a; 80]).unwrap();
-        let payment_id = PaymentId::U256(U256::from(0x123456789abcdef0u64));
+        let payment_id = MemoField::U256(U256::from(0x123456789abcdef0u64));
 
         // Test that they all have hex methods
         assert!(!private_key.to_hex().is_empty());
@@ -527,6 +527,6 @@ mod tests {
         assert!(CompressedPublicKey::is_valid_hex(&public_key.to_hex()));
         assert!(SafeArray::<16>::is_valid_hex(&safe_array.to_hex()));
         assert!(EncryptedData::is_valid_hex(&encrypted_data.to_hex()));
-        assert!(PaymentId::is_valid_hex(&payment_id.to_hex()));
+        assert!(MemoField::is_valid_hex(&payment_id.to_hex()));
     }
 }

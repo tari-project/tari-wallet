@@ -43,6 +43,38 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use serde_wasm_bindgen;
+use tari_common_types::{
+    tari_address::TariAddress,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
+};
+use tari_common_types::types::{ComAndPubSignature, CompressedCommitment};
+use tari_script::{ExecutionStack, TariScript};
+use tari_transaction_components::{
+    aggregated_body::AggregateBody,
+    transaction_components::{
+        covenants::Covenant,
+        CoinBaseExtra,
+        EncryptedData,
+        KernelFeatures,
+        MemoField,
+        OutputFeatures,
+        OutputFeaturesVersion,
+        OutputType,
+        RangeProofType,
+        SideChainFeature,
+        Transaction,
+        TransactionInput,
+        TransactionInputVersion,
+        TransactionKernel,
+        TransactionKernelVersion,
+        TransactionOutput,
+        TransactionOutputVersion,
+    },
+    MicroMinotari,
+};
+use tari_transaction_components::key_manager::TariKeyId;
+use tari_transaction_components::transaction_components::WalletOutput;
 #[cfg(feature = "http")]
 use tari_utilities::ByteArray;
 #[cfg(all(feature = "http", feature = "tracing"))]
@@ -55,14 +87,6 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
 use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        transaction_input::TransactionInput,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
-        wallet_output::{Covenant, OutputFeatures, Script, Signature, WalletOutput},
-        OutputType,
-    },
     errors::{WalletError, WalletResult},
     extraction::{extract_wallet_output, ExtractionConfig},
     scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
@@ -510,16 +534,16 @@ impl HttpBlockchainScanner {
         let proof = None;
 
         // Convert Script - match GRPC approach exactly
-        let script = Script { bytes: Vec::new() };
+        let script = TariScript::default();
 
         // Convert Metadata Signature - match GRPC approach exactly
-        let metadata_signature = Signature::default();
+        let metadata_signature = ComAndPubSignature::default();
 
         // Convert Covenant - match GRPC approach exactly
-        let covenant = Covenant { bytes: Vec::new() };
+        let covenant = Covenant::default();
 
         // Convert Minimum Value Promise - match GRPC approach exactly
-        let minimum_value_promise = MicroMinotari::new(0);
+        let minimum_value_promise = MicroMinotari(0);
 
         let output_features = tari_transaction_components::transaction_components::OutputFeatures::default();
 
@@ -552,19 +576,19 @@ impl HttpBlockchainScanner {
 
         // Create minimal TransactionInput with the output hash
         Ok(TransactionInput::new(
-            1,                                                                // version
-            0,                                                                // features (default)
-            [0u8; 32],                                                        /* commitment (not available from HTTP
-                                                                               * API) */
+            1, // version
+            0, // features (default)
+            [0u8; 32], /* commitment (not available from HTTP
+                * API) */
             [0u8; 64],                      // script_signature (not available)
             CompressedPublicKey::default(), // sender_offset_public_key (not available)
             Vec::new(),                     // covenant (not available)
-            crate::data_structures::transaction_input::ExecutionStack::new(), // input_data (not available)
+            ExecutionStack::new(), // input_data (not available)
             output_hash,                    // output_hash (this is the actual data from HTTP API)
             0,                              // output_features (not available)
             [0u8; 64],                      // output_metadata_signature (not available)
             0,                              // maturity (not available)
-            MicroMinotari::new(0),          // value (not available)
+            MicroMinotari(0),          // value (not available)
         ))
     }
 
@@ -699,11 +723,11 @@ impl HttpBlockchainScanner {
             let wallet_output = WalletOutput::new(
                 output.version(),
                 output.minimum_value_promise(),
-                crate::data_structures::wallet_output::KeyId::Zero,
+                TariKeyId::Zero,
                 output.features().clone(),
                 output.script().clone(),
-                crate::data_structures::wallet_output::ExecutionStack::default(),
-                crate::data_structures::wallet_output::KeyId::Zero,
+                ExecutionStack::default(),
+                TariKeyId::Zero,
                 output.sender_offset_public_key().clone(),
                 output.metadata_signature().clone(),
                 0,
@@ -711,7 +735,7 @@ impl HttpBlockchainScanner {
                 output.encrypted_data().clone(),
                 output.minimum_value_promise(),
                 output.proof().cloned(),
-                crate::data_structures::payment_id::PaymentId::Empty,
+                MemoField::Empty,
             );
 
             return Ok(Some(wallet_output));

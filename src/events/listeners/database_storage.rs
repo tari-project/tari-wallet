@@ -469,7 +469,7 @@ impl DatabaseStorageListener {
         value: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         use crate::data_structures::{
-            payment_id::PaymentId,
+            payment_id::MemoField,
             transaction::{TransactionDirection, TransactionStatus},
             types::CompressedCommitment,
             wallet_transaction::WalletTransaction,
@@ -488,7 +488,7 @@ impl DatabaseStorageListener {
                 commitment,
                 None, // No output hash for outbound transaction
                 value,
-                PaymentId::Empty,                  // No payment ID for spending transaction
+                MemoField::Empty,                  // No payment ID for spending transaction
                 TransactionStatus::MinedConfirmed, // Spending is confirmed since it's in a block
                 TransactionDirection::Outbound,    // This is an outbound transaction (spending)
                 true,                              // Always mature for spending transactions
@@ -609,7 +609,7 @@ impl DatabaseStorageListener {
         key_manager: &Arc<TransactionKeyManager>,
     ) -> Result<StoredOutput, Box<dyn Error + Send + Sync>> {
         // Parse commitment from hex string
-        use crate::{data_structures::PaymentId, hex_utils::HexEncodable, wallet_scanner::extract_script_data};
+        use crate::{data_structures::MemoField, hex_utils::HexEncodable, wallet_scanner::extract_script_data};
         let commitment_hex = output_data.commitment.trim_start_matches("0x");
         let commitment_bytes = hex::decode(commitment_hex).map_err(|e| format!("Invalid commitment hex: {e}"))?;
 
@@ -650,7 +650,7 @@ impl DatabaseStorageListener {
         let payment_id = transaction_data
             .payment_id
             .as_deref()
-            .and_then(|hex| PaymentId::from_hex(hex).ok())
+            .and_then(|hex| MemoField::from_hex(hex).ok())
             .unwrap_or_default();
 
         let features_json = serde_json::to_string(&output_data.output_features)?;
@@ -994,7 +994,7 @@ impl DatabaseStorageListener {
     ) -> Result<crate::data_structures::wallet_transaction::WalletTransaction, Box<dyn Error + Send + Sync>> {
         use crate::{
             data_structures::{
-                payment_id::PaymentId,
+                payment_id::MemoField,
                 transaction::{TransactionDirection, TransactionStatus},
                 types::CompressedCommitment,
             },
@@ -1025,13 +1025,13 @@ impl DatabaseStorageListener {
         // Extract payment ID from transaction data
         let payment_id = if let Some(payment_id_hex) = &transaction_data.payment_id {
             if payment_id_hex.is_empty() || payment_id_hex == "Empty" {
-                PaymentId::Empty
+                MemoField::Empty
             } else {
                 // Try to parse the payment ID from hex
-                PaymentId::from_hex(payment_id_hex).unwrap_or(PaymentId::Empty)
+                MemoField::from_hex(payment_id_hex).unwrap_or(MemoField::Empty)
             }
         } else {
-            PaymentId::Empty
+            MemoField::Empty
         };
 
         Ok(crate::data_structures::wallet_transaction::WalletTransaction {

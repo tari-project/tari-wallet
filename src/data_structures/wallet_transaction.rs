@@ -7,14 +7,34 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-
-use crate::data_structures::{
-    payment_id::PaymentId,
+use tari_common_types::{
+    tari_address::TariAddress,
     transaction::{TransactionDirection, TransactionStatus},
-    types::CompressedCommitment,
-    CompressedPublicKey,
-    PrivateKey,
+    types::{CompressedPublicKey, FixedHash, PrivateKey},
 };
+use tari_common_types::types::CompressedCommitment;
+use tari_transaction_components::{
+    aggregated_body::AggregateBody,
+    transaction_components::{
+        CoinBaseExtra,
+        EncryptedData,
+        KernelFeatures,
+        OutputFeatures,
+        OutputFeaturesVersion,
+        OutputType,
+        RangeProofType,
+        SideChainFeature,
+        Transaction,
+        TransactionInput,
+        TransactionInputVersion,
+        TransactionKernel,
+        TransactionKernelVersion,
+        TransactionOutput,
+        TransactionOutputVersion,
+    },
+    MicroMinotari,
+};
+use tari_transaction_components::transaction_components::memo_field::MemoField;
 // Simple number formatting (removed utils::number module)
 
 /// A wallet transaction representing either a received output or spent input
@@ -33,7 +53,7 @@ pub struct WalletTransaction {
     /// Value in microMinotari
     pub value: u64,
     /// Associated payment ID
-    pub payment_id: PaymentId,
+    pub payment_id: MemoField,
     /// Whether this output has been spent
     pub is_spent: bool,
     /// Block height where this output was spent (if spent)
@@ -62,7 +82,7 @@ impl WalletTransaction {
         commitment: CompressedCommitment,
         output_hash: Option<Vec<u8>>,
         value: u64,
-        payment_id: PaymentId,
+        payment_id: MemoField,
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
@@ -188,7 +208,7 @@ impl WalletState {
         commitment: CompressedCommitment,
         output_hash: Option<Vec<u8>>,
         value: u64,
-        payment_id: PaymentId,
+        payment_id: MemoField,
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
@@ -519,7 +539,7 @@ impl From<WalletStateSerde> for WalletState {
 mod tests {
     use super::*;
     use crate::data_structures::{
-        payment_id::PaymentId,
+        payment_id::MemoField,
         transaction::{TransactionDirection, TransactionStatus},
         types::CompressedCommitment,
     };
@@ -534,7 +554,7 @@ mod tests {
             commitment.clone(),
             None,
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -560,7 +580,7 @@ mod tests {
             commitment,
             None,
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -600,7 +620,7 @@ mod tests {
             commitment,
             None, // No output_hash in test
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -631,7 +651,7 @@ mod tests {
             commitment.clone(),
             None, // No output_hash in test
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -706,7 +726,7 @@ mod tests {
             commitment1.clone(),
             None,
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -719,7 +739,7 @@ mod tests {
             commitment2,
             None,
             2000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -749,7 +769,7 @@ mod tests {
             commitment.clone(),
             None,
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::CoinbaseConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -764,7 +784,7 @@ mod tests {
             commitment,
             None,
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -789,7 +809,7 @@ mod tests {
             commitment1.clone(),
             None,
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -802,7 +822,7 @@ mod tests {
             commitment2.clone(),
             None,
             2000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -844,7 +864,7 @@ mod tests {
             commitment,
             None,
             1000000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,

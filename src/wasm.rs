@@ -15,7 +15,7 @@ use crate::{
     data_structures::{
         block::Block,
         encrypted_data::EncryptedData,
-        payment_id::PaymentId,
+        payment_id::MemoField,
         transaction::TransactionDirection,
         transaction_input::TransactionInput,
         transaction_output::TransactionOutput,
@@ -379,7 +379,7 @@ impl WasmScanner {
                             status: format!("{:?}", tx.transaction_status),
                             is_spent: tx.is_spent,
                             payment_id: match &tx.payment_id {
-                                PaymentId::Empty => None,
+                                MemoField::Empty => None,
                                 _ => Some(tx.payment_id.user_data_as_string()),
                             },
                         })
@@ -806,7 +806,7 @@ impl WasmScanner {
                 status: format!("{:?}", tx.transaction_status),
                 is_spent: tx.is_spent,
                 payment_id: match &tx.payment_id {
-                    PaymentId::Empty => None,
+                    MemoField::Empty => None,
                     _ => Some(tx.payment_id.user_data_as_string()),
                 },
             })
@@ -987,7 +987,7 @@ impl WasmScanner {
                 status: format!("{:?}", tx.transaction_status),
                 is_spent: tx.is_spent,
                 payment_id: match &tx.payment_id {
-                    PaymentId::Empty => None,
+                    MemoField::Empty => None,
                     _ => Some(tx.payment_id.user_data_as_string()),
                 },
             })

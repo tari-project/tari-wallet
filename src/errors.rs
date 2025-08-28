@@ -116,7 +116,7 @@ pub enum DataStructureError {
     InvalidCommitment(String),
 
     #[error("Invalid payment ID: {0}")]
-    InvalidPaymentId(String),
+    InvalidMemoField(String),
 
     #[error("Invalid transaction output: {0}")]
     InvalidTransactionOutput(String),

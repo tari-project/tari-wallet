@@ -119,7 +119,7 @@ fn create_test_output(
     spend_key: &PrivateKey,
 ) -> Result<TransactionOutput, WalletError> {
     use lightweight_wallet_libs::data_structures::{
-        payment_id::PaymentId,
+        payment_id::MemoField,
         wallet_output::{Covenant, Script, Signature},
     };
 
@@ -133,7 +133,7 @@ fn create_test_output(
     let encryption_key = view_key.clone();
     let micro_value = MicroMinotari::from(value);
     let mask = PrivateKey::new([0x03; 32]);
-    let payment_id = PaymentId::Empty;
+    let payment_id = MemoField::Empty;
 
     let encrypted_data = EncryptedData::encrypt_data(&encryption_key, &commitment, micro_value, &mask, payment_id)
         .map_err(|e| {

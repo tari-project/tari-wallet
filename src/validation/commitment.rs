@@ -4,10 +4,12 @@
 //! without requiring the full Tari crypto stack.
 
 use crate::{
-    data_structures::types::{CompressedCommitment, MicroMinotari, PrivateKey},
     errors::ValidationError,
 };
-
+use tari_common_types::{tari_address::TariAddress, types::{CompressedCommitment, PrivateKey}};
+use tari_transaction_components::{
+    MicroMinotari,
+};
 /// Commitment validator
 #[derive(Debug, Clone)]
 pub struct CommitmentValidator;

@@ -26,7 +26,7 @@ use crate::storage::event_storage::{EventFilter, EventStorage, EventStorageStats
 #[cfg(feature = "storage")]
 use crate::{
     data_structures::{
-        payment_id::PaymentId,
+        payment_id::MemoField,
         transaction::{TransactionDirection, TransactionStatus},
         types::CompressedCommitment,
         wallet_transaction::{WalletState, WalletTransaction},
@@ -341,7 +341,7 @@ impl SqliteStorage {
         })?;
 
         let payment_id_json: String = row.get("payment_id_json")?;
-        let payment_id: PaymentId =
+        let payment_id: MemoField =
             serde_json::from_str(&payment_id_json).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
         let transaction_status_int: i32 = row.get("transaction_status")?;

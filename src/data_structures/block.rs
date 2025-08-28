@@ -11,25 +11,36 @@
 #[cfg(feature = "grpc")]
 use rayon::prelude::*;
 use tari_script::{Opcode, TariScript};
+use crate::data_structures::WalletState;
+use tari_transaction_components::transaction_components::MemoField;
+use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, PrivateKey};
+use tari_transaction_components::{
+    aggregated_body::AggregateBody,
+    transaction_components::{
+        CoinBaseExtra,
+        EncryptedData,
+        KernelFeatures,
+        OutputFeatures,
+        OutputFeaturesVersion,
+        OutputType,
+        RangeProofType,
+        SideChainFeature,
+        Transaction,
+        TransactionInput,
+        TransactionInputVersion,
+        TransactionKernel,
+        TransactionKernelVersion,
+        TransactionOutput,
+        TransactionOutputVersion,
+    },
+    MicroMinotari,
+};
+use tari_common_types::transaction::{TransactionDirection, TransactionStatus};
 use tari_utilities::{hex::Hex, ByteArray};
 
+use crate::errors::WalletResult;
 #[cfg(feature = "grpc")]
 use crate::scanning::BlockInfo;
-use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        payment_id::PaymentId,
-        transaction::{TransactionDirection, TransactionStatus},
-        transaction_input::TransactionInput,
-        transaction_output::TransactionOutput,
-        types::PrivateKey,
-        wallet_output::OutputType,
-        wallet_transaction::WalletState,
-        CompressedPublicKey,
-        Script,
-    },
-    errors::WalletResult,
-};
 
 /// A block with wallet-focused processing capabilities
 ///
@@ -62,7 +73,7 @@ pub struct SpentOutputInfo {
 struct OutputProcessingResult {
     output_index: usize,
     value: u64,
-    payment_id: PaymentId,
+    payment_id: MemoField,
     transaction_status: TransactionStatus,
     is_mature: bool,
     commitment_mask_private_key: PrivateKey,
@@ -151,9 +162,8 @@ impl Block {
         Ok(found_count)
     }
 
-    fn extract_script_key(&self, script: &Script) -> Option<CompressedPublicKey> {
-        let tari_script = TariScript::from_bytes(&script.bytes).ok()?;
-        if let [Opcode::PushPubKey(pk)] = tari_script.as_slice() {
+    fn extract_script_key(&self, script: &TariScript) -> Option<CompressedPublicKey> {
+        if let [Opcode::PushPubKey(pk)] = script.as_slice() {
             let compressed_pk = CompressedPublicKey::from_hex(&pk.to_hex()).ok()?;
             return Some(compressed_pk);
         }
@@ -335,9 +345,7 @@ impl Block {
 
             // If output hash matching failed or output_hash is all zeros, try commitment matching (for GRPC API)
             if !found_spent && !input.commitment.iter().all(|&b| b == 0) {
-                use crate::data_structures::types::CompressedCommitment;
-                let commitment = CompressedCommitment::new(input.commitment);
-                if wallet_state.mark_output_spent(&commitment, self.height, input_index) {
+                if wallet_state.mark_output_spent(input.commitment(), self.height, input_index) {
                     spent_outputs += 1;
                 }
             }
@@ -366,7 +374,7 @@ impl Block {
                             // outputs This filters out any incorrectly added transactions
                             if transaction.value > 0 &&
                                 transaction.transaction_direction ==
-                                    crate::data_structures::transaction::TransactionDirection::Inbound
+                                    TransactionDirection::Inbound
                             {
                                 spent_outputs.push(SpentOutputInfo {
                                     spent_transaction: transaction.clone(),
@@ -384,7 +392,6 @@ impl Block {
 
             // If no output hash match found, try commitment matching (for GRPC API and fallback)
             if !found_match && !input.commitment.iter().all(|&b| b == 0) {
-                use crate::data_structures::types::CompressedCommitment;
                 let commitment = CompressedCommitment::new(input.commitment);
                 // Look through all transactions to find matching commitment
                 for transaction in &wallet_state.transactions {
@@ -393,7 +400,7 @@ impl Block {
                         // outputs This filters out any incorrectly added transactions
                         if transaction.value > 0 &&
                             transaction.transaction_direction ==
-                                crate::data_structures::transaction::TransactionDirection::Inbound
+                                TransactionDirection::Inbound
                         {
                             spent_outputs.push(SpentOutputInfo {
                                 spent_transaction: transaction.clone(),
@@ -499,7 +506,7 @@ mod tests {
     use super::*;
     use crate::data_structures::{
         encrypted_data::EncryptedData,
-        payment_id::PaymentId,
+        payment_id::MemoField,
         transaction::{TransactionDirection, TransactionStatus},
         transaction_input::TransactionInput,
         transaction_output::TransactionOutput,
@@ -715,7 +722,7 @@ mod tests {
             commitment.clone(),
             Some(output_hash.to_vec()),
             1000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -741,7 +748,7 @@ mod tests {
             commitment.clone(),
             Some(output_hash.to_vec()),
             1000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -775,7 +782,7 @@ mod tests {
             commitment1.clone(),
             Some(output_hash1.to_vec()),
             1000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -788,7 +795,7 @@ mod tests {
             commitment2.clone(),
             Some(output_hash2.to_vec()),
             2000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -917,7 +924,7 @@ mod tests {
             commitment.clone(),
             Some(output_hash.to_vec()),
             1000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -933,7 +940,7 @@ mod tests {
             dummy_commitment.clone(),
             Some([99u8; 32].to_vec()),
             0, // Zero amount - should be filtered out
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
@@ -1035,7 +1042,7 @@ mod tests {
             commitment.clone(),
             Some(output_hash.to_vec()),
             1000,
-            PaymentId::Empty,
+            MemoField::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,

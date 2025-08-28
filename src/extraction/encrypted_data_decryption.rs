@@ -3,17 +3,40 @@
 //! This module provides functionality to decrypt encrypted data from transaction outputs
 //! using various types of keys (derived keys, imported keys, etc.).
 
-use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        payment_id::PaymentId,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
+use tari_common_types::{
+    tari_address::TariAddress,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
+};
+use tari_common_types::types::CompressedCommitment;
+use tari_transaction_components::{
+    aggregated_body::AggregateBody,
+    transaction_components::{
+        covenants::Covenant,
+        CoinBaseExtra,
+        EncryptedData,
+        KernelFeatures,
+        MemoField,
+        OutputFeatures,
+        OutputFeaturesVersion,
+        OutputType,
+        RangeProofType,
+        SideChainFeature,
+        Transaction,
+        TransactionInput,
+        TransactionInputVersion,
+        TransactionKernel,
+        TransactionKernelVersion,
+        TransactionOutput,
+        TransactionOutputVersion,
     },
+    MicroMinotari,
+};
+
+use crate::{
     errors::{EncryptionError, KeyManagementError, WalletError},
     key_management::{ImportedPrivateKey, KeyStore},
 };
-
 /// Options for encrypted data decryption
 #[derive(Debug, Clone)]
 pub struct DecryptionOptions {
@@ -48,7 +71,7 @@ pub struct DecryptionResult {
     /// The decrypted mask (if successful)
     pub mask: Option<PrivateKey>,
     /// The extracted payment ID (if successful)
-    pub payment_id: Option<PaymentId>,
+    pub payment_id: Option<MemoField>,
     /// The key that was used for decryption (if successful)
     pub used_key: Option<PrivateKey>,
     /// Error message if decryption failed
@@ -62,7 +85,7 @@ impl DecryptionResult {
     pub fn success(
         value: MicroMinotari,
         mask: PrivateKey,
-        payment_id: PaymentId,
+        payment_id: MemoField,
         used_key: PrivateKey,
         keys_tried: usize,
     ) -> Self {
@@ -451,7 +474,7 @@ impl EncryptedDataDecryptor {
         &self,
         value: &MicroMinotari,
         mask: &PrivateKey,
-        payment_id: &PaymentId,
+        payment_id: &MemoField,
     ) -> Result<(), WalletError> {
         // Validate value is reasonable (not zero unless it's a special case)
         if value.as_u64() == 0 {
@@ -467,23 +490,23 @@ impl EncryptedDataDecryptor {
 
         // Validate payment ID structure
         match payment_id {
-            PaymentId::Empty => {
+            MemoField::Empty => {
                 // Empty payment ID is always valid
             },
-            PaymentId::U256 { .. } => {
+            MemoField::U256 { .. } => {
                 // U256 payment ID is always valid
             },
-            PaymentId::Open { .. } => {
+            MemoField::Open { .. } => {
                 // Open payment ID is always valid
             },
-            PaymentId::AddressAndData { .. } => {
+            MemoField::AddressAndData { .. } => {
                 // AddressAndData payment ID is always valid, even with empty user_data
                 // The address information itself provides the necessary payment metadata
             },
-            PaymentId::TransactionInfo { .. } => {
+            MemoField::TransactionInfo { .. } => {
                 // Transaction info payment ID is always valid
             },
-            PaymentId::Raw(data) => {
+            MemoField::Raw(data) => {
                 // Validate raw data is not empty
                 if data.is_empty() {
                     return Err(EncryptionError::decryption_failed("Raw payment ID data is empty").into());
@@ -562,7 +585,7 @@ impl Default for EncryptedDataDecryptor {
 mod tests {
     use super::*;
     use crate::data_structures::{
-        payment_id::PaymentId,
+        payment_id::MemoField,
         types::{CompressedCommitment, PrivateKey},
     };
 
@@ -571,7 +594,7 @@ mod tests {
         let commitment = CompressedCommitment::new([0x08; 32]);
         let value = MicroMinotari::new(1000);
         let mask = PrivateKey::random();
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         let encrypted_data =
             EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id).unwrap();
@@ -681,7 +704,7 @@ mod tests {
     fn test_decryption_result_success() {
         let value = MicroMinotari::new(1000);
         let mask = PrivateKey::random();
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
         let used_key = PrivateKey::random();
 
         let result = DecryptionResult::success(value, mask.clone(), payment_id.clone(), used_key.clone(), 1);

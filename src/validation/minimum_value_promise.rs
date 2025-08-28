@@ -5,11 +5,14 @@
 //! and meet all cryptographic requirements.
 
 use crate::{
-    data_structures::{
-        types::{CompressedCommitment, MicroMinotari, PrivateKey},
-        wallet_output::{RangeProof, RangeProofType},
-    },
     errors::ValidationError,
+};
+use tari_common_types::{types::{CompressedCommitment, PrivateKey, RangeProof}};
+use tari_transaction_components::{
+    transaction_components::{
+        RangeProofType,
+    },
+    MicroMinotari,
 };
 
 /// Options for minimum value promise verification

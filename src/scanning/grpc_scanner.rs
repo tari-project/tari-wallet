@@ -498,7 +498,7 @@ impl GrpcBlockchainScanner {
                 output.encrypted_data().clone(),
                 output.minimum_value_promise(),
                 output.proof().cloned(),
-                crate::data_structures::payment_id::PaymentId::Empty,
+                crate::data_structures::payment_id::MemoField::Empty,
             );
 
             return Ok(Some(wallet_output));

@@ -18,19 +18,39 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use blake2::{Blake2b, Digest};
 use serde::{Deserialize, Serialize};
+use tari_common_types::{
+    tari_address::TariAddress,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
+};
 use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
-use tari_transaction_components::transaction_components::Transaction;
+use tari_transaction_components::{
+    aggregated_body::AggregateBody,
+    transaction_components::{
+        covenants::Covenant,
+        CoinBaseExtra,
+        EncryptedData,
+        KernelFeatures,
+        MemoField,
+        OutputFeatures,
+        OutputFeaturesVersion,
+        OutputType,
+        RangeProofType,
+        SideChainFeature,
+        Transaction,
+        TransactionInput,
+        TransactionInputVersion,
+        TransactionKernel,
+        TransactionKernelVersion,
+        TransactionOutput,
+        TransactionOutputVersion,
+    },
+    MicroMinotari,
+};
+use tari_transaction_components::transaction_components::WalletOutput;
 use tari_utilities::ByteArray;
 
 use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        transaction_input::TransactionInput,
-        transaction_kernel::TransactionKernel,
-        transaction_output::TransactionOutput,
-        types::{CompressedPublicKey, PrivateKey},
-        wallet_output::WalletOutput,
-    },
     errors::{WalletError, WalletResult},
     extraction::{extract_wallet_output, ExtractionConfig},
     key_management::{self, KeyManager, KeyStore},
@@ -677,7 +697,7 @@ impl DefaultScanningLogic {
 
         // For coinbase outputs, the value is typically revealed in the minimum value promise
         if output.minimum_value_promise().as_u64() > 0 {
-            use crate::data_structures::{payment_id::PaymentId, wallet_output::*};
+
 
             let wallet_output = WalletOutput::new(
                 output.version(),
@@ -694,7 +714,7 @@ impl DefaultScanningLogic {
                 output.encrypted_data().clone(),
                 output.minimum_value_promise(),
                 output.proof().cloned(),
-                PaymentId::Empty,
+                MemoField::Empty,
             );
 
             return Ok(Some(wallet_output));

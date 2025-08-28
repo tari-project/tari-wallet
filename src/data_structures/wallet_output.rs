@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     data_structures::{
         encrypted_data::EncryptedData,
-        payment_id::PaymentId,
+        payment_id::MemoField,
         types::{CompressedPublicKey, MicroMinotari},
     },
     hex_utils::{HexEncodable, HexError, HexValidatable},
@@ -165,7 +165,7 @@ pub struct WalletOutput {
     /// Range proof (optional)
     pub range_proof: Option<RangeProof>,
     /// Payment ID
-    pub payment_id: PaymentId,
+    pub payment_id: MemoField,
 }
 
 impl WalletOutput {
@@ -186,7 +186,7 @@ impl WalletOutput {
         encrypted_data: EncryptedData,
         minimum_value_promise: MicroMinotari,
         range_proof: Option<RangeProof>,
-        payment_id: PaymentId,
+        payment_id: MemoField,
     ) -> Self {
         Self {
             version,
@@ -214,7 +214,7 @@ impl WalletOutput {
         script_key_id: KeyId,
         sender_offset_public_key: CompressedPublicKey,
         encrypted_data: EncryptedData,
-        payment_id: PaymentId,
+        payment_id: MemoField,
     ) -> Self {
         Self {
             version: 1, // Current version
@@ -256,7 +256,7 @@ impl WalletOutput {
     }
 
     /// Get the payment ID
-    pub fn payment_id(&self) -> &PaymentId {
+    pub fn payment_id(&self) -> &MemoField {
         &self.payment_id
     }
 
@@ -356,7 +356,7 @@ impl WalletOutput {
     }
 
     /// Update the payment ID
-    pub fn update_payment_id(&mut self, payment_id: PaymentId) {
+    pub fn update_payment_id(&mut self, payment_id: MemoField) {
         self.payment_id = payment_id;
     }
 
@@ -412,7 +412,7 @@ impl Default for WalletOutput {
             encrypted_data: EncryptedData::default(),
             minimum_value_promise: MicroMinotari::new(0),
             range_proof: None,
-            payment_id: PaymentId::U256(U256::from(12345)),
+            payment_id: MemoField::U256(U256::from(12345)),
         }
     }
 }
@@ -501,7 +501,7 @@ mod test {
         let script_key_id = KeyId::String("script_key_1".to_string());
         let sender_offset_public_key = CompressedPublicKey::new([0u8; 32]);
         let encrypted_data = EncryptedData::default();
-        let payment_id = PaymentId::U256(U256::from(12345));
+        let payment_id = MemoField::U256(U256::from(12345));
 
         let output = WalletOutput::new_default(
             value,
@@ -528,7 +528,7 @@ mod test {
         let script_key_id = KeyId::Zero;
         let sender_offset_public_key = CompressedPublicKey::new([2u8; 32]);
         let encrypted_data = EncryptedData::from_bytes(&[1, 2, 3, 4, 5]).unwrap_or_default();
-        let payment_id = PaymentId::Empty;
+        let payment_id = MemoField::Empty;
 
         let features = OutputFeatures {
             output_type: OutputType::Coinbase,
@@ -799,7 +799,7 @@ mod test {
         assert_eq!(output.encrypted_data(), &new_encrypted_data);
 
         // Test updating payment ID
-        let new_payment_id = PaymentId::U256(U256::from(98765));
+        let new_payment_id = MemoField::U256(U256::from(98765));
         output.update_payment_id(new_payment_id.clone());
         assert_eq!(output.payment_id(), &new_payment_id);
     }

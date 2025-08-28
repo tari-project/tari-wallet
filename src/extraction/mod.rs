@@ -25,8 +25,39 @@ pub use batch_validation::{
 };
 pub use corruption_detection::{CorruptionDetectionResult, CorruptionDetector, CorruptionType};
 pub use encrypted_data_decryption::{DecryptionOptions, DecryptionResult, EncryptedDataDecryptor};
-pub use payment_id_extraction::{PaymentIdExtractionResult, PaymentIdExtractor, PaymentIdMetadata, PaymentIdType};
+pub use payment_id_extraction::{MemoFieldExtractionResult, MemoFieldExtractor, MemoFieldMetadata, MemoFieldType};
 pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions, StealthKeyRecoveryResult};
+use tari_common_types::{
+    tari_address::TariAddress,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedPublicKey, CompressedSignature, FixedHash, PrivateKey},
+};
+use tari_script::ExecutionStack;
+use tari_transaction_components::{
+    aggregated_body::AggregateBody,
+    transaction_components::{
+        covenants::Covenant,
+        CoinBaseExtra,
+        EncryptedData,
+        KernelFeatures,
+        MemoField,
+        OutputFeatures,
+        OutputFeaturesVersion,
+        OutputType,
+        RangeProofType,
+        SideChainFeature,
+        Transaction,
+        TransactionInput,
+        TransactionInputVersion,
+        TransactionKernel,
+        TransactionKernelVersion,
+        TransactionOutput,
+        TransactionOutputVersion,
+    },
+    MicroMinotari,
+};
+use tari_transaction_components::key_manager::TariKeyId;
+use tari_transaction_components::transaction_components::WalletOutput;
 pub use wallet_output_reconstruction::{
     WalletOutputReconstructionError,
     WalletOutputReconstructionOptions,
@@ -34,11 +65,6 @@ pub use wallet_output_reconstruction::{
 };
 
 use crate::{
-    data_structures::{
-        transaction_output::TransactionOutput,
-        types::{CompressedPublicKey, PrivateKey},
-        wallet_output::WalletOutput,
-    },
     errors::WalletResult,
     key_management::{ImportedPrivateKey, KeyStore},
 };
@@ -158,11 +184,11 @@ pub fn extract_wallet_output(
     let wallet_output = WalletOutput::new(
         transaction_output.version,
         value,                                              // Use the actual decrypted value
-        crate::data_structures::wallet_output::KeyId::Zero, // Default key ID
+        TariKeyId::Zero, // Default key ID
         transaction_output.features.clone(),
         transaction_output.script.clone(),
-        crate::data_structures::wallet_output::ExecutionStack::default(),
-        crate::data_structures::wallet_output::KeyId::Zero, // Default script key ID
+        ExecutionStack::default(),
+        TariKeyId::Zero, // Default script key ID
         transaction_output.sender_offset_public_key.clone(),
         transaction_output.metadata_signature.clone(),
         0, // Default script lock height
