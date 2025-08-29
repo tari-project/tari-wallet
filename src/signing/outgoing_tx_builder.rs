@@ -9,10 +9,16 @@ use tari_common_types::{
 use tari_script::push_pubkey_script;
 use tari_transaction_components::{
     consensus::ConsensusConstantsBuilder,
-    key_manager::TransactionKeyManagerInterface,
+    key_manager::{TariKeyId, TransactionKeyManagerInterface},
     tari_amount::MicroMinotari,
     transaction_builder::FinalizedTransaction,
-    transaction_components::{memo_field::MemoField, OutputFeatures, TransactionError, WalletOutputBuilder},
+    transaction_components::{
+        memo_field::MemoField,
+        one_sided::{shared_secret_to_output_encryption_key, shared_secret_to_output_spending_key},
+        OutputFeatures,
+        TransactionError,
+        WalletOutputBuilder,
+    },
     TransactionBuilder,
 };
 
@@ -72,33 +78,45 @@ impl OutgoingTxBuilder {
             .await
             .map_err(|err| TransactionError::BuilderError(err.to_string()))?;
 
-        let (commitment_mask_key, script_key) = self
-            .transaction_key_manager
-            .as_interface()
-            .get_next_commitment_mask_and_script_key()
-            .await?;
+        let output_builder_key_manager = self.transaction_key_manager.clone().as_interface();
 
-        let sender_offset = self
-            .transaction_key_manager
-            .get_next_key(TransactionKeyManagerBranch::SenderOffset.get_branch_key())
+        let sender_offset = output_builder_key_manager
+            .get_next_key(TransactionKeyManagerBranch::OneSidedSenderOffset.get_branch_key())
             .await
             .unwrap();
 
-        let output_builder_key_manager = self.transaction_key_manager.clone().as_interface();
+        let shared_secret = output_builder_key_manager
+            .get_diffie_hellman_shared_secret(
+                &sender_offset.key_id,
+                dest_address
+                    .public_view_key()
+                    .ok_or(WalletError::DataError("Missing addressee public view key".to_string()))?,
+            )
+            .await?;
+
+        let commitment_mask_key = shared_secret_to_output_spending_key(&shared_secret)
+            .map_err(|err| TransactionError::BuilderError(err.to_string()))?;
+        let commitment_mask_key_id = output_builder_key_manager
+            .import_key(commitment_mask_key.clone())
+            .await?;
+
+        let encryption_private_key = shared_secret_to_output_encryption_key(&shared_secret)
+            .map_err(|err| TransactionError::BuilderError(err.to_string()))?;
+        let encryption_key = output_builder_key_manager.import_key(encryption_private_key).await?;
 
         let script_spending_key = output_builder_key_manager
-            .stealth_address_script_spending_key(&commitment_mask_key.key_id, dest_address.public_spend_key())
+            .stealth_address_script_spending_key(&commitment_mask_key_id, dest_address.public_spend_key())
             .await?;
         let script = push_pubkey_script(&script_spending_key);
 
-        let recipient_output = WalletOutputBuilder::new(amount, commitment_mask_key.key_id)
+        let recipient_output = WalletOutputBuilder::new(amount, commitment_mask_key_id.clone())
             .with_features(OutputFeatures::default())
             .with_script(script)
-            .encrypt_data_for_recovery(&output_builder_key_manager, None, payment_id.clone())
+            .encrypt_data_for_recovery(&output_builder_key_manager, Some(&encryption_key), payment_id.clone())
             .await?
             .with_input_data(Default::default())
             .with_sender_offset_public_key(sender_offset.pub_key)
-            .with_script_key(script_key.key_id)
+            .with_script_key(TariKeyId::Zero)
             .with_minimum_value_promise(0.into())
             .sign_as_sender_and_receiver_verified(&output_builder_key_manager, &sender_offset.key_id, &dest_address)
             .await?

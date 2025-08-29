@@ -25,6 +25,8 @@ use tari_transaction_components::key_manager::{
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "storage")]
+use crate::data_structures::CompressedPublicKey;
+#[cfg(feature = "storage")]
 use crate::events::types::{AddressInfo, BlockInfo, OutputData, SpentOutputData, TransactionData};
 #[cfg(feature = "storage")]
 use crate::events::{ErrorRecord, ErrorRecoveryConfig, ErrorRecoveryManager, WalletScanEvent};
@@ -44,6 +46,22 @@ use crate::{
         WalletStorage,
     },
 };
+
+/// Represents a known key with its ID and compressed public key.
+#[cfg(feature = "storage")]
+#[derive(Debug, Clone)]
+pub struct KnownKey {
+    pub key_id: TariKeyId,
+    pub pub_key: CompressedPublicKey,
+}
+
+/// Holds a TransactionKeyManager and a vector of KnownKey instances.
+#[cfg(feature = "storage")]
+#[derive(Clone)]
+pub struct KeyManagerWithKnownKeys {
+    pub key_manager: TransactionKeyManager,
+    pub known_keys: Vec<KnownKey>,
+}
 
 /// Database storage listener that persists scan results to SQLite
 ///
@@ -102,7 +120,7 @@ pub struct DatabaseStorageListener {
     /// Whether to enable event auditing (stores events in wallet_events table)
     enable_event_auditing: bool,
     /// Cache for TransactionKeyManager instances
-    key_managers: HashMap<u32, Arc<TransactionKeyManager>>,
+    key_managers: HashMap<u32, Arc<KeyManagerWithKnownKeys>>,
 
     /// Background writer for non-WASM32 architectures
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
@@ -293,7 +311,8 @@ impl DatabaseStorageListener {
     async fn create_transaction_manager(
         &mut self,
         wallet_id: u32,
-    ) -> Result<Arc<TransactionKeyManager>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Arc<KeyManagerWithKnownKeys>, Box<dyn Error + Send + Sync>> {
+        use tari_utilities::ByteArray;
         match self.key_managers.entry(wallet_id) {
             Entry::Occupied(entry) => Ok(entry.get().clone()),
             Entry::Vacant(entry) => {
@@ -309,7 +328,26 @@ impl DatabaseStorageListener {
                 )
                 .await?;
 
-                Ok(entry.insert(Arc::new(transaction_key_manager)).clone())
+                // Initialize known keys
+                let mut known_keys = Vec::new();
+                let comms_key_id = TariKeyId::Managed {
+                    branch: KeyManagerBranch::Comms.get_branch_key(),
+                    index: 0,
+                };
+                let core_comms_key = transaction_key_manager.get_public_key_at_key_id(&comms_key_id).await?;
+                let comms_pub_key = CompressedPublicKey::from_canonical_bytes(core_comms_key.as_bytes())?;
+
+                known_keys.push(KnownKey {
+                    key_id: comms_key_id,
+                    pub_key: comms_pub_key,
+                });
+
+                let key_manager_with_known_keys = Arc::new(KeyManagerWithKnownKeys {
+                    key_manager: transaction_key_manager,
+                    known_keys,
+                });
+
+                Ok(entry.insert(key_manager_with_known_keys).clone())
             },
         }
     }
@@ -606,7 +644,7 @@ impl DatabaseStorageListener {
         block_info: &BlockInfo,
         _address_info: &AddressInfo,
         transaction_data: &crate::events::types::TransactionData,
-        key_manager: &Arc<TransactionKeyManager>,
+        key_manager_with_known_keys: &Arc<KeyManagerWithKnownKeys>,
     ) -> Result<StoredOutput, Box<dyn Error + Send + Sync>> {
         // Parse commitment from hex string
         use crate::{data_structures::PaymentId, hex_utils::HexEncodable, wallet_scanner::extract_script_data};
@@ -634,19 +672,24 @@ impl DatabaseStorageListener {
             .ok_or(crate::WalletError::StorageError("No spending key found".to_string()))?;
         let core_commitment_mask_private_key = RistrettoSecretKey::try_from(commitment_mask_private_key)
             .map_err(|e| crate::WalletError::ConversionError(e.to_string()))?;
-        let commitment_mask_private_key = key_manager.import_key(core_commitment_mask_private_key).await?;
+        let commitment_mask_private_key = key_manager_with_known_keys
+            .key_manager
+            .import_key(core_commitment_mask_private_key)
+            .await?;
 
-        let script_key = match &output_data.script_key {
-            // UTXO of a normal transaction
-            Some(_) => TariKeyId::Managed {
-                branch: KeyManagerBranch::Comms.get_branch_key(),
-                index: 0,
-            },
-            // UTXO of a stealth transaction
-            None => TariKeyId::Derived {
-                key: SerializedKeyString::from(commitment_mask_private_key.clone().to_string()),
-            },
-        };
+        let mut script_key_found = None;
+        if let Some(script_key) = &output_data.script_key {
+            for known_key in &key_manager_with_known_keys.known_keys {
+                if script_key == &known_key.pub_key {
+                    script_key_found = Some(known_key.key_id.clone());
+                    break;
+                }
+            }
+        }
+        let script_key = script_key_found.unwrap_or_else(|| TariKeyId::Derived {
+            key: SerializedKeyString::from(commitment_mask_private_key.clone().to_string()),
+        });
+
         let payment_id = transaction_data
             .payment_id
             .as_deref()
@@ -1062,7 +1105,8 @@ impl DatabaseStorageListener {
         address_info: &AddressInfo,
         transaction_data: &crate::events::types::TransactionData,
     ) -> Result<Vec<u32>, Box<dyn Error + Send + Sync>> {
-        let key_manager = self.create_transaction_manager(wallet_id).await?;
+        let key_manager_with_known_keys = self.create_transaction_manager(wallet_id).await?;
+
         // Convert event data to StoredOutput
         let stored_output = self
             .convert_to_stored_output(
@@ -1071,7 +1115,7 @@ impl DatabaseStorageListener {
                 block_info,
                 address_info,
                 transaction_data,
-                &key_manager,
+                &key_manager_with_known_keys,
             )
             .await?;
 

@@ -91,6 +91,15 @@ pub struct ScanEventEmitter {
     current_context: Option<ScanContext>,
     /// Whether to use fire-and-forget mode for event emission (non-blocking)
     fire_and_forget: bool,
+    /// Bookkeeping for spawned background event tasks (only used if fire_and_forget)
+    #[cfg(not(target_arch = "wasm32"))]
+    spawned_tasks: Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    spawned_tasks_watcher: Option<tokio::task::JoinHandle<()>>,
+
+    #[cfg(target_arch = "wasm32")]
+    pending_tasks: std::sync::Arc<tokio::sync::Mutex<u32>>, // simple counter for WASM
 }
 
 impl ScanEventEmitter {
@@ -104,6 +113,12 @@ impl ScanEventEmitter {
             current_config: None,
             current_context: None,
             fire_and_forget: true,
+            #[cfg(not(target_arch = "wasm32"))]
+            spawned_tasks: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            #[cfg(not(target_arch = "wasm32"))]
+            spawned_tasks_watcher: None,
+            #[cfg(target_arch = "wasm32")]
+            pending_tasks: std::sync::Arc::new(tokio::sync::Mutex::new(0)),
         }
     }
 
@@ -119,13 +134,31 @@ impl ScanEventEmitter {
     /// listeners to complete processing. This is critical for scanning performance
     /// when slow listeners (like database operations) are registered.
     pub fn with_fire_and_forget(mut self, enabled: bool) -> Self {
-        self.fire_and_forget = enabled;
+        self.set_fire_and_forget(enabled);
         self
     }
 
     /// Set fire-and-forget mode for non-blocking event emission
     pub fn set_fire_and_forget(&mut self, enabled: bool) {
         self.fire_and_forget = enabled;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if enabled && self.spawned_tasks_watcher.is_none() {
+                // Start watcher task to clean up finished spawned_tasks
+                let spawned_tasks = Arc::clone(&self.spawned_tasks);
+                let watcher = tokio::spawn(async move {
+                    use tokio::time::{sleep, Duration};
+                    loop {
+                        {
+                            let mut tasks = spawned_tasks.lock().await;
+                            tasks.retain(|handle| !handle.is_finished());
+                        }
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                });
+                self.spawned_tasks_watcher = Some(watcher);
+            }
+        }
     }
 
     /// Set the current scan configuration for reference in events
@@ -478,9 +511,13 @@ impl ScanEventEmitter {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 // Spawn the dispatch in the background and don't wait for it
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let mut disp = dispatcher.lock().await;
                     disp.dispatch(event).await;
+                });
+                let spawned_tasks = Arc::clone(&self.spawned_tasks);
+                tokio::spawn(async move {
+                    spawned_tasks.lock().await.push(handle);
                 });
                 // Return immediately without waiting for the spawned task
             }
@@ -488,9 +525,16 @@ impl ScanEventEmitter {
             #[cfg(target_arch = "wasm32")]
             {
                 // Use spawn_local for WASM
+                let pending = self.pending_tasks.clone();
+                {
+                    let mut count = pending.lock().await;
+                    *count += 1;
+                }
                 wasm_bindgen_futures::spawn_local(async move {
                     let mut disp = dispatcher.lock().await;
                     disp.dispatch(event).await;
+                    let mut count = pending.lock().await;
+                    *count -= 1;
                 });
                 // Return immediately without waiting for the spawned task
             }
@@ -498,6 +542,33 @@ impl ScanEventEmitter {
             // Standard blocking dispatch
             let mut disp = self.dispatcher.lock().await;
             disp.dispatch(event).await;
+        }
+    }
+
+    /// Wait for all spawned background event tasks to finish (fire-and-forget mode)
+    pub async fn flush(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Stop watcher task if running
+            if let Some(watcher) = self.spawned_tasks_watcher.take() {
+                watcher.abort();
+            }
+            // Await all remaining tasks
+            let mut tasks = self.spawned_tasks.lock().await;
+            while let Some(handle) = tasks.pop() {
+                let _ = handle.await;
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use tokio::time::{sleep, Duration};
+            loop {
+                let count = { *self.pending_tasks.lock().await };
+                if count == 0 {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
         }
     }
 
