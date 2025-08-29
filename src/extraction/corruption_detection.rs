@@ -3,16 +3,21 @@
 //! This module provides functionality to detect and handle corrupted or invalid
 //! data during the UTXO extraction process.
 
-use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        payment_id::PaymentId,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, MicroMinotari},
-        wallet_output::WalletOutput,
+use tari_common_types::types::{CompressedCommitment, CompressedSignature, RangeProof};
+use tari_script::TariScript;
+use tari_transaction_components::{
+    transaction_components::{
+        covenants::Covenant,
+        EncryptedData,
+        MemoField,
+        OutputFeatures,
+        TransactionOutput,
+        WalletOutput,
     },
-    errors::{DataStructureError, WalletError},
+    MicroMinotari,
 };
+
+use crate::errors::{DataStructureError, WalletError};
 
 /// Result of corruption detection
 #[derive(Debug, Clone, PartialEq)]
@@ -94,7 +99,7 @@ pub enum CorruptionType {
     /// Covenant corruption
     CovenantCorruption,
     /// Payment ID corruption
-    PaymentIdCorruption,
+    MemoFieldCorruption,
     /// Value corruption
     ValueCorruption,
     /// Features corruption
@@ -327,10 +332,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in range proof
-    fn detect_range_proof_corruption(
-        &self,
-        proof: &crate::data_structures::wallet_output::RangeProof,
-    ) -> CorruptionDetectionResult {
+    fn detect_range_proof_corruption(&self, proof: &RangeProof) -> CorruptionDetectionResult {
         // Check if range proof is empty
         if proof.bytes.is_empty() {
             return CorruptionDetectionResult::corrupted(
@@ -365,10 +367,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in signature
-    fn detect_signature_corruption(
-        &self,
-        signature: &crate::data_structures::wallet_output::Signature,
-    ) -> CorruptionDetectionResult {
+    fn detect_signature_corruption(&self, signature: &CompressedSignature) -> CorruptionDetectionResult {
         // Check if signature is empty
         if signature.u_a.is_empty() {
             return CorruptionDetectionResult::corrupted(
@@ -393,35 +392,29 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in script
-    fn detect_script_corruption(
-        &self,
-        _script: &crate::data_structures::wallet_output::Script,
-    ) -> CorruptionDetectionResult {
+    fn detect_script_corruption(&self, _script: &TariScript) -> CorruptionDetectionResult {
         // Script can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }
 
     /// Detect corruption in covenant
-    fn detect_covenant_corruption(
-        &self,
-        _covenant: &crate::data_structures::wallet_output::Covenant,
-    ) -> CorruptionDetectionResult {
+    fn detect_covenant_corruption(&self, _covenant: &Covenant) -> CorruptionDetectionResult {
         // Covenant can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }
 
     /// Detect corruption in payment ID
-    fn detect_payment_id_corruption(&self, payment_id: &PaymentId) -> CorruptionDetectionResult {
+    fn detect_payment_id_corruption(&self, payment_id: &MemoField) -> CorruptionDetectionResult {
         match payment_id {
-            PaymentId::Empty => {
+            MemoField::Empty => {
                 // Empty payment ID is always valid
                 CorruptionDetectionResult::clean()
             },
-            PaymentId::U256(value) => {
+            MemoField::U256(value) => {
                 // Check if U256 value is zero
                 if value.is_zero() {
                     return CorruptionDetectionResult::corrupted(
-                        CorruptionType::PaymentIdCorruption,
+                        CorruptionType::MemoFieldCorruption,
                         "U256 payment ID value is zero".to_string(),
                         0.8,
                         true,
@@ -429,11 +422,11 @@ impl CorruptionDetector {
                 }
                 CorruptionDetectionResult::clean()
             },
-            PaymentId::Open { user_data, tx_type: _ } => {
+            MemoField::Open { user_data, tx_type: _ } => {
                 // Check if open data is empty
                 if user_data.is_empty() {
                     return CorruptionDetectionResult::corrupted(
-                        CorruptionType::PaymentIdCorruption,
+                        CorruptionType::MemoFieldCorruption,
                         "Open payment ID data is empty".to_string(),
                         0.8,
                         true,
@@ -441,11 +434,11 @@ impl CorruptionDetector {
                 }
                 CorruptionDetectionResult::clean()
             },
-            PaymentId::AddressAndData { user_data, .. } => {
+            MemoField::AddressAndData { user_data, .. } => {
                 // Check if data is empty
                 if user_data.is_empty() {
                     return CorruptionDetectionResult::corrupted(
-                        CorruptionType::PaymentIdCorruption,
+                        CorruptionType::MemoFieldCorruption,
                         "AddressAndData payment ID data is empty".to_string(),
                         0.8,
                         true,
@@ -453,15 +446,15 @@ impl CorruptionDetector {
                 }
                 CorruptionDetectionResult::clean()
             },
-            PaymentId::TransactionInfo { .. } => {
+            MemoField::TransactionInfo { .. } => {
                 // Transaction info is always valid for corruption detection
                 CorruptionDetectionResult::clean()
             },
-            PaymentId::Raw(data) => {
+            MemoField::Raw(data) => {
                 // Check if raw data is empty
                 if data.is_empty() {
                     return CorruptionDetectionResult::corrupted(
-                        CorruptionType::PaymentIdCorruption,
+                        CorruptionType::MemoFieldCorruption,
                         "Raw payment ID data is empty".to_string(),
                         0.8,
                         true,
@@ -488,10 +481,7 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in features
-    fn detect_features_corruption(
-        &self,
-        features: &crate::data_structures::wallet_output::OutputFeatures,
-    ) -> CorruptionDetectionResult {
+    fn detect_features_corruption(&self, features: &OutputFeatures) -> CorruptionDetectionResult {
         // Check if maturity is unreasonably large (more than 1 million blocks)
         if features.maturity > 1_000_000 {
             return CorruptionDetectionResult::corrupted(
@@ -627,7 +617,7 @@ mod tests {
     use super::*;
     use crate::data_structures::{
         encrypted_data::EncryptedData,
-        payment_id::{PaymentId, TxType},
+        payment_id::{MemoField, TxType},
         types::{CompressedCommitment, MicroMinotari},
     };
 
@@ -682,14 +672,14 @@ mod tests {
     #[test]
     fn test_detect_payment_id_corruption_empty_open() {
         let detector = CorruptionDetector::new();
-        let payment_id = PaymentId::Open {
+        let payment_id = MemoField::Open {
             user_data: vec![],
             tx_type: TxType::PaymentToOther,
         };
         let result = detector.detect_payment_id_corruption(&payment_id);
 
         assert!(result.is_corrupted());
-        assert_eq!(result.corruption_type(), Some(&CorruptionType::PaymentIdCorruption));
+        assert_eq!(result.corruption_type(), Some(&CorruptionType::MemoFieldCorruption));
         assert_eq!(result.error_message(), Some("Open payment ID data is empty"));
         assert!(result.is_recoverable());
     }
@@ -697,7 +687,7 @@ mod tests {
     #[test]
     fn test_detect_payment_id_corruption_clean() {
         let detector = CorruptionDetector::new();
-        let payment_id = PaymentId::Open {
+        let payment_id = MemoField::Open {
             user_data: b"test_data".to_vec(),
             tx_type: TxType::PaymentToOther,
         };

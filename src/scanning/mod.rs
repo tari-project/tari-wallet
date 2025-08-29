@@ -18,19 +18,27 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use blake2::{Blake2b, Digest};
 use serde::{Deserialize, Serialize};
+use tari_common_types::{
+    types::{CompressedPublicKey,  PrivateKey},
+};
 use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
-use tari_transaction_components::transaction_components::Transaction;
+use tari_script::ExecutionStack;
+use tari_transaction_components::{
+    key_manager::TariKeyId,
+    transaction_components::{
+        EncryptedData,
+        MemoField,
+        OutputType,
+        Transaction,
+        TransactionInput,
+        TransactionKernel,
+        TransactionOutput,
+        WalletOutput,
+    },
+};
 use tari_utilities::ByteArray;
 
 use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        transaction_input::TransactionInput,
-        transaction_kernel::TransactionKernel,
-        transaction_output::TransactionOutput,
-        types::{CompressedPublicKey, PrivateKey},
-        wallet_output::WalletOutput,
-    },
     errors::{WalletError, WalletResult},
     extraction::{extract_wallet_output, ExtractionConfig},
     key_management::{self, KeyManager, KeyStore},
@@ -124,6 +132,7 @@ pub use event_emitter::{
     create_default_event_emitter,
     ScanEventEmitter,
 };
+use crate::data_structures::incompleted_scanned_output::IncompleteScannedOutput;
 
 /// Legacy progress callback for scanning operations (for compatibility)
 pub type LegacyProgressCallback = Box<dyn Fn(ScanProgress) + Send + Sync>;
@@ -329,10 +338,8 @@ pub struct BlockScanResult {
     pub height: u64,
     /// Block hash
     pub block_hash: Vec<u8>,
-    /// Transaction outputs found in this block
-    pub outputs: Vec<TransactionOutput>,
     /// Wallet outputs extracted from transaction outputs
-    pub wallet_outputs: Vec<WalletOutput>,
+    pub wallet_outputs: Vec<IncompleteScannedOutput>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
 }
@@ -630,10 +637,7 @@ impl DefaultScanningLogic {
         extraction_config: &ExtractionConfig,
     ) -> WalletResult<Option<WalletOutput>> {
         // Skip non-payment outputs for this scan type
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Payment
-        ) {
+        if !matches!(output.features().output_type, OutputType::Payment) {
             return Ok(None);
         }
 
@@ -650,10 +654,7 @@ impl DefaultScanningLogic {
         extraction_config: &ExtractionConfig,
     ) -> WalletResult<Option<WalletOutput>> {
         // Skip non-payment outputs for this scan type
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Payment
-        ) {
+        if !matches!(output.features().output_type, OutputType::Payment) {
             return Ok(None);
         }
 
@@ -668,25 +669,20 @@ impl DefaultScanningLogic {
     /// Scan for coinbase outputs (special handling for mining rewards)
     fn scan_for_coinbase_output(output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
         // Only handle coinbase outputs
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Coinbase
-        ) {
+        if !matches!(output.features().output_type, OutputType::Coinbase) {
             return Ok(None);
         }
 
         // For coinbase outputs, the value is typically revealed in the minimum value promise
         if output.minimum_value_promise().as_u64() > 0 {
-            use crate::data_structures::{payment_id::PaymentId, wallet_output::*};
-
             let wallet_output = WalletOutput::new(
                 output.version(),
                 output.minimum_value_promise(),
-                KeyId::Zero,
+                TariKeyId::Zero,
                 output.features().clone(),
                 output.script().clone(),
                 ExecutionStack::default(),
-                KeyId::Zero,
+                TariKeyId::Zero,
                 output.sender_offset_public_key().clone(),
                 output.metadata_signature().clone(),
                 0,
@@ -694,7 +690,7 @@ impl DefaultScanningLogic {
                 output.encrypted_data().clone(),
                 output.minimum_value_promise(),
                 output.proof().cloned(),
-                PaymentId::Empty,
+                MemoField::Empty,
             );
 
             return Ok(Some(wallet_output));

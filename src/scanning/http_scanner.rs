@@ -43,6 +43,31 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use serde_wasm_bindgen;
+use tari_common_types::{
+    types::{
+        ComAndPubSignature,
+        CompressedCommitment,
+        CompressedPublicKey,
+        PrivateKey,
+    },
+};
+use tari_script::{ExecutionStack, TariScript};
+use tari_transaction_components::{
+    key_manager::TariKeyId,
+    transaction_components::{
+        covenants::Covenant,
+        EncryptedData,
+        MemoField,
+        OutputFeatures,
+        OutputType,
+        TransactionInput,
+        TransactionOutput,
+        WalletOutput,
+    },
+    MicroMinotari,
+};
+use tari_transaction_components::key_manager::TariKeyAndId;
+use tari_transaction_components::rpc::models::{BlockUtxoInfo, MinimalUtxoSyncInfo, SyncUtxosByBlockResponse};
 #[cfg(feature = "http")]
 use tari_utilities::ByteArray;
 #[cfg(all(feature = "http", feature = "tracing"))]
@@ -55,19 +80,12 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
 use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        transaction_input::TransactionInput,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
-        wallet_output::{Covenant, OutputFeatures, Script, Signature, WalletOutput},
-        OutputType,
-    },
     errors::{WalletError, WalletResult},
     extraction::{extract_wallet_output, ExtractionConfig},
     scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
     wallet::Wallet,
 };
+use crate::data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct};
 
 /// HTTP API tip info response - matches the actual API structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,31 +109,6 @@ pub struct HttpHeaderResponse {
     pub hash: Vec<u8>,
     pub height: u64,
     pub timestamp: u64,
-}
-
-/// HTTP API sync UTXOs response - matches actual API
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpSyncUtxosResponse {
-    pub blocks: Vec<HttpBlockData>,
-    pub has_next_page: bool,
-    pub next_header_to_scan: Option<Vec<u8>>,
-}
-
-/// HTTP API block data structure - matches actual response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpBlockData {
-    pub outputs: Vec<HttpOutputData>,
-    pub inputs: Vec<Vec<u8>>, // Commitment hashes
-    pub mined_timestamp: u64,
-}
-
-/// HTTP API output data structure - matches actual response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpOutputData {
-    pub output_hash: Vec<u8>,
-    pub commitment: Vec<u8>,
-    pub encrypted_data: Vec<u8>,
-    pub sender_offset_public_key: Vec<u8>,
 }
 
 /// HTTP API single block response
@@ -147,7 +140,7 @@ pub struct HttpBlockBody {
 
 /// HTTP client for connecting to Tari base node
 #[cfg(feature = "http")]
-pub struct HttpBlockchainScanner {
+pub struct HttpBlockchainScanner<KM> {
     /// HTTP client for making requests (native targets)
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     client: Client,
@@ -156,11 +149,13 @@ pub struct HttpBlockchainScanner {
     /// Request timeout (native targets only)
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     timeout: Duration,
+    key_manager: KM,
+    view_key: TariKeyAndId,
 }
 
-impl HttpBlockchainScanner {
+impl<KM> HttpBlockchainScanner<KM> where KM: TKeyManagerInterface {
     /// Create a new HTTP scanner with the given base URL
-    pub async fn new(base_url: String) -> WalletResult<Self> {
+    pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
         {
             let timeout = Duration::from_secs(30);
@@ -180,11 +175,13 @@ impl HttpBlockchainScanner {
                     )),
                 ));
             }
-
+            let view_key = key_manager.get_view_key().await?;
             Ok(Self {
                 client,
                 base_url,
                 timeout,
+                key_manager,
+                view_key,
             })
         }
 
@@ -221,7 +218,7 @@ impl HttpBlockchainScanner {
                 ))
             })?;
 
-            Ok(Self { base_url })
+            Ok(Self { base_url, key_manager })
         }
     }
 
@@ -358,7 +355,7 @@ impl HttpBlockchainScanner {
     }
 
     /// Sync UTXOs by block - matches WASM example usage
-    async fn sync_utxos_by_block(&self, start_header_hash: &str) -> WalletResult<HttpSyncUtxosResponse> {
+    async fn sync_utxos_by_block(&self, start_header_hash: &str) -> WalletResult<SyncUtxosByBlockResponse> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
         let limit = 10u64;
         let page = 0u64;
@@ -391,7 +388,7 @@ impl HttpBlockchainScanner {
                 ));
             }
 
-            let sync_response: HttpSyncUtxosResponse = response.json().await.map_err(|e| {
+            let sync_response: SyncUtxosByBlockResponse = response.json().await.map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                     "Failed to parse response: {e}"
                 )))
@@ -455,7 +452,7 @@ impl HttpBlockchainScanner {
                 ))
             })?;
 
-            let sync_response: HttpSyncUtxosResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+            let sync_response: SyncUtxosByBlockResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                     "Failed to deserialize response: {}",
                     e
@@ -472,153 +469,136 @@ impl HttpBlockchainScanner {
     }
 
     /// Convert HTTP output data to TransactionOutput
-    fn convert_http_output_to_lightweight(http_output: &HttpOutputData) -> WalletResult<TransactionOutput> {
-        // Parse commitment
-        if http_output.commitment.len() != 32 {
-            return Err(WalletError::ConversionError(
-                "Invalid commitment length, expected 32 bytes".to_string(),
-            ));
-        }
-        let commitment = CompressedCommitment::new(
-            http_output
-                .commitment
-                .clone()
-                .try_into()
-                .map_err(|_| WalletError::ConversionError("Failed to convert commitment".to_string()))?,
-        );
-
-        // Parse sender offset public key
-        if http_output.sender_offset_public_key.len() != 32 {
-            return Err(WalletError::ConversionError(
-                "Invalid sender offset public key length, expected 32 bytes".to_string(),
-            ));
-        }
-        let sender_offset_public_key =
-            CompressedPublicKey::new(
-                http_output.sender_offset_public_key.clone().try_into().map_err(|_| {
-                    WalletError::ConversionError("Failed to convert sender offset public key".to_string())
-                })?,
-            );
-
-        // Convert Encrypted Data - match GRPC approach exactly
-        let encrypted_data = EncryptedData::from_bytes(&http_output.encrypted_data).unwrap_or_default();
-
-        // Convert OutputFeatures - match GRPC approach (HTTP API doesn't provide features, so use default)
-        let features = OutputFeatures::default();
-
-        // Convert range proof (not provided by this API endpoint)
-        let proof = None;
-
-        // Convert Script - match GRPC approach exactly
-        let script = Script { bytes: Vec::new() };
-
-        // Convert Metadata Signature - match GRPC approach exactly
-        let metadata_signature = Signature::default();
-
-        // Convert Covenant - match GRPC approach exactly
-        let covenant = Covenant { bytes: Vec::new() };
-
-        // Convert Minimum Value Promise - match GRPC approach exactly
-        let minimum_value_promise = MicroMinotari::new(0);
-
-        let output_features = tari_transaction_components::transaction_components::OutputFeatures::default();
-
-        // Use direct construction exactly like GRPC scanner
-        Ok(TransactionOutput {
-            version: 0, // HTTP API doesn't provide version, GRPC uses grpc_output.version which is 0
-            features,
-            commitment,
-            proof,
-            script,
-            sender_offset_public_key,
-            metadata_signature,
-            covenant,
-            encrypted_data,
-            minimum_value_promise,
-            output_features,
-        })
-    }
-
-    /// Convert HTTP input data to TransactionInput - simplified version
-    fn convert_http_input_to_lightweight(output_hash_bytes: &[u8]) -> WalletResult<TransactionInput> {
-        // Parse output hash
-        if output_hash_bytes.len() != 32 {
-            return Err(WalletError::ConversionError(
-                "Invalid output hash length, expected 32 bytes".to_string(),
-            ));
-        }
-        let mut output_hash = [0u8; 32];
-        output_hash.copy_from_slice(output_hash_bytes);
-
-        // Create minimal TransactionInput with the output hash
-        Ok(TransactionInput::new(
-            1,                                                                // version
-            0,                                                                // features (default)
-            [0u8; 32],                                                        /* commitment (not available from HTTP
-                                                                               * API) */
-            [0u8; 64],                      // script_signature (not available)
-            CompressedPublicKey::default(), // sender_offset_public_key (not available)
-            Vec::new(),                     // covenant (not available)
-            crate::data_structures::transaction_input::ExecutionStack::new(), // input_data (not available)
-            output_hash,                    // output_hash (this is the actual data from HTTP API)
-            0,                              // output_features (not available)
-            [0u8; 64],                      // output_metadata_signature (not available)
-            0,                              // maturity (not available)
-            MicroMinotari::new(0),          // value (not available)
-        ))
-    }
+    // fn convert_http_output_to_lightweight(http_output: &MinimalUtxoSyncInfo) -> WalletResult<TransactionOutput> {
+    //     // Parse commitment
+    //     if http_output.commitment.len() != 32 {
+    //         return Err(WalletError::ConversionError(
+    //             "Invalid commitment length, expected 32 bytes".to_string(),
+    //         ));
+    //     }
+    //     let commitment = CompressedCommitment::new(
+    //         http_output
+    //             .commitment
+    //             .clone()
+    //             .try_into()
+    //             .map_err(|_| WalletError::ConversionError("Failed to convert commitment".to_string()))?,
+    //     );
+    //
+    //     // Parse sender offset public key
+    //     if http_output.sender_offset_public_key.len() != 32 {
+    //         return Err(WalletError::ConversionError(
+    //             "Invalid sender offset public key length, expected 32 bytes".to_string(),
+    //         ));
+    //     }
+    //     let sender_offset_public_key =
+    //         CompressedPublicKey::new(
+    //             http_output.sender_offset_public_key.clone().try_into().map_err(|_| {
+    //                 WalletError::ConversionError("Failed to convert sender offset public key".to_string())
+    //             })?,
+    //         );
+    //
+    //     // Convert Encrypted Data - match GRPC approach exactly
+    //     let encrypted_data = EncryptedData::from_bytes(&http_output.encrypted_data).unwrap_or_default();
+    //
+    //     // Convert OutputFeatures - match GRPC approach (HTTP API doesn't provide features, so use default)
+    //     let features = OutputFeatures::default();
+    //
+    //     // Convert range proof (not provided by this API endpoint)
+    //     let proof = None;
+    //
+    //     // Convert Script - match GRPC approach exactly
+    //     let script = TariScript::default();
+    //
+    //     // Convert Metadata Signature - match GRPC approach exactly
+    //     let metadata_signature = ComAndPubSignature::default();
+    //
+    //     // Convert Covenant - match GRPC approach exactly
+    //     let covenant = Covenant::default();
+    //
+    //     // Convert Minimum Value Promise - match GRPC approach exactly
+    //     let minimum_value_promise = MicroMinotari(0);
+    //
+    //     let output_features = tari_transaction_components::transaction_components::OutputFeatures::default();
+    //
+    //     // Use direct construction exactly like GRPC scanner
+    //     Ok(TransactionOutput {
+    //         version: 0, // HTTP API doesn't provide version, GRPC uses grpc_output.version which is 0
+    //         features,
+    //         commitment,
+    //         proof,
+    //         script,
+    //         sender_offset_public_key,
+    //         metadata_signature,
+    //         covenant,
+    //         encrypted_data,
+    //         minimum_value_promise,
+    //         output_features,
+    //     })
+    // }
+    //
+    // /// Convert HTTP input data to TransactionInput - simplified version
+    // fn convert_http_input_to_lightweight(output_hash_bytes: &[u8]) -> WalletResult<TransactionInput> {
+    //     // Parse output hash
+    //     if output_hash_bytes.len() != 32 {
+    //         return Err(WalletError::ConversionError(
+    //             "Invalid output hash length, expected 32 bytes".to_string(),
+    //         ));
+    //     }
+    //     let mut output_hash = [0u8; 32];
+    //     output_hash.copy_from_slice(output_hash_bytes);
+    //
+    //     // Create minimal TransactionInput with the output hash
+    //     Ok(TransactionInput::new(
+    //         1, // version
+    //         0, // features (default)
+    //         [0u8; 32], /* commitment (not available from HTTP
+    //             * API) */
+    //         [0u8; 64],                      // script_signature (not available)
+    //         CompressedPublicKey::default(), // sender_offset_public_key (not available)
+    //         Vec::new(),                     // covenant (not available)
+    //         ExecutionStack::new(),          // input_data (not available)
+    //         output_hash,                    // output_hash (this is the actual data from HTTP API)
+    //         0,                              // output_features (not available)
+    //         [0u8; 64],                      // output_metadata_signature (not available)
+    //         0,                              // maturity (not available)
+    //         MicroMinotari(0),               // value (not available)
+    //     ))
+    // }
 
     /// Convert HTTP block data to BlockInfo
-    fn convert_http_block_to_block_info(http_block: &HttpBlockData) -> WalletResult<BlockInfo> {
-        let outputs = http_block
-            .outputs
-            .iter()
-            .map(Self::convert_http_output_to_lightweight)
-            .collect::<WalletResult<Vec<_>>>()?;
-
-        // Handle simplified inputs structure
-        let inputs = http_block
-            .inputs
-            .iter()
-            .map(|hash_bytes| Self::convert_http_input_to_lightweight(hash_bytes))
-            .collect::<WalletResult<Vec<_>>>()?;
-
-        Ok(BlockInfo {
-            height: 0,        // Block height not available in sync_utxos_by_block response
-            hash: Vec::new(), // Block hash not available in sync_utxos_by_block response
-            timestamp: http_block.mined_timestamp,
-            outputs,
-            inputs,
-            kernels: Vec::new(), // HTTP API doesn't provide kernels in this format
-        })
-    }
+    // fn convert_http_block_to_block_info(http_block: &BlockUtxoInfo) -> WalletResult<BlockInfo> {
+    //     let outputs = http_block
+    //         .outputs
+    //         .iter()
+    //         .map(Self::convert_http_output_to_lightweight)
+    //         .collect::<WalletResult<Vec<_>>>()?;
+    //
+    //     // Handle simplified inputs structure
+    //     let inputs = http_block
+    //         .inputs
+    //         .iter()
+    //         .map(|hash_bytes| Self::convert_http_input_to_lightweight(hash_bytes))
+    //         .collect::<WalletResult<Vec<_>>>()?;
+    //
+    //     Ok(BlockInfo {
+    //         height: 0,        // Block height not available in sync_utxos_by_block response
+    //         hash: Vec::new(), // Block hash not available in sync_utxos_by_block response
+    //         timestamp: http_block.mined_timestamp,
+    //         outputs,
+    //         inputs,
+    //         kernels: Vec::new(), // HTTP API doesn't provide kernels in this format
+    //     })
+    // }
 
     /// Create a scan config with wallet keys for block scanning
     pub fn create_scan_config_with_wallet_keys(
         &self,
-        wallet: &Wallet,
         start_height: u64,
         end_height: Option<u64>,
     ) -> WalletResult<ScanConfig> {
-        // Get the master key from the wallet for scanning
-        let master_key_bytes = wallet.master_key_bytes();
 
-        // Use the first 16 bytes of the master key as entropy (following Tari CipherSeed pattern)
-        let mut entropy = [0u8; 16];
-        entropy.copy_from_slice(&master_key_bytes[..16]);
 
-        // Derive the proper view key using Tari's key derivation specification
-        let (view_key, _spend_key) =
-            crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
-                .map_err(WalletError::KeyManagementError)?;
-
-        // Convert RistrettoSecretKey to PrivateKey
-        let view_key_bytes = view_key.as_bytes();
-        let mut view_key_array = [0u8; 32];
-        view_key_array.copy_from_slice(view_key_bytes);
-        let view_private_key = PrivateKey::new(view_key_array);
-
-        let extraction_config = ExtractionConfig::with_private_key(view_private_key);
+        let extraction_config = ExtractionConfig::default();
 
         Ok(ScanConfig {
             start_height,
@@ -632,96 +612,62 @@ impl HttpBlockchainScanner {
         })
     }
 
-    /// Create a scan config with just private keys for basic wallet scanning
-    pub fn create_scan_config_with_keys(
-        &self,
-        view_key: PrivateKey,
-        start_height: u64,
-        end_height: Option<u64>,
-    ) -> ScanConfig {
-        let extraction_config = ExtractionConfig::with_private_key(view_key);
-
-        ScanConfig {
-            start_height,
-            end_height,
-            batch_size: 100,
-            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-            request_timeout: self.timeout,
-            #[cfg(all(feature = "http", target_arch = "wasm32"))]
-            request_timeout: std::time::Duration::from_secs(30), // Default for WASM
-            extraction_config,
-        }
-    }
 
     /// Scan for regular recoverable outputs using encrypted data decryption
-    fn scan_for_recoverable_output(
-        output: &TransactionOutput,
-        extraction_config: &ExtractionConfig,
-    ) -> WalletResult<Option<WalletOutput>> {
-        // Skip non-payment outputs for this scan type
-        if !matches!(output.features().output_type, OutputType::Payment) {
-            return Ok(None);
-        }
+    async fn scan_for_recoverable_output(
+        &self,
+        output: &ScanningOutputStruct,
+    ) -> WalletResult<Option<IncompleteScannedOutput>> {
+        let (commitment_mask, value, memo) = match self.key_manager.try_output_key_recovery(&output.commitment, &output.encrypted_data, None).await{
 
-        // Use the standard extraction logic
-        match extract_wallet_output(output, extraction_config) {
-            Ok(wallet_output) => Ok(Some(wallet_output)),
-            Err(_) => Ok(None), // Not a wallet output or decryption failed
-        }
+            Ok(value) => value,
+            // Key manager errors here are actual errors and should not be suppressed.
+            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
+            Err(_) => return Ok(None),
+        };
+
+        let output = IncompleteScannedOutput::new(
+            output,
+            value,
+            commitment_mask,
+            memo,
+        )?;
+        Ok(Some(output))
     }
 
     /// Scan for one-sided payments
-    fn scan_for_one_sided_payment(
-        output: &TransactionOutput,
-        extraction_config: &ExtractionConfig,
-    ) -> WalletResult<Option<WalletOutput>> {
-        // Skip non-payment outputs for this scan type
-        if !matches!(output.features().output_type, OutputType::Payment) {
-            return Ok(None);
-        }
+    async fn scan_for_one_sided_payment(
+        &self,
+        output: &ScanningOutputStruct,
+    ) -> WalletResult<Option<IncompleteScannedOutput>> {
 
-        // Use the same extraction logic - the difference is in creation, not detection
-        match extract_wallet_output(output, extraction_config) {
-            Ok(wallet_output) => Ok(Some(wallet_output)),
-            Err(_) => Ok(None),
-        }
+        let shared_secret = self
+            .key_manager
+            .get_diffie_hellman_shared_secret(&view_key.key_id, &offset_pub_key)
+            .await?;
+        let recovery_key = shared_secret_to_output_encryption_key(&shared_secret)
+            .map_err(|e| anyhow!("Could not hash key :{}", e.to_string()))?;
+
+        let (commitment_mask, value, memo) = match self.key_manager.try_output_key_recovery(&output.commitment, &output.encrypted_data, Some(recovery_key)).await{
+
+            Ok(value) => value,
+            // Key manager errors here are actual errors and should not be suppressed.
+            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
+            Err(_) => return Ok(None),
+        };
+
+        let output = IncompleteScannedOutput::new(
+            output,
+            value,
+            commitment_mask,
+            memo,
+        )?;
+        Ok(Some(output))
     }
 
-    /// Scan for coinbase outputs
-    fn scan_for_coinbase_output(output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        // Only handle coinbase outputs
-        if !matches!(output.features().output_type, OutputType::Coinbase) {
-            return Ok(None);
-        }
-
-        // For coinbase outputs, the value is typically revealed in the minimum value promise
-        if output.minimum_value_promise().as_u64() > 0 {
-            let wallet_output = WalletOutput::new(
-                output.version(),
-                output.minimum_value_promise(),
-                crate::data_structures::wallet_output::KeyId::Zero,
-                output.features().clone(),
-                output.script().clone(),
-                crate::data_structures::wallet_output::ExecutionStack::default(),
-                crate::data_structures::wallet_output::KeyId::Zero,
-                output.sender_offset_public_key().clone(),
-                output.metadata_signature().clone(),
-                0,
-                output.covenant().clone(),
-                output.encrypted_data().clone(),
-                output.minimum_value_promise(),
-                output.proof().cloned(),
-                crate::data_structures::payment_id::PaymentId::Empty,
-            );
-
-            return Ok(Some(wallet_output));
-        }
-
-        Ok(None)
-    }
 
     /// Fetch block range using the sync_utxos_by_block endpoint
-    async fn fetch_block_range(&self, start_height: u64, end_height: u64) -> WalletResult<Vec<HttpBlockData>> {
+    async fn fetch_block_range(&self, start_height: u64, end_height: u64) -> WalletResult<Vec<BlockUtxoInfo>> {
         // Get the starting header hash
         let start_header = self.get_header_by_height(start_height).await?;
         let mut current_header_hash = Self::bytes_to_hex(&start_header.hash);
@@ -790,7 +736,7 @@ impl HttpBlockchainScanner {
 
 #[cfg(feature = "http")]
 #[async_trait(?Send)]
-impl BlockchainScanner for HttpBlockchainScanner {
+impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> {
     async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
         #[cfg(feature = "tracing")]
         debug!(
@@ -812,42 +758,34 @@ impl BlockchainScanner for HttpBlockchainScanner {
         let mut results = Vec::new();
 
         for http_block in http_blocks {
-            let block_info = Self::convert_http_block_to_block_info(&http_block)?;
             let mut wallet_outputs = Vec::new();
 
-            for output in &block_info.outputs {
-                let mut found_output = false;
+            for output in &http_block.outputs {
+                let scanned_output = output.clone().try_into()?;
+
 
                 // Strategy 1: Regular recoverable outputs
-                if !found_output {
-                    if let Some(wallet_output) = Self::scan_for_recoverable_output(output, &config.extraction_config)? {
+                    if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output)? {
                         wallet_outputs.push(wallet_output);
-                        found_output = true;
+                        continue;
                     }
-                }
+
 
                 // Strategy 2: One-sided payments
-                if !found_output {
-                    if let Some(wallet_output) = Self::scan_for_one_sided_payment(output, &config.extraction_config)? {
+                    if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output)? {
                         wallet_outputs.push(wallet_output);
-                        found_output = true;
-                    }
+
                 }
 
-                // Strategy 3: Coinbase outputs
-                if !found_output {
-                    if let Some(wallet_output) = Self::scan_for_coinbase_output(output)? {
-                        wallet_outputs.push(wallet_output);
-                    }
-                }
+
+
             }
 
             results.push(BlockScanResult {
-                height: block_info.height,
-                block_hash: block_info.hash,
-                outputs: block_info.outputs,
+                height: http_block.height,
+                block_hash: http_block.header_hash,
                 wallet_outputs,
-                mined_timestamp: block_info.timestamp,
+                mined_timestamp: http_block.mined_timestamp,
             });
         }
 
@@ -1064,11 +1002,11 @@ mod tests {
         PrivateKey::new(key_bytes)
     }
 
-    fn parse_test_block_data() -> HttpSyncUtxosResponse {
+    fn parse_test_block_data() -> SyncUtxosByBlockResponse {
         serde_json::from_str(BLOCK_32038_DATA).expect("Valid JSON")
     }
 
-    fn load_all_test_block_data() -> Vec<HttpSyncUtxosResponse> {
+    fn load_all_test_block_data() -> Vec<SyncUtxosByBlockResponse> {
         vec![
             serde_json::from_str(BLOCK_32038_DATA).expect("Valid JSON for block 32038"),
             serde_json::from_str(BLOCK_34926_DATA).expect("Valid JSON for block 34926"),
@@ -1293,7 +1231,7 @@ mod tests {
     #[test]
     fn test_debug_output_5_block_32038() {
         // Load the test data
-        let sync_response: HttpSyncUtxosResponse =
+        let sync_response: SyncUtxosByBlockResponse =
             serde_json::from_str(BLOCK_32038_DATA).expect("Failed to parse block 32038 JSON");
 
         // Create the extraction config with the correct wallet key from database (wallet_id 2 "small")
@@ -1590,7 +1528,7 @@ mod tests {
     #[test]
     fn test_error_handling_invalid_commitment() {
         // Test error handling with invalid commitment length
-        let mut invalid_output = HttpOutputData {
+        let mut invalid_output = MinimalUtxoSyncInfo {
             output_hash: vec![0u8; 32],
             commitment: vec![0u8; 31], // Invalid length
             encrypted_data: vec![0u8; 161],
@@ -1630,18 +1568,18 @@ mod tests {
         let mut results = Vec::new();
 
         for http_block in &sync_response.blocks {
-            let block_info = HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
-                .expect("Block conversion should work");
+            // let block_info = HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
+            //     .expect("Block conversion should work");
 
             let mut wallet_outputs = Vec::new();
 
-            for output in block_info.outputs.iter() {
+            for output in http_block.outputs.iter() {
                 let mut found_output = false;
-
+                let scanning_output = output.try_into()?;
                 // Strategy 1: Regular recoverable outputs
                 if !found_output {
                     if let Some(wallet_output) =
-                        HttpBlockchainScanner::scan_for_recoverable_output(output, &extraction_config)
+                        HttpBlockchainScanner::scan_for_recoverable_output(scanning_output, &extraction_config)
                             .expect("Scan should not error")
                     {
                         wallet_outputs.push(wallet_output);

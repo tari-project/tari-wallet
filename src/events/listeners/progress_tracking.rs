@@ -9,10 +9,11 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-
+use std::collections::HashMap;
 use async_trait::async_trait;
-
-use crate::events::{EventListener, SharedEvent, WalletScanEvent};
+use tari_transaction_components::transaction_components::WalletOutput;
+use crate::BlockInfo;
+use crate::events::{AddressInfo, EventListener, SharedEvent, WalletScanEvent};
 
 /// Progress information for scanning operations
 ///
@@ -381,9 +382,9 @@ impl ProgressTrackingListener {
     /// Handle OutputFound event
     async fn handle_output_found(
         &self,
-        _output_data: &crate::events::types::OutputData,
-        _block_info: &crate::events::types::BlockInfo,
-        _address_info: &crate::events::types::AddressInfo,
+        _output_data: &WalletOutput,
+        _block_info: &BlockInfo,
+        _address_info: &AddressInfo,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Ok(mut state) = self.state.lock() {
             state.outputs_found += 1;
@@ -445,7 +446,7 @@ impl ProgressTrackingListener {
     /// Handle ScanCompleted event
     async fn handle_scan_completed(
         &self,
-        final_statistics: &std::collections::HashMap<String, u64>,
+        final_statistics: &HashMap<String, u64>,
         success: bool,
         _total_duration: Duration,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {

@@ -8,7 +8,7 @@
 
 pub mod encrypted_data_decryption;
 pub mod payment_id_extraction;
-pub mod stealth_address_key_recovery;
+// pub mod stealth_address_key_recovery;
 pub mod wallet_output_reconstruction;
 
 pub mod batch_validation;
@@ -25,8 +25,17 @@ pub use batch_validation::{
 };
 pub use corruption_detection::{CorruptionDetectionResult, CorruptionDetector, CorruptionType};
 pub use encrypted_data_decryption::{DecryptionOptions, DecryptionResult, EncryptedDataDecryptor};
-pub use payment_id_extraction::{PaymentIdExtractionResult, PaymentIdExtractor, PaymentIdMetadata, PaymentIdType};
-pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions, StealthKeyRecoveryResult};
+pub use payment_id_extraction::{MemoFieldExtractionResult, MemoFieldExtractor, MemoFieldMetadata, MemoFieldType};
+// pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions, StealthKeyRecoveryResult};
+use tari_common_types::types::{CompressedPublicKey, PrivateKey};
+use tari_script::ExecutionStack;
+use tari_transaction_components::{
+    key_manager::TariKeyId,
+    transaction_components::{
+        TransactionOutput,
+        WalletOutput,
+    },
+};
 pub use wallet_output_reconstruction::{
     WalletOutputReconstructionError,
     WalletOutputReconstructionOptions,
@@ -34,13 +43,7 @@ pub use wallet_output_reconstruction::{
 };
 
 use crate::{
-    data_structures::{
-        transaction_output::TransactionOutput,
-        types::{CompressedPublicKey, PrivateKey},
-        wallet_output::WalletOutput,
-    },
     errors::WalletResult,
-    key_management::{ImportedPrivateKey, KeyStore},
 };
 
 /// Configuration for wallet output extraction
@@ -56,10 +59,6 @@ pub struct ExtractionConfig {
     pub handle_special_outputs: bool,
     /// Whether to detect corruption
     pub detect_corruption: bool,
-    /// Private key to use for extraction (if provided)
-    pub private_key: Option<PrivateKey>,
-    /// Public key to use for extraction (if provided)
-    pub public_key: Option<CompressedPublicKey>,
 }
 
 impl Default for ExtractionConfig {
@@ -70,113 +69,86 @@ impl Default for ExtractionConfig {
             validate_signatures: true,
             handle_special_outputs: true,
             detect_corruption: true,
-            private_key: None,
-            public_key: None,
         }
     }
 }
 
 impl ExtractionConfig {
-    /// Create a new extraction config with a private key
-    pub fn with_private_key(private_key: PrivateKey) -> Self {
-        Self {
-            private_key: Some(private_key),
-            ..Default::default()
-        }
-    }
 
-    /// Create a new extraction config with a public key
-    pub fn with_public_key(public_key: CompressedPublicKey) -> Self {
-        Self {
-            public_key: Some(public_key),
-            ..Default::default()
-        }
-    }
-
-    /// Set the private key
-    pub fn set_private_key(&mut self, private_key: PrivateKey) {
-        self.private_key = Some(private_key);
-    }
-
-    /// Set the public key
-    pub fn set_public_key(&mut self, public_key: CompressedPublicKey) {
-        self.public_key = Some(public_key);
-    }
 }
+// 
+// /// Extract a wallet output from a transaction output
+// pub fn extract_wallet_output(
+//     transaction_output: &TransactionOutput,
+//     config: &ExtractionConfig,
+// ) -> WalletResult<WalletOutput> {
+//     // Check if we have the necessary keys for extraction
+//     if config.private_key.is_none() && config.public_key.is_none() {
+//         return Err(crate::errors::WalletError::OperationNotSupported(
+//             "No keys provided for wallet output extraction".to_string(),
+//         ));
+//     }
+// 
+//     // Create a key store and decryptor for this extraction
+//     let mut key_store = KeyStore::default();
+// 
+//     // Add the private key to the key store if provided
+//     if let Some(private_key) = &config.private_key {
+//         let imported_key = ImportedPrivateKey::new(private_key.clone(), Some("extraction_key".to_string()));
+//         key_store
+//             .add_imported_key(imported_key)
+//             .map_err(crate::errors::WalletError::KeyManagementError)?;
+//     }
+// 
+//     // Create encrypted data decryptor
+//     let decryptor = EncryptedDataDecryptor::new(key_store);
+//     let decryption_options = DecryptionOptions {
+//         try_all_keys: true,
+//         validate_decrypted_data: true,
+//         max_keys_to_try: 0, // Try all available keys
+//         return_partial_results: false,
+//     };
+// 
+//     // Try to decrypt the encrypted data - this is the key test for wallet ownership
+//     let decryption_result = decryptor.decrypt_transaction_output(transaction_output, Some(&decryption_options))?;
+// 
+//     // If decryption failed, this output doesn't belong to our wallet
+//     if !decryption_result.is_success() {
+//         let error_msg = decryption_result.error_message().unwrap_or("decryption failed");
+//         return Err(crate::errors::WalletError::OperationNotSupported(format!(
+//             "Output does not belong to wallet: {error_msg}"
+//         )));
+//     }
+// 
+//     // Extract the decrypted values
+//     let value = decryption_result.value.unwrap();
+//     let payment_id = decryption_result.payment_id.unwrap();
+// 
+//     // Note: Range proof and signature validation removed - was providing false security
+//     // Real cryptographic validation would require integration with tari_crypto
+// 
+//     // Create wallet output with the decrypted value and payment ID
+//     let wallet_output = WalletOutput::new(
+//         transaction_output.version,
+//         value,           // Use the actual decrypted value
+//         TariKeyId::Zero, // Default key ID
+//         transaction_output.features.clone(),
+//         transaction_output.script.clone(),
+//         ExecutionStack::default(),
+//         TariKeyId::Zero, // Default script key ID
+//         transaction_output.sender_offset_public_key.clone(),
+//         transaction_output.metadata_signature.clone(),
+//         0, // Default script lock height
+//         transaction_output.covenant.clone(),
+//         transaction_output.encrypted_data.clone(),
+//         transaction_output.minimum_value_promise,
+//         transaction_output.proof.clone(),
+//         payment_id,
+//     );
+// 
+//     Ok(wallet_output)
+// }
 
-/// Extract a wallet output from a transaction output
-pub fn extract_wallet_output(
-    transaction_output: &TransactionOutput,
-    config: &ExtractionConfig,
-) -> WalletResult<WalletOutput> {
-    // Check if we have the necessary keys for extraction
-    if config.private_key.is_none() && config.public_key.is_none() {
-        return Err(crate::errors::WalletError::OperationNotSupported(
-            "No keys provided for wallet output extraction".to_string(),
-        ));
-    }
-
-    // Create a key store and decryptor for this extraction
-    let mut key_store = KeyStore::default();
-
-    // Add the private key to the key store if provided
-    if let Some(private_key) = &config.private_key {
-        let imported_key = ImportedPrivateKey::new(private_key.clone(), Some("extraction_key".to_string()));
-        key_store
-            .add_imported_key(imported_key)
-            .map_err(crate::errors::WalletError::KeyManagementError)?;
-    }
-
-    // Create encrypted data decryptor
-    let decryptor = EncryptedDataDecryptor::new(key_store);
-    let decryption_options = DecryptionOptions {
-        try_all_keys: true,
-        validate_decrypted_data: true,
-        max_keys_to_try: 0, // Try all available keys
-        return_partial_results: false,
-    };
-
-    // Try to decrypt the encrypted data - this is the key test for wallet ownership
-    let decryption_result = decryptor.decrypt_transaction_output(transaction_output, Some(&decryption_options))?;
-
-    // If decryption failed, this output doesn't belong to our wallet
-    if !decryption_result.is_success() {
-        let error_msg = decryption_result.error_message().unwrap_or("decryption failed");
-        return Err(crate::errors::WalletError::OperationNotSupported(format!(
-            "Output does not belong to wallet: {error_msg}"
-        )));
-    }
-
-    // Extract the decrypted values
-    let value = decryption_result.value.unwrap();
-    let payment_id = decryption_result.payment_id.unwrap();
-
-    // Note: Range proof and signature validation removed - was providing false security
-    // Real cryptographic validation would require integration with tari_crypto
-
-    // Create wallet output with the decrypted value and payment ID
-    let wallet_output = WalletOutput::new(
-        transaction_output.version,
-        value,                                              // Use the actual decrypted value
-        crate::data_structures::wallet_output::KeyId::Zero, // Default key ID
-        transaction_output.features.clone(),
-        transaction_output.script.clone(),
-        crate::data_structures::wallet_output::ExecutionStack::default(),
-        crate::data_structures::wallet_output::KeyId::Zero, // Default script key ID
-        transaction_output.sender_offset_public_key.clone(),
-        transaction_output.metadata_signature.clone(),
-        0, // Default script lock height
-        transaction_output.covenant.clone(),
-        transaction_output.encrypted_data.clone(),
-        transaction_output.minimum_value_promise,
-        transaction_output.proof.clone(),
-        payment_id,
-    );
-
-    Ok(wallet_output)
-}
-
-pub use stealth_address_key_recovery::*;
 pub use wallet_output_reconstruction::*;
 
 /// Validate range proof using real validation logic

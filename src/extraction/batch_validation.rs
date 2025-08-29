@@ -1,4 +1,9 @@
-use crate::{data_structures::transaction_output::TransactionOutput, errors::ValidationError};
+use tari_transaction_components::{
+    crypto_factories::CryptoFactories,
+    transaction_components::{TransactionOutput},
+};
+
+use crate::errors::ValidationError;
 
 /// Batch validation result containing validation status for multiple outputs
 #[derive(Debug, Clone)]
@@ -110,7 +115,7 @@ fn validate_single_output(
     // Validate range proofs
     if options.validate_range_proofs {
         if let Some(proof) = output.proof() {
-            if let Err(e) = validate_range_proof(proof, output.commitment(), output.minimum_value_promise()) {
+            if let Err(e) = output.verify_range_proof(&CryptoFactories::default().range_proof) {
                 errors.push(e);
                 is_valid = false;
                 if !options.continue_on_error || errors.len() >= options.max_errors_per_output {
@@ -191,32 +196,6 @@ fn validate_commitment_integrity(output: &TransactionOutput) -> Result<(), Valid
             "Invalid commitment prefix",
         ));
     }
-
-    Ok(())
-}
-
-fn validate_range_proof(
-    proof: &crate::data_structures::wallet_output::RangeProof,
-    _commitment: &crate::data_structures::types::CompressedCommitment,
-    _minimum_value_promise: crate::data_structures::types::MicroMinotari,
-) -> Result<(), ValidationError> {
-    // Basic range proof validation
-    if proof.bytes.is_empty() {
-        return Err(ValidationError::range_proof_validation_failed(
-            "Range proof cannot be empty",
-        ));
-    }
-
-    // Check that the proof has a reasonable size
-    if proof.bytes.len() > 10000 {
-        // 10KB as a reasonable upper bound
-        return Err(ValidationError::range_proof_validation_failed(
-            "Range proof is unreasonably large",
-        ));
-    }
-
-    // For now, we'll do basic structure validation
-    // In a full implementation, this would validate the actual proof
 
     Ok(())
 }

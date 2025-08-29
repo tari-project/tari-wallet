@@ -3,8 +3,9 @@
 //! This module provides validation for encrypted data structure and integrity
 //! without requiring decryption.
 
-use crate::{data_structures::encrypted_data::EncryptedData, errors::ValidationError};
+use tari_transaction_components::transaction_components::EncryptedData;
 
+use crate::errors::ValidationError;
 /// Encrypted data integrity validator
 ///
 /// This provides validation for encrypted data structure and integrity

@@ -15,6 +15,15 @@
 
 use blake2::{Blake2b, Digest};
 use digest::consts::U32;
+use tari_common_types::{
+    transaction::TransactionDirection,
+    types::{PrivateKey},
+};
+use tari_transaction_components::{
+    transaction_components::{
+        TransactionOutput,
+    },
+};
 use tari_utilities::ByteArray;
 use tokio::time::Instant;
 use zeroize::Zeroize;
@@ -31,12 +40,7 @@ use crate::scanning::{
 };
 use crate::{
     common::format_number,
-    data_structures::{
-        transaction::TransactionDirection,
-        transaction_output::TransactionOutput,
-        types::PrivateKey,
-        wallet_transaction::WalletState,
-    },
+    data_structures::wallet_transaction::WalletState,
     errors::{KeyManagementError, WalletError, WalletResult},
     key_management::key_derivation,
     storage::{output_status::OutputStatus, stored_output::StoredOutput},

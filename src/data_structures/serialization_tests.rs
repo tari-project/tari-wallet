@@ -44,15 +44,15 @@ fn test_transaction_output_serialization() {
 fn test_payment_id_serialization() {
     use primitive_types::U256;
 
-    use crate::data_structures::payment_id::{PaymentId, TxType};
+    use crate::data_structures::payment_id::{MemoField, TxType};
     let ids = vec![
-        PaymentId::Empty,
-        PaymentId::U256(U256::from(12345)),
-        PaymentId::Open {
+        MemoField::Empty,
+        MemoField::U256(U256::from(12345)),
+        MemoField::Open {
             user_data: vec![1, 2, 3],
             tx_type: TxType::PaymentToOther,
         },
-        PaymentId::Raw(vec![10, 11, 12]),
+        MemoField::Raw(vec![10, 11, 12]),
     ];
     for id in ids {
         serde_roundtrip(&id);
@@ -115,7 +115,7 @@ fn test_transaction_status_serialization() {
 #[test]
 fn test_wallet_transaction_serialization() {
     use crate::data_structures::{
-        payment_id::PaymentId,
+        payment_id::MemoField,
         transaction::{TransactionDirection, TransactionStatus},
         types::CompressedCommitment,
         wallet_transaction::{WalletState, WalletTransaction},
@@ -130,7 +130,7 @@ fn test_wallet_transaction_serialization() {
         commitment,
         Some(vec![1, 2, 3, 4]), // Add the missing output_hash parameter
         1000000,
-        PaymentId::Empty,
+        MemoField::Empty,
         TransactionStatus::MinedConfirmed,
         TransactionDirection::Inbound,
         true,

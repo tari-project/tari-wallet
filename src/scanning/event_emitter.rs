@@ -40,9 +40,10 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-
+use tari_utilities::ByteArray;
 #[cfg(target_arch = "wasm32")]
 use js_sys;
+use tari_transaction_components::transaction_components::{TransactionOutput, WalletOutput};
 use tokio::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures;
@@ -50,7 +51,6 @@ use wasm_bindgen_futures;
 use crate::{
     data_structures::{
         block::Block,
-        transaction_output::TransactionOutput,
         wallet_transaction::{WalletState, WalletTransaction},
     },
     errors::WalletError,
@@ -59,7 +59,6 @@ use crate::{
             AddressInfo,
             BlockInfo,
             EventMetadata,
-            OutputData,
             ScanConfig,
             SpentOutputData,
             TransactionData,
@@ -214,7 +213,7 @@ impl ScanEventEmitter {
         transaction: &WalletTransaction,
     ) -> Result<(), WalletError> {
         let metadata = self.create_metadata();
-        let output_data = OutputData {
+        let output_data = WalletOutput {
             commitment: hex::encode(output.commitment.as_bytes()),
             range_proof: hex::encode(output.proof.as_ref().map_or(vec![], |p| p.bytes.clone())),
             encrypted_value: Some(output.encrypted_data.to_byte_vec()),

@@ -3,11 +3,12 @@
 //! This module provides lightweight validation for Pedersen commitments
 //! without requiring the full Tari crypto stack.
 
-use crate::{
-    data_structures::types::{CompressedCommitment, MicroMinotari, PrivateKey},
-    errors::ValidationError,
+use tari_common_types::{
+    types::{CompressedCommitment, PrivateKey},
 };
+use tari_transaction_components::MicroMinotari;
 
+use crate::errors::ValidationError;
 /// Commitment validator
 #[derive(Debug, Clone)]
 pub struct CommitmentValidator;
