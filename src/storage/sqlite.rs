@@ -169,7 +169,6 @@ impl SqliteStorage {
                 covenant BLOB NOT NULL,
 
                 -- Output features and type
-                output_type INTEGER NOT NULL,
                 features_json TEXT NOT NULL,
 
                 -- Maturity and lock constraints
@@ -384,7 +383,6 @@ impl SqliteStorage {
             script: row.get("script")?,
             input_data: row.get("input_data")?,
             covenant: row.get("covenant")?,
-            output_type: row.get::<_, i64>("output_type")? as u32,
             features_json: row.get("features_json")?,
             maturity: row.get::<_, i64>("maturity")? as u64,
             script_lock_height: row.get::<_, i64>("script_lock_height")? as u64,
@@ -1264,7 +1262,7 @@ impl WalletStorage for SqliteStorage {
                     UPDATE outputs
                     SET wallet_id = ?, commitment = ?, hash = ?, value = ?, commitment_mask_key = ?,
                     script_key = ?, script = ?, input_data = ?, covenant = ?,
-                    output_type = ?, features_json = ?, maturity = ?, script_lock_height = ?,
+                    features_json = ?, maturity = ?, script_lock_height = ?,
                     sender_offset_public_key = ?, metadata_signature_ephemeral_commitment = ?,
                     metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                     metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
@@ -1282,7 +1280,6 @@ impl WalletStorage for SqliteStorage {
                             output_clone.script,
                             output_clone.input_data,
                             output_clone.covenant,
-                            output_clone.output_type as i64,
                             output_clone.features_json,
                             output_clone.maturity as i64,
                             output_clone.script_lock_height as i64,
@@ -1314,12 +1311,12 @@ impl WalletStorage for SqliteStorage {
                         r#"
                     INSERT INTO outputs
                     (wallet_id, commitment, hash, value, commitment_mask_key, script_key,
-                    script, input_data, covenant, output_type, features_json, maturity,
+                    script, input_data, covenant, features_json, maturity,
                     script_lock_height, sender_offset_public_key, metadata_signature_ephemeral_commitment,
                     metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                     metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
                     status, mined_height, block_hash, spent_in_tx_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                         params![
                             output_clone.wallet_id as i64,
@@ -1331,7 +1328,6 @@ impl WalletStorage for SqliteStorage {
                             output_clone.script,
                             output_clone.input_data,
                             output_clone.covenant,
-                            output_clone.output_type as i64,
                             output_clone.features_json,
                             output_clone.maturity as i64,
                             output_clone.script_lock_height as i64,
@@ -1374,7 +1370,7 @@ impl WalletStorage for SqliteStorage {
                         UPDATE outputs
                         SET wallet_id = ?, commitment = ?, hash = ?, value = ?, commitment_mask_key = ?,
                             script_key = ?, script = ?, input_data = ?, covenant = ?,
-                            output_type = ?, features_json = ?, maturity = ?, script_lock_height = ?,
+                            features_json = ?, maturity = ?, script_lock_height = ?,
                             sender_offset_public_key = ?, metadata_signature_ephemeral_commitment = ?,
                             metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                             metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
@@ -1392,7 +1388,6 @@ impl WalletStorage for SqliteStorage {
                                 output.script,
                                 output.input_data,
                                 output.covenant,
-                                output.output_type as i64,
                                 output.features_json,
                                 output.maturity as i64,
                                 output.script_lock_height as i64,
@@ -1422,12 +1417,12 @@ impl WalletStorage for SqliteStorage {
                             r#"
                         INSERT INTO outputs
                         (wallet_id, commitment, hash, value, commitment_mask_key, script_key,
-                         script, input_data, covenant, output_type, features_json, maturity,
+                         script, input_data, covenant, features_json, maturity,
                          script_lock_height, sender_offset_public_key, metadata_signature_ephemeral_commitment,
                          metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                          metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
                          status, mined_height, block_hash, spent_in_tx_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(wallet_id, commitment) DO UPDATE SET
                             status = EXCLUDED.status,
                             mined_height = COALESCE(EXCLUDED.mined_height, mined_height),
@@ -1444,7 +1439,6 @@ impl WalletStorage for SqliteStorage {
                                 output.script,
                                 output.input_data,
                                 output.covenant,
-                                output.output_type as i64,
                                 output.features_json,
                                 output.maturity as i64,
                                 output.script_lock_height as i64,
@@ -1501,7 +1495,7 @@ impl WalletStorage for SqliteStorage {
                 UPDATE outputs
                 SET wallet_id = ?, commitment = ?, hash = ?, value = ?, commitment_mask_key = ?,
                     script_key = ?, script = ?, input_data = ?, covenant = ?,
-                    output_type = ?, features_json = ?, maturity = ?, script_lock_height = ?,
+                    features_json = ?, maturity = ?, script_lock_height = ?,
                     sender_offset_public_key = ?, metadata_signature_ephemeral_commitment = ?,
                     metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                     metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
@@ -1519,7 +1513,6 @@ impl WalletStorage for SqliteStorage {
                         output_clone.script,
                         output_clone.input_data,
                         output_clone.covenant,
-                        output_clone.output_type as i64,
                         output_clone.features_json,
                         output_clone.maturity as i64,
                         output_clone.script_lock_height as i64,
