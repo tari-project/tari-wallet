@@ -1,17 +1,17 @@
 use std::str::FromStr;
 
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use tari_common_types::types::{ComAndPubSignature, CompressedCommitment, CompressedPublicKey, PrivateKey, RangeProof};
 use tari_script::{ExecutionStack, TariScript};
 use tari_transaction_components::{
-    key_manager::TariKeyId,
+    key_manager::{TariKeyId, TransactionKeyManagerInterface},
     transaction_components::{EncryptedData, MemoField, TransactionOutputVersion, WalletOutput},
     MicroMinotari,
 };
 use tari_utilities::byte_array::ByteArray;
 
-use crate::{DataStructureError, SerializationError, WalletError, WalletResult};
+use crate::{events::BlockInfo, DataStructureError, OutputStatus, SerializationError, WalletError, WalletResult};
 
 /// A stored UTXO output with all data needed for spending
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,38 +121,50 @@ impl TryFrom<&StoredOutput> for WalletOutput {
     }
 }
 
-// impl StoredOutput {
-// fn from_wallet_output(o: &WalletOutput, wallet_id: u32) -> WalletResult<Self> {
-// Ok(StoredOutput {
-// id: None, // Will be set by database
-// wallet_id,
-// commitment: (),
-// hash: (),
-// value: (),
-// commitment_mask_key: (),
-// script_key: (),
-// script: (),
-// input_data: (),
-// covenant: (),
-// features_json: (),
-// maturity: (),
-// script_lock_height: (),
-// sender_offset_public_key: (),
-// metadata_signature_ephemeral_commitment: (),
-// metadata_signature_ephemeral_pubkey: (),
-// metadata_signature_u_a: (),
-// metadata_signature_u_x: (),
-// metadata_signature_u_y: (),
-// encrypted_data: (),
-// minimum_value_promise: (),
-// payment_id: (),
-// rangeproof: (),
-// status: (),
-// mined_height: (),
-// block_hash: (),
-// spent_in_tx_id: (),
-// created_at: (),
-// updated_at: (),
-// })
-// }
-// }
+impl StoredOutput {
+    async fn from_wallet_output<KM: TransactionKeyManagerInterface>(
+        km: &KM,
+        wallet_id: u32,
+        o: &WalletOutput,
+        bi: Option<&BlockInfo>,
+    ) -> WalletResult<Self> {
+        let tx_output = o.to_transaction_output(km).await?;
+
+        let mut covenant = Vec::new();
+        BorshSerialize::serialize(&o.covenant, &mut covenant)
+            .map_err(|err| SerializationError::BorshSerializationError(err.to_string()))?;
+
+        Ok(StoredOutput {
+            id: None, // Will be set by database
+            wallet_id,
+            commitment: tx_output.commitment.to_vec(),
+            hash: tx_output.hash().to_vec(),
+            value: o.value.into(),
+            commitment_mask_key: o.commitment_mask_key_id.to_string(),
+            script_key: o.script_key_id.to_string(),
+            script: o.script.to_bytes(),
+            input_data: o.input_data.to_bytes(),
+            covenant,
+            features_json: serde_json::to_string(&o.features)
+                .map_err(|e| SerializationError::SerdeSerializationError(e.to_string()))?,
+            maturity: o.features.maturity,
+            script_lock_height: o.script_lock_height,
+            sender_offset_public_key: o.sender_offset_public_key.to_vec(),
+            metadata_signature_ephemeral_commitment: o.metadata_signature.ephemeral_commitment().to_vec(),
+            metadata_signature_ephemeral_pubkey: o.metadata_signature.ephemeral_pubkey().to_vec(),
+            metadata_signature_u_a: o.metadata_signature.u_a().to_vec(),
+            metadata_signature_u_x: o.metadata_signature.u_x().to_vec(),
+            metadata_signature_u_y: o.metadata_signature.u_y().to_vec(),
+            encrypted_data: o.encrypted_data.to_byte_vec(),
+            minimum_value_promise: o.minimum_value_promise.into(),
+            payment_id: o.payment_id.to_bytes(),
+            rangeproof: o.range_proof.map(|rp| rp.to_vec()),
+            status: OutputStatus::Unspent,
+            mined_height: bi.map(|bi| bi.height),
+            block_hash: bi.map(|bi| bi.hash.clone()),
+            spent_in_tx_id: None,
+            created_at: None,
+            updated_at: None,
+        })
+    }
+}
