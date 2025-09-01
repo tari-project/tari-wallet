@@ -177,12 +177,15 @@ impl TransactionKeyManagerBackend for TransactionKeyManagerWalletStorage {
 mod test {
     use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305};
     use rand::{rngs::OsRng, RngCore};
-    use tari_common_types::types::{CompressedPublicKey, PrivateKey};
+    use tari_common_types::{
+        seeds::cipher_seed::CipherSeed,
+        types::{CompressedPublicKey, PrivateKey},
+    };
     use tari_transaction_components::key_manager::KeyManagerState;
     use tari_utilities::hex::Hex;
 
     use super::*;
-    use crate::{storage::StoredWallet, CipherSeed, SqliteStorage};
+    use crate::{storage::StoredWallet, SqliteStorage};
 
     async fn create_test_wallet(storage: &SqliteStorage) -> u32 {
         use std::time::{SystemTime, UNIX_EPOCH};
