@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use tari_common_types::{
     transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
+    types::CompressedCommitment,
 };
 use tari_transaction_components::transaction_components::memo_field::MemoField;
 // Simple number formatting (removed utils::number module)
@@ -43,10 +43,6 @@ pub struct WalletTransaction {
     pub transaction_direction: TransactionDirection,
     /// Whether this transaction is mature (can be spent)
     pub is_mature: bool,
-    /// Commitment mask private key
-    pub commitment_mask_private_key: Option<PrivateKey>,
-    /// Script key
-    pub script_key: Option<CompressedPublicKey>,
 }
 
 impl WalletTransaction {
@@ -63,8 +59,6 @@ impl WalletTransaction {
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
-        commitment_mask_private_key: Option<PrivateKey>,
-        script_key: Option<CompressedPublicKey>,
     ) -> Self {
         Self {
             block_height,
@@ -80,8 +74,6 @@ impl WalletTransaction {
             transaction_status,
             transaction_direction,
             is_mature,
-            commitment_mask_private_key,
-            script_key,
         }
     }
 
@@ -189,8 +181,6 @@ impl WalletState {
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
-        commitment_mask_private_key: Option<PrivateKey>,
-        script_key: Option<CompressedPublicKey>,
     ) {
         let transaction = WalletTransaction::new(
             block_height,
@@ -203,8 +193,6 @@ impl WalletState {
             transaction_status,
             transaction_direction,
             is_mature,
-            commitment_mask_private_key,
-            script_key,
         );
 
         let tx_index = self.transactions.len();
@@ -275,8 +263,6 @@ impl WalletState {
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
-                        None, // Spending key
-                        None, // Script key
                     );
 
                     self.transactions.push(outbound_transaction);
@@ -333,8 +319,6 @@ impl WalletState {
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
-                        None, // Spending key
-                        None, // Script key
                     );
 
                     self.transactions.push(outbound_transaction);
@@ -515,11 +499,6 @@ impl From<WalletStateSerde> for WalletState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::{
-        payment_id::MemoField,
-        transaction::{TransactionDirection, TransactionStatus},
-        types::CompressedCommitment,
-    };
 
     #[test]
     fn test_wallet_transaction_creation() {
@@ -535,8 +514,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         assert_eq!(tx.block_height, 100);
@@ -561,8 +538,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         assert!(!tx.is_spent);
@@ -601,8 +576,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         assert_eq!(state.transactions.len(), 1);
@@ -632,8 +605,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         assert_eq!(state.transactions.len(), 1);
@@ -707,8 +678,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
         state.add_received_output(
             200,
@@ -720,8 +689,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Spend one
@@ -750,8 +717,6 @@ mod tests {
             TransactionStatus::CoinbaseConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         let regular_tx = WalletTransaction::new(
@@ -765,8 +730,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         assert!(coinbase_tx.is_coinbase());
@@ -790,8 +753,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
         state.add_received_output(
             200,
@@ -803,8 +764,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Initial state: 2 inbound, 0 outbound
@@ -845,8 +804,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Test JSON serialization
