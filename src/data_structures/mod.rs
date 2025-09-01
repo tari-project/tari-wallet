@@ -14,11 +14,8 @@ pub mod block;
 // pub mod transaction_output;
 // pub mod types;
 // pub mod wallet_output;
-pub mod wallet_transaction;
 pub mod incompleted_scanned_output;
-
-#[cfg(test)]
-pub mod serialization_tests;
+pub mod wallet_transaction;
 
 // pub use address::*;
 pub use block::{Block, BlockSummary};
