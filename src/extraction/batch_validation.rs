@@ -1,7 +1,4 @@
-use tari_transaction_components::{
-    crypto_factories::CryptoFactories,
-    transaction_components::{TransactionOutput},
-};
+use tari_transaction_components::{crypto_factories::CryptoFactories, transaction_components::TransactionOutput};
 
 use crate::errors::ValidationError;
 
@@ -202,13 +199,14 @@ fn validate_commitment_integrity(output: &TransactionOutput) -> Result<(), Valid
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::data_structures::{
-        encrypted_data::EncryptedData,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
-        wallet_output::{Covenant, OutputFeatures, RangeProof, Script, Signature},
+    use tari_common_types::types::{BulletRangeProof, ComAndPubSignature, CompressedCommitment, CompressedPublicKey};
+    use tari_script::TariScript;
+    use tari_transaction_components::{
+        transaction_components::{covenants::Covenant, EncryptedData, OutputFeatures},
+        MicroMinotari,
     };
+
+    use super::*;
 
     fn create_test_output(_value: u64, is_valid: bool) -> TransactionOutput {
         let commitment = if is_valid {
@@ -220,11 +218,9 @@ mod tests {
         let encrypted_data = EncryptedData::from_hex("0102030405060708090a0b0c0d0e0f10").unwrap();
 
         let range_proof = if is_valid {
-            Some(RangeProof {
-                bytes: vec![0x01, 0x02, 0x03, 0x04],
-            })
+            Some(BulletRangeProof(vec![0x01, 0x02, 0x03, 0x04]))
         } else {
-            Some(RangeProof { bytes: vec![] }) // Invalid empty proof
+            Some(BulletRangeProof(vec![])) // Invalid empty proof
         };
 
         TransactionOutput::new(
@@ -232,13 +228,12 @@ mod tests {
             OutputFeatures::default(),
             commitment,
             range_proof,
-            Script::default(),
+            TariScript::default(),
             CompressedPublicKey::new([0x01; 32]),
-            Signature::default(),
+            ComAndPubSignature::default(),
             Covenant::default(),
             encrypted_data,
             MicroMinotari::from(0),
-            tari_transaction_components::transaction_components::OutputFeatures::default(),
         )
     }
 
