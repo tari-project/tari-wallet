@@ -5,17 +5,11 @@ use tari_transaction_components::{
     fee::Fee,
     helpers::borsh::SerializedSize,
     tari_amount::MicroMinotari,
+    transaction_components::{covenants::Covenant, OutputFeatures},
     weight::TransactionWeight,
 };
 
-use crate::{
-    data_structures::{Covenant, OutputFeatures},
-    SerializationError,
-    StoredOutput,
-    WalletError,
-    WalletResult,
-    WalletStorage,
-};
+use crate::{SerializationError, StoredOutput, WalletError, WalletResult, WalletStorage};
 
 #[derive(Debug)]
 pub struct UtxoSelection {

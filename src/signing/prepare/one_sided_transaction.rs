@@ -8,6 +8,7 @@ use tari_common_types::{
 };
 use tari_script::{script, ExecutionStack};
 use tari_transaction_components::{
+    crypto_factories::CryptoFactories,
     key_manager::{TariKeyId, TransactionKeyManagerInterface},
     tari_amount::MicroMinotari,
     transaction_components::{
@@ -77,7 +78,13 @@ impl OneSidedTransaction {
         let seed_phrase = stored_wallet.seed_phrase.ok_or_else(|| {
             WalletError::InternalError(format!("Wallet with ID {} does not have a seed phrase", wallet_id,))
         })?;
-        let wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)?;
+        let wallet = Wallet::new_from_seed_phrase(
+            &seed_phrase,
+            None,
+            CryptoFactories::default(),
+            WalletType::DerivedKeys,
+            stored_wallet,
+        )?;
 
         let transaction_key_manager = TransactionKeyManager::build(
             database.clone(),
@@ -269,10 +276,7 @@ impl OneSidedTransaction {
         };
         let sender_address = self
             .wallet
-            .get_dual_address(
-                crate::data_structures::TariAddressFeatures::create_one_sided_only(),
-                None,
-            )?
+            .get_dual_address(TariAddressFeatures::create_one_sided_only(), None)?
             .into();
 
         let payment_id = self.get_payment_id(&sender_address, &dest_address, fee_per_gram, payment_id);

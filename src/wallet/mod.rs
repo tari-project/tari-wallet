@@ -3,26 +3,20 @@
 //! This module provides the core wallet struct and operations for managing
 //! master keys, seed phrases, and wallet metadata.
 
-use std::{
-    collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
-use std::sync::Arc;
-use rand_core::{OsRng, RngCore};
-use tari_common_types::{
-    tari_address::{TariAddress, TariAddressFeatures},
-    types::{CompressedPublicKey, PrivateKey},
-};
-use tari_common_types::seeds::cipher_seed::CipherSeed;
-use tari_common_types::seeds::mnemonic::Mnemonic;
-use tari_common_types::seeds::seed_words::SeedWords;
-use tari_common_types::wallet_types::WalletType;
-use tari_transaction_components::crypto_factories::CryptoFactories;
-use tari_transaction_components::key_manager::TransactionKeyManagerWrapper;
-use tari_utilities::safe_array::SafeArray;
-use tari_utilities::SafePassword;
-use zeroize::Zeroize;
+use std::{collections::HashMap, sync::Arc};
 
+use tari_common_types::{
+    seeds::{cipher_seed::CipherSeed, mnemonic::Mnemonic, seed_words::SeedWords},
+    tari_address::{TariAddress, TariAddressFeatures},
+    wallet_types::WalletType,
+};
+use tari_transaction_components::{
+    crypto_factories::CryptoFactories,
+    key_manager::{TransactionKeyManagerBackend, TransactionKeyManagerWrapper},
+};
+use tari_utilities::SafePassword;
+
+use crate::KeyManagementError;
 
 /// Core wallet struct containing master key, birthday, and metadata
 #[derive(Debug, Clone)]
@@ -44,16 +38,19 @@ pub struct WalletMetadata {
     pub properties: HashMap<String, String>,
 }
 
-impl<KMBackend> Wallet<KMBackend> where
-    KMBackend: TransactionKeyManagerBackend + 'static{
+impl<KMBackend> Wallet<KMBackend>
+where KMBackend: TransactionKeyManagerBackend + 'static
+{
     /// Create a new wallet with the given master key and birthday
-    pub async fn new(master_seed: CipherSeed, crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Self {
-        let key_manager = TransactionKeyManagerWrapper::new(
-            master_seed,
-            backend,
-            crypto_factories,
-            wallet_type,
-        ).await.expect("Failed to create key manager");
+    pub async fn new(
+        master_seed: CipherSeed,
+        crypto_factories: CryptoFactories,
+        wallet_type: Arc<WalletType>,
+        backend: KMBackend,
+    ) -> Self {
+        let key_manager = TransactionKeyManagerWrapper::new(master_seed, backend, crypto_factories, wallet_type)
+            .await
+            .expect("Failed to create key manager");
         Self {
             key_manager,
             metadata: WalletMetadata::default(),
@@ -62,16 +59,20 @@ impl<KMBackend> Wallet<KMBackend> where
     }
 
     /// Create a new wallet from a seed phrase and optional passphrase
-    pub async fn new_from_seed_phrase(seed_words: &SeedWords,
-                                      passphrase: Option<SafePassword>, crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Result<Self, String> {
+    pub async fn new_from_seed_phrase(
+        seed_words: &SeedWords,
+        passphrase: Option<SafePassword>,
+        crypto_factories: CryptoFactories,
+        wallet_type: Arc<WalletType>,
+        backend: KMBackend,
+    ) -> Result<Self, String> {
         // Convert seed phrase to master key
-        let master_key = match CipherSeed::from_mnemonic(seed_words, passphrase){
+        let master_key = match CipherSeed::from_mnemonic(seed_words, passphrase) {
             Ok(seed) => seed,
             Err(e) => return Err(format!("Failed to create CipherSeed from mnemonic: {}", e)),
         };
 
         Ok(Wallet::new(master_key, crypto_factories, wallet_type, backend).await)
-
     }
 
     /// Generate a new wallet with random entropy
@@ -80,17 +81,20 @@ impl<KMBackend> Wallet<KMBackend> where
     /// Note: The passphrase parameter is included for API consistency but is not
     /// currently used since we generate random entropy directly rather than
     /// deriving from a mnemonic phrase.
-    pub async fn generate_new(crypto_factories: CryptoFactories, wallet_type: Arc<WalletType>, backend: KMBackend) -> Self {
-       let master_key = CipherSeed::new();
+    pub async fn generate_new(
+        crypto_factories: CryptoFactories,
+        wallet_type: Arc<WalletType>,
+        backend: KMBackend,
+    ) -> Self {
+        let master_key = CipherSeed::new();
         Wallet::new(master_key, crypto_factories, wallet_type, backend).await
     }
 
     /// Get the wallet birthday (creation timestamp)
     pub fn birthday(&self) -> u64 {
         5
-        //implement in keymanager with cipher seed, as it has the birthday encoded
+        // implement in keymanager with cipher seed, as it has the birthday encoded
     }
-
 
     /// Get a reference to the wallet metadata
     pub fn metadata(&self) -> &WalletMetadata {
@@ -111,8 +115,6 @@ impl<KMBackend> Wallet<KMBackend> where
     pub fn label(&self) -> Option<&String> {
         self.metadata.label.as_ref()
     }
-
-
 
     /// Add a custom property to the wallet metadata
     pub fn set_property(&mut self, key: String, value: String) {
@@ -159,11 +161,9 @@ impl<KMBackend> Wallet<KMBackend> where
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::Network;
 
     #[test]
     fn test_wallet_creation() {
