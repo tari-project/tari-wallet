@@ -36,12 +36,12 @@ use tari_transaction_components::{
         WalletOutput,
     },
 };
+use tari_transaction_components::key_manager::TransactionKeyManagerInterface;
 use tari_utilities::ByteArray;
 
 use crate::{
     errors::{WalletError, WalletResult},
-    extraction::{extract_wallet_output, ExtractionConfig},
-    key_management::{self, KeyManager, KeyStore},
+    extraction::{ ExtractionConfig},
 };
 
 #[cfg(feature = "grpc")]
@@ -102,7 +102,7 @@ pub use http_scanner::HttpBlockchainScanner;
 // Re-export progress tracking types for scanner binary operations
 pub use progress::{ProgressCallback, ProgressConfig, ProgressInfo, ProgressTracker};
 // Re-export configuration types for scanner binary operations
-pub use scan_config::{BinaryScanConfig, OutputFormat, ScanContext};
+pub use scan_config::{BinaryScanConfig, OutputFormat};
 // Re-export storage manager types for scanner binary operations
 #[cfg(feature = "storage")]
 pub use storage_manager::ScannerStorage;
@@ -216,24 +216,18 @@ impl Default for ScanConfig {
 }
 
 /// Configuration for wallet-specific scanning
-pub struct WalletScanConfig {
+pub struct WalletScanConfig<KM> {
     /// Base scan configuration
     pub scan_config: ScanConfig,
     /// Key manager for wallet key derivation
-    pub key_manager: Option<Box<dyn KeyManager + Send + Sync>>,
-    /// Key store for imported keys
-    pub key_store: Option<KeyStore>,
-    /// Whether to scan for stealth addresses
-    pub scan_stealth_addresses: bool,
+    pub key_manager: KM,
     /// Maximum number of addresses to scan per account
     pub max_addresses_per_account: u32,
-    /// Whether to scan for imported keys
-    pub scan_imported_keys: bool,
 }
 
-impl WalletScanConfig {
+impl<KM> WalletScanConfig where KM: TransactionKeyManagerInterface{
     /// Create a new wallet scan config
-    pub fn new(start_height: u64) -> Self {
+    pub fn new(start_height: u64, key_manager: KM) -> Self {
         Self {
             scan_config: ScanConfig {
                 start_height,
@@ -242,31 +236,12 @@ impl WalletScanConfig {
                 request_timeout: Duration::from_secs(30),
                 extraction_config: ExtractionConfig::default(),
             },
-            key_manager: None,
-            key_store: None,
-            scan_stealth_addresses: true,
+            key_manager,
             max_addresses_per_account: 1000,
-            scan_imported_keys: true,
         }
     }
 
-    /// Set the key manager
-    pub fn with_key_manager(mut self, key_manager: Box<dyn KeyManager + Send + Sync>) -> Self {
-        self.key_manager = Some(key_manager);
-        self
-    }
 
-    /// Set the key store
-    pub fn with_key_store(mut self, key_store: KeyStore) -> Self {
-        self.key_store = Some(key_store);
-        self
-    }
-
-    /// Set whether to scan for stealth addresses
-    pub fn with_stealth_address_scanning(mut self, enabled: bool) -> Self {
-        self.scan_stealth_addresses = enabled;
-        self
-    }
 
     /// Set maximum addresses per account
     pub fn with_max_addresses_per_account(mut self, max: u32) -> Self {
@@ -274,11 +249,6 @@ impl WalletScanConfig {
         self
     }
 
-    /// Set whether to scan for imported keys
-    pub fn with_imported_key_scanning(mut self, enabled: bool) -> Self {
-        self.scan_imported_keys = enabled;
-        self
-    }
 
     /// Set the end height
     pub fn with_end_height(mut self, end_height: u64) -> Self {

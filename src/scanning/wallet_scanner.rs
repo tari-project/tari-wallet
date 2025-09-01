@@ -23,7 +23,7 @@ use zeroize::Zeroize;
 
 #[cfg(all(feature = "grpc", feature = "storage"))]
 use super::ScannerStorage;
-use super::{BinaryScanConfig, ScanContext};
+use super::{BinaryScanConfig};
 #[cfg(feature = "grpc")]
 use crate::scanning::GrpcBlockchainScanner;
 #[allow(unused)]
@@ -35,7 +35,6 @@ use crate::{
     common::format_number,
     data_structures::wallet_transaction::WalletState,
     errors::{KeyManagementError, WalletError, WalletResult},
-    key_management::key_derivation,
     storage::{output_status::OutputStatus, stored_output::StoredOutput},
     wallet::Wallet,
 };
@@ -57,19 +56,189 @@ fn filter_block_transactions(
         .collect()
 }
 
-/// Create stored output from blockchain output and transaction data
-fn create_stored_output_from_blockchain_data(
-    transaction: &crate::data_structures::wallet_transaction::WalletTransaction,
-    blockchain_output: &TransactionOutput,
-    scan_context: &ScanContext,
-    wallet_id: u32,
-    output_index: usize,
-) -> WalletResult<StoredOutput> {
-    // Derive spending keys for this output
-    let (spending_key, script_private_key) = derive_utxo_spending_keys(&scan_context.entropy, output_index as u64)?;
+// /// Create stored output from blockchain output and transaction data
+// fn create_stored_output_from_blockchain_data(
+//     transaction: &crate::data_structures::wallet_transaction::WalletTransaction,
+//     blockchain_output: &TransactionOutput,
+//     scan_context: &ScanContext,
+//     wallet_id: u32,
+//     output_index: usize,
+// ) -> WalletResult<StoredOutput> {
+//     // Derive spending keys for this output
+//     let (spending_key, script_private_key) = derive_utxo_spending_keys(&scan_context.entropy, output_index as u64)?;
+//
+//     // Extract script input data and lock height
+//     let (input_data, script_lock_height) = extract_script_data(&blockchain_output.script.bytes)?;
+//
+//     // Create StoredOutput from blockchain data
+//     let stored_output = StoredOutput {
+//         id: None, // Will be set by database
+//         wallet_id,
+//
+//         // Core UTXO identification
+//         commitment: blockchain_output.commitment.as_bytes().to_vec(),
+//         hash: compute_output_hash(blockchain_output)?,
+//         value: transaction.value,
+//
+//         // Spending keys (derived from entropy)
+//         commitment_mask_key: hex::encode(spending_key.as_bytes()),
+//         script_key: hex::encode(script_private_key.as_bytes()),
+//
+//         // Script and covenant data
+//         script: blockchain_output.script.bytes.clone(),
+//         input_data,
+//         covenant: blockchain_output.covenant.bytes.clone(),
+//
+//         // Output features and type
+//         output_type: blockchain_output.features.output_type.clone() as u32,
+//         features_json: serde_json::to_string(&blockchain_output.features)
+//             .map_err(|e| WalletError::StorageError(format!("Failed to serialize features: {e}")))?,
+//
+//         // Maturity and lock constraints
+//         maturity: blockchain_output.features.maturity,
+//         script_lock_height,
+//
+//         // Metadata signature components
+//         sender_offset_public_key: blockchain_output.sender_offset_public_key.as_bytes().to_vec(),
+//         // Note: Signature only contains raw bytes field. The structured fields
+//         // below are not available in the current data structure, so we use zero values
+//         metadata_signature_ephemeral_commitment: blockchain_output.metadata_signature.ephemeral_commitment.clone(),
+//         metadata_signature_ephemeral_pubkey: blockchain_output.metadata_signature.ephemeral_pubkey.clone(),
+//         metadata_signature_u_a: blockchain_output.metadata_signature.u_a.clone(),
+//         metadata_signature_u_x: blockchain_output.metadata_signature.u_x.clone(),
+//         metadata_signature_u_y: blockchain_output.metadata_signature.u_y.clone(),
+//
+//         // Payment information
+//         encrypted_data: blockchain_output.encrypted_data.as_bytes().to_vec(),
+//         minimum_value_promise: blockchain_output.minimum_value_promise.as_u64(),
+//         payment_id: transaction.payment_id.to_bytes(),
+//
+//         // Range proof
+//         rangeproof: blockchain_output.proof.as_ref().map(|p| p.bytes.clone()),
+//
+//         // Status and spending tracking
+//         status: if transaction.is_spent {
+//             OutputStatus::Spent as u32
+//         } else {
+//             OutputStatus::Unspent as u32
+//         },
+//         mined_height: Some(transaction.block_height),
+//         block_hash: None, // Block hash not available in this context
+//         spent_in_tx_id: if transaction.is_spent {
+//             // Calculate transaction ID from spent block and input index
+//             transaction.spent_in_block.and_then(|spent_block| {
+//                 transaction
+//                     .spent_in_input
+//                     .map(|spent_input| generate_transaction_id(spent_block, spent_input))
+//             })
+//         } else {
+//             None
+//         },
+//
+//         // Timestamps (will be set by database)
+//         created_at: None,
+//         updated_at: None,
+//     };
+//
+//     Ok(stored_output)
+// }
 
-    // Extract script input data and lock height
-    let (input_data, script_lock_height) = extract_script_data(&blockchain_output.script.bytes)?;
+// /// Extract UTXO data from blockchain outputs and create StoredOutput objects
+// pub fn extract_utxo_outputs_from_wallet_state(
+//     wallet_state: &WalletState,
+//     scan_context: &ScanContext,
+//     wallet_id: u32,
+//     block_outputs: &[TransactionOutput],
+//     block_height: u64,
+// ) -> WalletResult<Vec<StoredOutput>> {
+//     let mut utxo_outputs = Vec::new();
+//
+//     // Get inbound transactions from this specific block
+//     let block_transactions = filter_block_transactions(wallet_state, block_height, TransactionDirection::Inbound);
+//
+//     for transaction in block_transactions {
+//         // Find the corresponding blockchain output
+//         if let Some(output_index) = transaction.output_index {
+//             if let Some(blockchain_output) = block_outputs.get(output_index) {
+//                 let stored_output = create_stored_output_from_blockchain_data(
+//                     transaction,
+//                     blockchain_output,
+//                     scan_context,
+//                     wallet_id,
+//                     output_index,
+//                 )?;
+//
+//                 utxo_outputs.push(stored_output);
+//             }
+//         }
+//     }
+//
+//     Ok(utxo_outputs)
+// }
+//
+// /// Extract script input data and script lock height from script bytes
+// pub fn extract_script_data(script_bytes: &[u8]) -> WalletResult<(Vec<u8>, u64)> {
+//     // If script is empty, return empty data
+//     if script_bytes.is_empty() {
+//         return Ok((Vec::new(), 0));
+//     }
+//
+//     let mut input_data = Vec::new();
+//     let mut script_lock_height = 0u64;
+//     let mut potential_heights = Vec::new();
+//
+//     // Parse script bytecode to extract data
+//     // This is a simplified parser - in a full implementation, you'd use a proper script interpreter
+//     let mut i = 0;
+//     while i < script_bytes.len() {
+//         match script_bytes[i] {
+//             // Check for potential lock height patterns
+//             0x6a => {
+//                 // OP_PUSHDATA - extract the data being pushed
+//                 if i + 1 < script_bytes.len() {
+//                     let data_len = script_bytes[i + 1] as usize;
+//                     if i + 2 + data_len <= script_bytes.len() {
+//                         let data = &script_bytes[i + 2..i + 2 + data_len];
+//                         input_data.extend_from_slice(data);
+//
+//                         // Check if this could be a block height (8 bytes, little endian)
+//                         if data_len == 8 {
+//                             let bytes: [u8; 8] = data.try_into().unwrap_or([0u8; 8]);
+//                             let potential_height = u64::from_le_bytes(bytes);
+//
+//                             // Reasonable block height range (current mainnet is around 3M blocks)
+//                             if potential_height > 0 && potential_height < 10_000_000 {
+//                                 potential_heights.push(potential_height);
+//                             }
+//                         }
+//                         i += 2 + data_len;
+//                     } else {
+//                         i += 1;
+//                     }
+//                 } else {
+//                     i += 1;
+//                 }
+//             },
+//             // Look for other relevant opcodes that might contain lock heights
+//             0x51..=0x60 => {
+//                 // OP_1 through OP_16 - small numbers
+//                 let value = (script_bytes[i] - 0x50) as u64;
+//                 potential_heights.push(value);
+//                 i += 1;
+//             },
+//             _ => {
+//                 i += 1;
+//             },
+//         }
+//     }
+//
+//     // Use the largest reasonable value as script lock height
+//     if let Some(&max_height) = potential_heights.iter().max() {
+//         script_lock_height = max_height;
+//     }
+//
+//     Ok((input_data, script_lock_height))
+// }
 
     // Create StoredOutput from blockchain data
     let stored_output = StoredOutput {

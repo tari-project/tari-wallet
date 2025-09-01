@@ -67,7 +67,7 @@ use crate::{
         EventDispatcher,
     },
     hex_utils::HexEncodable,
-    scanning::{BinaryScanConfig, ScanContext, ScanMetadata},
+    scanning::{BinaryScanConfig, ScanMetadata},
 };
 
 /// Event emitter for wallet scanner integration
@@ -86,8 +86,6 @@ pub struct ScanEventEmitter {
     scan_start_time: Option<SystemTime>,
     /// Current scan configuration for reference
     current_config: Option<BinaryScanConfig>,
-    /// Current scan context for reference
-    current_context: Option<ScanContext>,
     /// Whether to use fire-and-forget mode for event emission (non-blocking)
     fire_and_forget: bool,
 }
@@ -101,7 +99,6 @@ impl ScanEventEmitter {
             correlation_id: None,
             scan_start_time: None,
             current_config: None,
-            current_context: None,
             fire_and_forget: true,
         }
     }
@@ -132,10 +129,6 @@ impl ScanEventEmitter {
         self.current_config = Some(config);
     }
 
-    /// Set the current scan context for reference in events
-    pub fn set_scan_context(&mut self, context: ScanContext) {
-        self.current_context = Some(context);
-    }
 
     /// Get a reference to the event dispatcher (requires locking)
     pub fn dispatcher(&self) -> Arc<Mutex<EventDispatcher>> {
@@ -149,13 +142,11 @@ impl ScanEventEmitter {
     pub async fn emit_scan_started(
         &mut self,
         config: &BinaryScanConfig,
-        context: &ScanContext,
         block_range: (u64, u64),
         wallet_context: HashMap<String, String>,
     ) -> Result<(), WalletError> {
         self.scan_start_time = Some(SystemTime::now());
         self.current_config = Some(config.clone());
-        self.current_context = Some(context.clone());
 
         let metadata = self.create_metadata();
         let scan_config = ScanConfig {

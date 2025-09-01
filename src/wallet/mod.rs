@@ -58,6 +58,10 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         }
     }
 
+    pub fn key_manager(&self) -> &TransactionKeyManagerWrapper<KMBackend> {
+        &self.key_manager
+    }
+
     /// Create a new wallet from a seed phrase and optional passphrase
     pub async fn new_from_seed_phrase(
         seed_words: &SeedWords,
@@ -148,9 +152,9 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         &self,
         features: TariAddressFeatures,
         payment_id: Option<Vec<u8>>,
-    ) -> Result<TariAddress, KeyManagementError> {
-        let view_key = self.key_manager_service.get_view_key().await?;
-        let spend_key = self.key_manager_service.get_spend_key().await?;
+    ) -> Result<TariAddress, KeyManagerServiceError> {
+        let view_key = self.key_manager.get_view_key().await?;
+        let spend_key = self.key_manager.get_spend_key().await?;
         Ok(TariAddress::new_dual_address(
             view_key.pub_key,
             spend_key.pub_key,

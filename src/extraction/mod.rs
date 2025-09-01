@@ -6,7 +6,8 @@
 //! extract and validate range proofs, and handle special outputs like
 //! coinbase and burn outputs appropriately.
 
-pub mod encrypted_data_decryption;
+// pub mod encrypted_data_decryption;
+// pub mod payment_id_extraction;
 // pub mod stealth_address_key_recovery;
 pub mod wallet_output_reconstruction;
 
@@ -23,23 +24,11 @@ pub use batch_validation::{
     OutputValidationResult,
 };
 pub use corruption_detection::{CorruptionDetectionResult, CorruptionDetector, CorruptionType};
-pub use encrypted_data_decryption::{DecryptionOptions, DecryptionResult, EncryptedDataDecryptor};
-pub use payment_id_extraction::{MemoFieldExtractionResult, MemoFieldExtractor, MemoFieldMetadata, MemoFieldType};
-// pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions,
-// StealthKeyRecoveryResult};
-use tari_common_types::types::{CompressedPublicKey, PrivateKey};
-use tari_script::ExecutionStack;
-use tari_transaction_components::{
-    key_manager::TariKeyId,
-    transaction_components::{TransactionOutput, WalletOutput},
-};
 pub use wallet_output_reconstruction::{
     WalletOutputReconstructionError,
     WalletOutputReconstructionOptions,
     WalletOutputReconstructionResult,
 };
-
-use crate::errors::WalletResult;
 
 /// Configuration for wallet output extraction
 #[derive(Debug, Clone)]
@@ -68,7 +57,10 @@ impl Default for ExtractionConfig {
     }
 }
 
-impl ExtractionConfig {}
+impl ExtractionConfig {
+
+}
+//
 // /// Extract a wallet output from a transaction output
 // pub fn extract_wallet_output(
 //     transaction_output: &TransactionOutput,

@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 use tari_common_types::types::{CompressedCommitment, CompressedPublicKey};
 use tari_crypto::compressed_key::CompressedKey;
-use tari_transaction_components::{
-    key_manager::TariKeyId,
-    rpc::models::MinimalUtxoSyncInfo,
-    transaction_components::{EncryptedData, MemoField},
-    MicroMinotari,
-};
+use tari_transaction_components::key_manager::TariKeyId;
+use tari_transaction_components::MicroMinotari;
+use tari_transaction_components::rpc::models::MinimalUtxoSyncInfo;
+use tari_transaction_components::transaction_components::{EncryptedData, MemoField};
 use tari_utilities::ByteArray;
+use crate::{WalletError};
 
 use crate::WalletError;
 
@@ -21,13 +20,9 @@ pub struct IncompleteScannedOutput {
     pub memo: MemoField,
 }
 
-impl IncompleteScannedOutput {
-    pub fn new(
-        scanning_info: &ScanningOutputStruct,
-        value: MicroMinotari,
-        commitment_mask_key_id: TariKeyId,
-        memo: MemoField,
-    ) -> Result<Self, WalletError> {
+impl IncompleteScannedOutput{
+    pub fn new(scanning_info: &ScanningOutputStruct, value: MicroMinotari, commitment_mask_key_id: TariKeyId, memo: MemoField) -> Result<Self, WalletError> {
+
         Ok(Self {
             output_hash: scanning_info.min_info.output_hash.clone(),
             value,
@@ -63,5 +58,6 @@ impl TryFrom<MinimalUtxoSyncInfo> for ScanningOutputStruct {
             encrypted_data,
             sender_offset_public_key,
         })
+
     }
 }

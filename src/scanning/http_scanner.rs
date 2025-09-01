@@ -43,33 +43,15 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use serde_wasm_bindgen;
-use tari_common_types::{
-    types::{
-        ComAndPubSignature,
-        CompressedCommitment,
-        CompressedPublicKey,
-        PrivateKey,
-    },
-};
-use tari_script::{ExecutionStack, TariScript};
 use tari_transaction_components::{
-    key_manager::TariKeyId,
     transaction_components::{
-        covenants::Covenant,
-        EncryptedData,
-        MemoField,
-        OutputFeatures,
-        OutputType,
-        TransactionInput,
         TransactionOutput,
-        WalletOutput,
     },
-    MicroMinotari,
 };
-use tari_transaction_components::key_manager::TariKeyAndId;
-use tari_transaction_components::rpc::models::{BlockUtxoInfo, MinimalUtxoSyncInfo, SyncUtxosByBlockResponse};
-#[cfg(feature = "http")]
-use tari_utilities::ByteArray;
+use tari_transaction_components::key_manager::{TariKeyAndId, TransactionKeyManagerInterface};
+use tari_transaction_components::rpc::models::{BlockUtxoInfo, SyncUtxosByBlockResponse};
+use tari_transaction_components::transaction_components::one_sided::shared_secret_to_output_encryption_key;
+use tari_transaction_components::transaction_components::TransactionError;
 #[cfg(all(feature = "http", feature = "tracing"))]
 use tracing::debug;
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
@@ -81,9 +63,8 @@ use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
 use crate::{
     errors::{WalletError, WalletResult},
-    extraction::{extract_wallet_output, ExtractionConfig},
+    extraction::{ ExtractionConfig},
     scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
-    wallet::Wallet,
 };
 use crate::data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct};
 
@@ -153,7 +134,7 @@ pub struct HttpBlockchainScanner<KM> {
     view_key: TariKeyAndId,
 }
 
-impl<KM> HttpBlockchainScanner<KM> where KM: TKeyManagerInterface {
+impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
     /// Create a new HTTP scanner with the given base URL
     pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
@@ -224,7 +205,7 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TKeyManagerInterface {
 
     /// Create a new HTTP scanner with custom timeout (native only)
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-    pub async fn with_timeout(base_url: String, timeout: Duration) -> WalletResult<Self> {
+    pub async fn with_timeout(base_url: String, timeout: Duration, key_manager: KM) -> WalletResult<Self> {
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to create HTTP client: {e}"
@@ -244,6 +225,7 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TKeyManagerInterface {
             client,
             base_url,
             timeout,
+            key_manager,
         })
     }
 
@@ -468,127 +450,6 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TKeyManagerInterface {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Convert HTTP output data to TransactionOutput
-    // fn convert_http_output_to_lightweight(http_output: &MinimalUtxoSyncInfo) -> WalletResult<TransactionOutput> {
-    //     // Parse commitment
-    //     if http_output.commitment.len() != 32 {
-    //         return Err(WalletError::ConversionError(
-    //             "Invalid commitment length, expected 32 bytes".to_string(),
-    //         ));
-    //     }
-    //     let commitment = CompressedCommitment::new(
-    //         http_output
-    //             .commitment
-    //             .clone()
-    //             .try_into()
-    //             .map_err(|_| WalletError::ConversionError("Failed to convert commitment".to_string()))?,
-    //     );
-    //
-    //     // Parse sender offset public key
-    //     if http_output.sender_offset_public_key.len() != 32 {
-    //         return Err(WalletError::ConversionError(
-    //             "Invalid sender offset public key length, expected 32 bytes".to_string(),
-    //         ));
-    //     }
-    //     let sender_offset_public_key =
-    //         CompressedPublicKey::new(
-    //             http_output.sender_offset_public_key.clone().try_into().map_err(|_| {
-    //                 WalletError::ConversionError("Failed to convert sender offset public key".to_string())
-    //             })?,
-    //         );
-    //
-    //     // Convert Encrypted Data - match GRPC approach exactly
-    //     let encrypted_data = EncryptedData::from_bytes(&http_output.encrypted_data).unwrap_or_default();
-    //
-    //     // Convert OutputFeatures - match GRPC approach (HTTP API doesn't provide features, so use default)
-    //     let features = OutputFeatures::default();
-    //
-    //     // Convert range proof (not provided by this API endpoint)
-    //     let proof = None;
-    //
-    //     // Convert Script - match GRPC approach exactly
-    //     let script = TariScript::default();
-    //
-    //     // Convert Metadata Signature - match GRPC approach exactly
-    //     let metadata_signature = ComAndPubSignature::default();
-    //
-    //     // Convert Covenant - match GRPC approach exactly
-    //     let covenant = Covenant::default();
-    //
-    //     // Convert Minimum Value Promise - match GRPC approach exactly
-    //     let minimum_value_promise = MicroMinotari(0);
-    //
-    //     let output_features = tari_transaction_components::transaction_components::OutputFeatures::default();
-    //
-    //     // Use direct construction exactly like GRPC scanner
-    //     Ok(TransactionOutput {
-    //         version: 0, // HTTP API doesn't provide version, GRPC uses grpc_output.version which is 0
-    //         features,
-    //         commitment,
-    //         proof,
-    //         script,
-    //         sender_offset_public_key,
-    //         metadata_signature,
-    //         covenant,
-    //         encrypted_data,
-    //         minimum_value_promise,
-    //         output_features,
-    //     })
-    // }
-    //
-    // /// Convert HTTP input data to TransactionInput - simplified version
-    // fn convert_http_input_to_lightweight(output_hash_bytes: &[u8]) -> WalletResult<TransactionInput> {
-    //     // Parse output hash
-    //     if output_hash_bytes.len() != 32 {
-    //         return Err(WalletError::ConversionError(
-    //             "Invalid output hash length, expected 32 bytes".to_string(),
-    //         ));
-    //     }
-    //     let mut output_hash = [0u8; 32];
-    //     output_hash.copy_from_slice(output_hash_bytes);
-    //
-    //     // Create minimal TransactionInput with the output hash
-    //     Ok(TransactionInput::new(
-    //         1, // version
-    //         0, // features (default)
-    //         [0u8; 32], /* commitment (not available from HTTP
-    //             * API) */
-    //         [0u8; 64],                      // script_signature (not available)
-    //         CompressedPublicKey::default(), // sender_offset_public_key (not available)
-    //         Vec::new(),                     // covenant (not available)
-    //         ExecutionStack::new(),          // input_data (not available)
-    //         output_hash,                    // output_hash (this is the actual data from HTTP API)
-    //         0,                              // output_features (not available)
-    //         [0u8; 64],                      // output_metadata_signature (not available)
-    //         0,                              // maturity (not available)
-    //         MicroMinotari(0),               // value (not available)
-    //     ))
-    // }
-
-    /// Convert HTTP block data to BlockInfo
-    // fn convert_http_block_to_block_info(http_block: &BlockUtxoInfo) -> WalletResult<BlockInfo> {
-    //     let outputs = http_block
-    //         .outputs
-    //         .iter()
-    //         .map(Self::convert_http_output_to_lightweight)
-    //         .collect::<WalletResult<Vec<_>>>()?;
-    //
-    //     // Handle simplified inputs structure
-    //     let inputs = http_block
-    //         .inputs
-    //         .iter()
-    //         .map(|hash_bytes| Self::convert_http_input_to_lightweight(hash_bytes))
-    //         .collect::<WalletResult<Vec<_>>>()?;
-    //
-    //     Ok(BlockInfo {
-    //         height: 0,        // Block height not available in sync_utxos_by_block response
-    //         hash: Vec::new(), // Block hash not available in sync_utxos_by_block response
-    //         timestamp: http_block.mined_timestamp,
-    //         outputs,
-    //         inputs,
-    //         kernels: Vec::new(), // HTTP API doesn't provide kernels in this format
-    //     })
-    // }
 
     /// Create a scan config with wallet keys for block scanning
     pub fn create_scan_config_with_wallet_keys(
@@ -643,10 +504,10 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TKeyManagerInterface {
 
         let shared_secret = self
             .key_manager
-            .get_diffie_hellman_shared_secret(&view_key.key_id, &offset_pub_key)
+            .get_diffie_hellman_shared_secret(&self.view_key.key_id, &output.sender_offset_public_key)
             .await?;
         let recovery_key = shared_secret_to_output_encryption_key(&shared_secret)
-            .map_err(|e| anyhow!("Could not hash key :{}", e.to_string()))?;
+            .map_err(|e|WalletError::ConversionError(e.to_string()) )?;
 
         let (commitment_mask, value, memo) = match self.key_manager.try_output_key_recovery(&output.commitment, &output.encrypted_data, Some(recovery_key)).await{
 
