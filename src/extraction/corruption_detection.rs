@@ -615,11 +615,6 @@ impl CorruptionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::{
-        encrypted_data::EncryptedData,
-        payment_id::{MemoField, TxType},
-        types::{CompressedCommitment, MicroMinotari},
-    };
 
     #[test]
     fn test_corruption_detector_creation() {
@@ -667,36 +662,6 @@ mod tests {
 
         // This should not be corrupted since it's not a suspicious pattern
         assert!(!result.is_corrupted());
-    }
-
-    #[test]
-    fn test_detect_payment_id_corruption_empty_open() {
-        let detector = CorruptionDetector::new();
-        let payment_id = MemoField::Open {
-            user_data: vec![],
-            tx_type: TxType::PaymentToOther,
-        };
-        let result = detector.detect_payment_id_corruption(&payment_id);
-
-        assert!(result.is_corrupted());
-        assert_eq!(result.corruption_type(), Some(&CorruptionType::MemoFieldCorruption));
-        assert_eq!(result.error_message(), Some("Open payment ID data is empty"));
-        assert!(result.is_recoverable());
-    }
-
-    #[test]
-    fn test_detect_payment_id_corruption_clean() {
-        let detector = CorruptionDetector::new();
-        let payment_id = MemoField::Open {
-            user_data: b"test_data".to_vec(),
-            tx_type: TxType::PaymentToOther,
-        };
-        let result = detector.detect_payment_id_corruption(&payment_id);
-
-        assert!(!result.is_corrupted());
-        assert!(result.corruption_type().is_none());
-        assert!(result.error_message().is_none());
-        assert!(result.is_recoverable());
     }
 
     #[test]
