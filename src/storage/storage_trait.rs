@@ -4,17 +4,16 @@
 //! for different storage backends to persist and retrieve wallet transaction data.
 
 use async_trait::async_trait;
-use tari_common_types::types::CompressedPublicKey;
+use tari_common_types::{
+    seeds::cipher_seed::CipherSeed,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
+};
 
 use super::{output_status::OutputStatus, stored_output::StoredOutput};
 use crate::{
-    data_structures::{
-        transaction::{TransactionDirection, TransactionStatus},
-        types::{CompressedCommitment, PrivateKey},
-        wallet_transaction::{WalletState, WalletTransaction},
-    },
+    data_structures::wallet_transaction::{WalletState, WalletTransaction},
     errors::WalletResult,
-    key_management::seed_phrase::CipherSeed,
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
 };
 
