@@ -140,8 +140,6 @@ impl Block {
                 result.transaction_status,
                 TransactionDirection::Inbound,
                 result.is_mature,
-                Some(result.commitment_mask_private_key),
-                result.script_key,
             );
         }
 
@@ -485,17 +483,11 @@ impl std::fmt::Display for BlockSummary {
 
 #[cfg(test)]
 mod tests {
+    use tari_script::ExecutionStack;
+    use tari_transaction_components::transaction_components::{CoinBaseExtra, OutputFeatures, RangeProofType};
+
     use super::*;
-    use crate::data_structures::{
-        encrypted_data::EncryptedData,
-        payment_id::MemoField,
-        transaction::{TransactionDirection, TransactionStatus},
-        transaction_input::TransactionInput,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
-        wallet_output::{OutputFeatures, OutputType},
-        wallet_transaction::WalletState,
-    };
+    use crate::data_structures::wallet_transaction::WalletState;
 
     fn create_test_block() -> Block {
         Block::new(1000, vec![1, 2, 3, 4], 1234567890, vec![], vec![])
@@ -506,13 +498,15 @@ mod tests {
     }
 
     fn create_test_output_with_features(output_type: OutputType, maturity: u64, value: u64) -> TransactionOutput {
-        let features = OutputFeatures {
+        let features = OutputFeatures::new_current_version(
             output_type,
             maturity,
-            ..Default::default()
-        };
+            CoinBaseExtra::default(),
+            None,
+            RangeProofType::default(),
+        );
 
-        TransactionOutput::new(
+        TransactionOutput::new_current_version(
             1,
             features,
             CompressedCommitment::new([1u8; 32]),
@@ -522,26 +516,11 @@ mod tests {
             Default::default(),
             Default::default(),
             EncryptedData::default(),
-            MicroMinotari::new(value),
-            tari_transaction_components::transaction_components::OutputFeatures::default(),
         )
     }
 
     fn create_test_input(commitment: [u8; 32], output_hash: [u8; 32]) -> TransactionInput {
-        TransactionInput::new(
-            1,
-            0,
-            commitment,
-            [0u8; 64],
-            CompressedPublicKey::default(),
-            Vec::new(),
-            crate::data_structures::transaction_input::ExecutionStack::new(),
-            output_hash,
-            0,
-            [0u8; 64],
-            0,
-            MicroMinotari::new(0),
-        )
+        TransactionInput::new_with_output_hash(output_hash, ExecutionStack::default(), CompressedPublicKey::default())
     }
 
     #[test]
@@ -708,8 +687,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Test 1: HTTP-style input (has output hash, zero commitment)
@@ -734,8 +711,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Test 2: GRPC-style input (has commitment, zero output hash)
@@ -768,8 +743,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
         wallet_state.add_received_output(
             100,
@@ -781,8 +754,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Create inputs that spend both outputs
@@ -910,8 +881,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Also add a zero-value transaction that should be filtered out
@@ -926,8 +895,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         println!(
@@ -1028,8 +995,6 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
         );
 
         // Create a block with both outputs and inputs
