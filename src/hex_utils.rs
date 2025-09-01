@@ -244,18 +244,16 @@ impl<'a> fmt::Debug for HexDisplayWithPrefix<'a> {
 #[cfg(test)]
 mod tests {
     use primitive_types::U256;
-
-    use super::*;
-    use crate::data_structures::{
-        CompressedCommitment,
-        CompressedPublicKey,
+    use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, PrivateKey};
+    use tari_transaction_components::transaction_components::{
         EncryptedData,
         MemoField,
-        PrivateKey,
-        SafeArray,
         TransactionOutput,
         WalletOutput,
     };
+    use tari_utilities::safe_array::SafeArray;
+
+    use super::*;
 
     #[test]
     fn test_hex_utils_basic() {
