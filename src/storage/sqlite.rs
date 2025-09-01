@@ -12,7 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 #[cfg(feature = "storage")]
 use rusqlite::{params, Row};
-use tari_common_types::types::CompressedPublicKey;
+use tari_common_types::{
+    seeds::cipher_seed::CipherSeed,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedCommitment, CompressedPublicKey},
+};
+use tari_transaction_components::transaction_components::MemoField;
 #[cfg(feature = "storage")]
 use tokio_rusqlite::Connection;
 
@@ -20,17 +25,10 @@ use tokio_rusqlite::Connection;
 #[cfg(feature = "storage")]
 use crate::events::types::WalletEventResult;
 #[cfg(feature = "storage")]
-use crate::key_management::seed_phrase::CipherSeed;
-#[cfg(feature = "storage")]
 use crate::storage::event_storage::{EventFilter, EventStorage, EventStorageStats, StoredEvent};
 #[cfg(feature = "storage")]
 use crate::{
-    data_structures::{
-        payment_id::MemoField,
-        transaction::{TransactionDirection, TransactionStatus},
-        types::CompressedCommitment,
-        wallet_transaction::{WalletState, WalletTransaction},
-    },
+    data_structures::wallet_transaction::{WalletState, WalletTransaction},
     errors::{WalletError, WalletResult},
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
     storage::{
@@ -365,8 +363,6 @@ impl SqliteStorage {
             transaction_status,
             transaction_direction,
             is_mature: row.get("is_mature")?,
-            commitment_mask_private_key: None,
-            script_key: None,
         })
     }
 
@@ -967,8 +963,6 @@ impl WalletStorage for SqliteStorage {
                         transaction.transaction_status,
                         transaction.transaction_direction,
                         transaction.is_mature,
-                        None,
-                        None,
                     );
 
                     // If the transaction is spent, mark it as spent
