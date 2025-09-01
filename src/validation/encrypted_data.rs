@@ -316,7 +316,6 @@ pub fn validate_encrypted_data_comprehensive(encrypted_data: &EncryptedData) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::encrypted_data::EncryptedData;
 
     #[test]
     fn test_validator_creation() {

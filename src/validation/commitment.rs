@@ -3,9 +3,7 @@
 //! This module provides lightweight validation for Pedersen commitments
 //! without requiring the full Tari crypto stack.
 
-use tari_common_types::{
-    types::{CompressedCommitment, PrivateKey},
-};
+use tari_common_types::types::{CompressedCommitment, PrivateKey};
 use tari_transaction_components::MicroMinotari;
 
 use crate::errors::ValidationError;
@@ -57,7 +55,6 @@ impl CommitmentValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::types::CompressedCommitment;
 
     #[test]
     fn test_commitment_structure_valid() {
