@@ -7,7 +7,6 @@
 //! coinbase and burn outputs appropriately.
 
 pub mod encrypted_data_decryption;
-pub mod payment_id_extraction;
 // pub mod stealth_address_key_recovery;
 pub mod wallet_output_reconstruction;
 
@@ -26,15 +25,13 @@ pub use batch_validation::{
 pub use corruption_detection::{CorruptionDetectionResult, CorruptionDetector, CorruptionType};
 pub use encrypted_data_decryption::{DecryptionOptions, DecryptionResult, EncryptedDataDecryptor};
 pub use payment_id_extraction::{MemoFieldExtractionResult, MemoFieldExtractor, MemoFieldMetadata, MemoFieldType};
-// pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions, StealthKeyRecoveryResult};
+// pub use stealth_address_key_recovery::{StealthKeyRecoveryError, StealthKeyRecoveryOptions,
+// StealthKeyRecoveryResult};
 use tari_common_types::types::{CompressedPublicKey, PrivateKey};
 use tari_script::ExecutionStack;
 use tari_transaction_components::{
     key_manager::TariKeyId,
-    transaction_components::{
-        TransactionOutput,
-        WalletOutput,
-    },
+    transaction_components::{TransactionOutput, WalletOutput},
 };
 pub use wallet_output_reconstruction::{
     WalletOutputReconstructionError,
@@ -42,9 +39,7 @@ pub use wallet_output_reconstruction::{
     WalletOutputReconstructionResult,
 };
 
-use crate::{
-    errors::WalletResult,
-};
+use crate::errors::WalletResult;
 
 /// Configuration for wallet output extraction
 #[derive(Debug, Clone)]
@@ -73,10 +68,7 @@ impl Default for ExtractionConfig {
     }
 }
 
-impl ExtractionConfig {
-
-}
-// 
+impl ExtractionConfig {}
 // /// Extract a wallet output from a transaction output
 // pub fn extract_wallet_output(
 //     transaction_output: &TransactionOutput,
@@ -88,10 +80,10 @@ impl ExtractionConfig {
 //             "No keys provided for wallet output extraction".to_string(),
 //         ));
 //     }
-// 
+//
 //     // Create a key store and decryptor for this extraction
 //     let mut key_store = KeyStore::default();
-// 
+//
 //     // Add the private key to the key store if provided
 //     if let Some(private_key) = &config.private_key {
 //         let imported_key = ImportedPrivateKey::new(private_key.clone(), Some("extraction_key".to_string()));
@@ -99,7 +91,7 @@ impl ExtractionConfig {
 //             .add_imported_key(imported_key)
 //             .map_err(crate::errors::WalletError::KeyManagementError)?;
 //     }
-// 
+//
 //     // Create encrypted data decryptor
 //     let decryptor = EncryptedDataDecryptor::new(key_store);
 //     let decryption_options = DecryptionOptions {
@@ -108,10 +100,10 @@ impl ExtractionConfig {
 //         max_keys_to_try: 0, // Try all available keys
 //         return_partial_results: false,
 //     };
-// 
+//
 //     // Try to decrypt the encrypted data - this is the key test for wallet ownership
 //     let decryption_result = decryptor.decrypt_transaction_output(transaction_output, Some(&decryption_options))?;
-// 
+//
 //     // If decryption failed, this output doesn't belong to our wallet
 //     if !decryption_result.is_success() {
 //         let error_msg = decryption_result.error_message().unwrap_or("decryption failed");
@@ -119,14 +111,14 @@ impl ExtractionConfig {
 //             "Output does not belong to wallet: {error_msg}"
 //         )));
 //     }
-// 
+//
 //     // Extract the decrypted values
 //     let value = decryption_result.value.unwrap();
 //     let payment_id = decryption_result.payment_id.unwrap();
-// 
+//
 //     // Note: Range proof and signature validation removed - was providing false security
 //     // Real cryptographic validation would require integration with tari_crypto
-// 
+//
 //     // Create wallet output with the decrypted value and payment ID
 //     let wallet_output = WalletOutput::new(
 //         transaction_output.version,
@@ -145,7 +137,7 @@ impl ExtractionConfig {
 //         transaction_output.proof.clone(),
 //         payment_id,
 //     );
-// 
+//
 //     Ok(wallet_output)
 // }
 
