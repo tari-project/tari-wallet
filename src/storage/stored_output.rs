@@ -83,7 +83,7 @@ impl TryFrom<&StoredOutput> for WalletOutput {
             TariScript::from_bytes(o.script.as_slice())?,
             ExecutionStack::from_bytes(o.input_data.as_slice())?,
             TariKeyId::from_str(&o.script_key).map_err(DataStructureError::InvalidKeyId)?,
-            CompressedPublicKey::from_vec(&o.sender_offset_public_key).map(|e| {
+            CompressedPublicKey::from_vec(&o.sender_offset_public_key).map_err(|e| {
                 DataStructureError::InvalidPublicKey(format!("Could not deserialize sender offset public key: {e}"))
             })?,
             ComAndPubSignature::new(
@@ -109,7 +109,7 @@ impl TryFrom<&StoredOutput> for WalletOutput {
             EncryptedData::from_bytes(&o.encrypted_data)
                 .map_err(|e| DataStructureError::InvalidEncryptedData(e.to_string()))?,
             MicroMinotari::from(o.minimum_value_promise),
-            match o.rangeproof {
+            match &o.rangeproof {
                 Some(bytes) => Some(
                     RangeProof::from_canonical_bytes(&bytes)
                         .map_err(|e| DataStructureError::InvalidRangeProof(e.to_string()))?,
