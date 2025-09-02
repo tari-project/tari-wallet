@@ -18,6 +18,7 @@ use tari_common_types::{
     types::{CompressedCommitment, CompressedPublicKey},
 };
 use tari_transaction_components::transaction_components::MemoField;
+use tari_utilities::{hex::Hex, ByteArray};
 #[cfg(feature = "storage")]
 use tokio_rusqlite::Connection;
 
@@ -41,6 +42,7 @@ use crate::{
         TransactionFilter,
         WalletStorage,
     },
+    DataStructureError,
 };
 
 /// SQLite storage backend for wallet transactions
@@ -333,8 +335,8 @@ impl SqliteStorage {
     /// Convert a database row to a WalletTransaction
     fn row_to_transaction(row: &Row) -> rusqlite::Result<WalletTransaction> {
         let commitment_bytes: Vec<u8> = row.get("commitment_bytes")?;
-        let commitment_array: [u8; 32] = commitment_bytes.try_into().map_err(|_| {
-            rusqlite::Error::InvalidColumnType(0, "commitment_bytes".to_string(), rusqlite::types::Type::Blob)
+        let commitment = CompressedCommitment::from_canonical_bytes(&commitment_bytes).map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(DataStructureError::InvalidCommitment(e.to_string())))
         })?;
 
         let payment_id_json: String = row.get("payment_id_json")?;
@@ -353,7 +355,7 @@ impl SqliteStorage {
             block_height: row.get::<_, i64>("block_height")? as u64,
             output_index: row.get::<_, Option<i64>>("output_index")?.map(|i| i as usize),
             input_index: row.get::<_, Option<i64>>("input_index")?.map(|i| i as usize),
-            commitment: CompressedCommitment::new(commitment_array),
+            commitment,
             output_hash: None, // Not stored in database, computed elsewhere when needed
             value: row.get::<_, i64>("value")? as u64,
             payment_id,
