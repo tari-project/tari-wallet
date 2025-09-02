@@ -11,6 +11,7 @@ use tari_common_types::{
     types::CompressedCommitment,
 };
 use tari_transaction_components::transaction_components::memo_field::MemoField;
+use tari_transaction_components::transaction_components::WalletOutput;
 use tari_utilities::ByteArray;
 // Simple number formatting (removed utils::number module)
 
@@ -23,6 +24,8 @@ pub struct WalletTransaction {
     pub output_index: Option<usize>,
     /// Input index if this represents a spent transaction
     pub input_index: Option<usize>,
+    /// wallet_output
+    pub output: WalletOutput,
     /// Commitment of the output/input
     pub commitment: CompressedCommitment,
     /// Output hash from HTTP response (for identification and matching)
@@ -53,6 +56,7 @@ impl WalletTransaction {
         output_index: Option<usize>,
         input_index: Option<usize>,
         commitment: CompressedCommitment,
+        output: WalletOutput,
         output_hash: Option<Vec<u8>>,
         value: u64,
         payment_id: MemoField,
@@ -65,6 +69,7 @@ impl WalletTransaction {
             output_index,
             input_index,
             commitment,
+            output,
             output_hash,
             value,
             payment_id,
@@ -86,7 +91,7 @@ impl WalletTransaction {
 
     /// Check if this is a coinbase transaction
     pub fn is_coinbase(&self) -> bool {
-        self.transaction_status.is_coinbase()
+        self.output.features.is_coinbase()
     }
 
     /// Check if this transaction is confirmed
