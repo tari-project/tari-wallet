@@ -75,21 +75,6 @@ pub trait HexEncodable {
     }
 }
 
-/// Trait for types that can be converted to and from hex strings with validation
-pub trait HexValidatable: HexEncodable {
-    /// Validate that a hex string can be converted to this type
-    fn is_valid_hex(hex: &str) -> bool
-    where Self: Sized {
-        Self::from_hex(hex).is_ok()
-    }
-
-    /// Validate that a hex string can be converted to this type, optionally removing a prefix
-    fn is_valid_hex_with_prefix(hex: &str, prefix: &str) -> bool
-    where Self: Sized {
-        Self::from_hex_with_prefix(hex, prefix).is_ok()
-    }
-}
-
 /// Utility functions for hex encoding/decoding
 pub struct HexUtils;
 
@@ -243,15 +228,10 @@ impl<'a> fmt::Debug for HexDisplayWithPrefix<'a> {
 
 #[cfg(test)]
 mod tests {
-    use primitive_types::U256;
     use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, PrivateKey};
-    use tari_transaction_components::transaction_components::{
-        EncryptedData,
-        MemoField,
-        TransactionOutput,
-        WalletOutput,
-    };
-    use tari_utilities::safe_array::SafeArray;
+    use tari_crypto::keys::SecretKey;
+    use tari_transaction_components::transaction_components::EncryptedData;
+    use tari_utilities::{hex::Hex, ByteArray};
 
     use super::*;
 
@@ -362,7 +342,8 @@ mod tests {
 
     #[test]
     fn test_private_key_hex() {
-        let key = PrivateKey::random();
+        let mut rng = rand::thread_rng();
+        let key = PrivateKey::random(&mut rng);
         let hex = key.to_hex();
         let key_from_hex = PrivateKey::from_hex(&hex).unwrap();
         assert_eq!(key, key_from_hex);
@@ -370,8 +351,7 @@ mod tests {
 
     #[test]
     fn test_compressed_commitment_hex() {
-        let commitment_bytes = [0u8; 32];
-        let commitment = CompressedCommitment::new(commitment_bytes);
+        let commitment = CompressedCommitment::default();
 
         // Test to_hex
         let hex = commitment.to_hex();
@@ -380,16 +360,12 @@ mod tests {
         // Test from_hex
         let parsed = CompressedCommitment::from_hex(&hex).unwrap();
         assert_eq!(parsed, commitment);
-
-        // Test validation
-        assert!(CompressedCommitment::is_valid_hex(&hex));
-        assert!(!CompressedCommitment::is_valid_hex("123")); // Wrong length
     }
 
     #[test]
     fn test_compressed_public_key_hex() {
         let key_bytes = [0x56; 32];
-        let public_key = CompressedPublicKey::new(key_bytes);
+        let public_key = CompressedPublicKey::from_canonical_bytes(&key_bytes).unwrap();
 
         // Test to_hex
         let hex = public_key.to_hex();
@@ -398,28 +374,6 @@ mod tests {
         // Test from_hex
         let parsed = CompressedPublicKey::from_hex(&hex).unwrap();
         assert_eq!(parsed, public_key);
-
-        // Test validation
-        assert!(CompressedPublicKey::is_valid_hex(&hex));
-        assert!(!CompressedPublicKey::is_valid_hex("123")); // Wrong length
-    }
-
-    #[test]
-    fn test_safe_array_hex() {
-        let array_data = [0x78; 16];
-        let safe_array = SafeArray::new(array_data);
-
-        // Test to_hex
-        let hex = safe_array.to_hex();
-        assert_eq!(hex.len(), 32); // 16 bytes * 2 hex chars per byte
-
-        // Test from_hex
-        let parsed = SafeArray::<16>::from_hex(&hex).unwrap();
-        assert_eq!(parsed, safe_array);
-
-        // Test validation
-        assert!(SafeArray::<16>::is_valid_hex(&hex));
-        assert!(!SafeArray::<16>::is_valid_hex("123")); // Wrong length
     }
 
     #[test]
@@ -434,97 +388,20 @@ mod tests {
         // Test from_hex
         let parsed = EncryptedData::from_hex(&hex).unwrap();
         assert_eq!(parsed.as_bytes(), data.as_slice());
-
-        // Test validation
-        assert!(EncryptedData::is_valid_hex(&hex));
-    }
-
-    #[test]
-    fn test_payment_id_hex() {
-        // Test Empty payment ID
-        let empty_payment_id = MemoField::Empty;
-        let hex = empty_payment_id.to_hex();
-        assert_eq!(hex, "");
-        let parsed = MemoField::from_hex(&hex).unwrap();
-        assert_eq!(parsed, empty_payment_id);
-
-        // Test U256 payment ID - roundtrip with proper tag
-        let u256_value = U256::from(0x123456789abcdef0u64);
-        let u256_payment_id = MemoField::U256(u256_value);
-        let hex = u256_payment_id.to_hex();
-        let parsed = MemoField::from_hex(&hex).unwrap();
-        assert_eq!(parsed, u256_payment_id);
-
-        // Test Raw payment ID - roundtrip
-        let raw_data = vec![0xaa, 0xbb, 0xcc, 0xdd];
-        let raw_payment_id = MemoField::Raw(raw_data.clone());
-        let hex = raw_payment_id.to_hex();
-        let parsed = MemoField::from_hex(&hex).unwrap();
-        assert_eq!(parsed, raw_payment_id);
-
-        // Test validation with proper MemoField hex (includes tags)
-        assert!(MemoField::is_valid_hex(""));
-        assert!(MemoField::is_valid_hex(&hex));
-    }
-
-    #[test]
-    fn test_wallet_output_hex() {
-        // Create a simple wallet output using default values
-        let wallet_output = WalletOutput::default();
-
-        // Test to_hex
-        let hex = wallet_output.to_hex();
-        assert!(!hex.is_empty());
-
-        // Test from_hex
-        let parsed = WalletOutput::from_hex(&hex).unwrap();
-        assert_eq!(parsed, wallet_output);
-
-        // Test validation
-        assert!(WalletOutput::is_valid_hex(&hex));
-    }
-
-    #[test]
-    fn test_transaction_output_hex() {
-        // Create a simple transaction output using default values
-        let tx_output = TransactionOutput::default();
-
-        // Test to_hex
-        let hex = tx_output.to_hex();
-        assert!(!hex.is_empty());
-
-        // Test from_hex
-        let parsed = TransactionOutput::from_hex(&hex).unwrap();
-        assert_eq!(parsed, tx_output);
-
-        // Test validation
-        assert!(TransactionOutput::is_valid_hex(&hex));
     }
 
     #[test]
     fn test_hex_encodable_traits() {
         // Test that all types implement HexEncodable and HexValidatable
-        let private_key = PrivateKey::new([0x12; 32]);
-        let commitment = CompressedCommitment::new([0u8; 32]);
-        let public_key = CompressedPublicKey::new([0x56; 32]);
-        let safe_array = SafeArray::new([0x78; 16]);
+        let private_key = PrivateKey::from_uniform_bytes(&[0x12; 32]).unwrap();
+        let commitment = CompressedCommitment::from_canonical_bytes(&[0u8; 32]).unwrap();
+        let public_key = CompressedPublicKey::from_canonical_bytes(&[0x56; 32]).unwrap();
         let encrypted_data = EncryptedData::from_bytes(&[0x9a; 80]).unwrap();
-        let payment_id = MemoField::U256(U256::from(0x123456789abcdef0u64));
 
         // Test that they all have hex methods
         assert!(!private_key.to_hex().is_empty());
         assert!(!commitment.to_hex().is_empty());
         assert!(!public_key.to_hex().is_empty());
-        assert!(!safe_array.to_hex().is_empty());
         assert!(!encrypted_data.to_hex().is_empty());
-        assert!(!payment_id.to_hex().is_empty());
-
-        // Test validation
-        assert!(PrivateKey::is_valid_hex(&private_key.to_hex()));
-        assert!(CompressedCommitment::is_valid_hex(&commitment.to_hex()));
-        assert!(CompressedPublicKey::is_valid_hex(&public_key.to_hex()));
-        assert!(SafeArray::<16>::is_valid_hex(&safe_array.to_hex()));
-        assert!(EncryptedData::is_valid_hex(&encrypted_data.to_hex()));
-        assert!(MemoField::is_valid_hex(&payment_id.to_hex()));
     }
 }
