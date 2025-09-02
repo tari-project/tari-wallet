@@ -16,9 +16,7 @@ use tari_common_types::{
 };
 use tari_script::{Opcode, TariScript};
 use tari_transaction_components::transaction_components::{
-    EncryptedData,
     MemoField,
-    OutputType,
     TransactionInput,
     TransactionOutput,
 };
@@ -154,162 +152,9 @@ impl Block {
         None
     }
 
-    /// Process a single output with optimized decryption strategy
-    fn process_single_output_parallel(
-        &self,
-        output_index: usize,
-        output: &TransactionOutput,
-        view_key: &PrivateKey,
-    ) -> Option<OutputProcessingResult> {
-        // Early exit for outputs with no encrypted data (except coinbase)
-        let has_encrypted_data = !output.encrypted_data.as_bytes().is_empty();
-        let is_coinbase = matches!(output.features.output_type, OutputType::Coinbase);
-
-        if !has_encrypted_data && !is_coinbase {
-            return None;
-        }
-
-        let script_key = self.extract_script_key(&output.script);
-
-        // Handle coinbase outputs
-        if is_coinbase {
-            if let Some(result) = self.try_coinbase_output_optimized(output_index, output, view_key, script_key.clone())
-            {
-                return Some(result);
-            }
-            return None;
-        }
-
-        // Skip further processing if no encrypted data
-        if !has_encrypted_data {
-            return None;
-        }
-
-        // Try regular decryption first (most common case)
-        if let Some(script_key) = script_key {
-            if let Some(result) = self.try_regular_decryption_optimized(
-                output_index,
-                output,
-                view_key,
-                script_key,
-                TransactionStatus::MinedConfirmed,
-                true,
-            ) {
-                return Some(result);
-            }
-        }
-
-        // Try one-sided decryption only if sender offset key is present
-        if !output.sender_offset_public_key.as_bytes().is_empty() {
-            if let Some(result) = self.try_one_sided_decryption_optimized(
-                output_index,
-                output,
-                view_key,
-                TransactionStatus::OneSidedConfirmed,
-                true,
-            ) {
-                return Some(result);
-            }
-        }
-
-        None
-    }
-
     /// Optimized coinbase output processing
-    fn try_coinbase_output_optimized(
-        &self,
-        output_index: usize,
-        output: &TransactionOutput,
-        view_key: &PrivateKey,
-        script_key: Option<CompressedPublicKey>,
-    ) -> Option<OutputProcessingResult> {
-        let coinbase_value = output.minimum_value_promise.as_u64();
-        if coinbase_value == 0 {
-            return None;
-        }
 
-        let is_mature = self.height >= output.features.maturity;
-        let transaction_status = if is_mature {
-            TransactionStatus::CoinbaseConfirmed
-        } else {
-            TransactionStatus::CoinbaseUnconfirmed
-        };
 
-        // Try regular decryption for ownership verification first (faster)
-        if let Some(sk) = script_key {
-            if let Some(result) =
-                self.try_regular_decryption_optimized(output_index, output, view_key, sk, transaction_status, is_mature)
-            {
-                return Some(result);
-            }
-        }
-
-        // Only try one-sided decryption if regular failed and sender offset key exists
-        if !output.sender_offset_public_key.as_bytes().is_empty() {
-            if let Some(result) =
-                self.try_one_sided_decryption_optimized(output_index, output, view_key, transaction_status, is_mature)
-            {
-                return Some(result);
-            }
-        }
-
-        None
-    }
-
-    /// Optimized regular encrypted data decryption
-    #[allow(clippy::too_many_arguments)]
-    fn try_regular_decryption_optimized(
-        &self,
-        output_index: usize,
-        output: &TransactionOutput,
-        view_key: &PrivateKey,
-        script_key: CompressedPublicKey,
-        transaction_status: TransactionStatus,
-        is_mature: bool,
-    ) -> Option<OutputProcessingResult> {
-        if let Ok((value, commitment_mask_private_key, payment_id)) =
-            EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data)
-        {
-            return Some(OutputProcessingResult {
-                output_index,
-                value: value.as_u64(),
-                payment_id,
-                transaction_status,
-                is_mature,
-                commitment_mask_private_key,
-                script_key: Some(script_key),
-            });
-        }
-        None
-    }
-
-    /// Optimized one-sided encrypted data decryption
-    fn try_one_sided_decryption_optimized(
-        &self,
-        output_index: usize,
-        output: &TransactionOutput,
-        view_key: &PrivateKey,
-        transaction_status: TransactionStatus,
-        is_mature: bool,
-    ) -> Option<OutputProcessingResult> {
-        if let Ok((value, commitment_mask_private_key, payment_id)) = EncryptedData::decrypt_one_sided_data(
-            view_key,
-            &output.commitment,
-            &output.sender_offset_public_key,
-            &output.encrypted_data,
-        ) {
-            return Some(OutputProcessingResult {
-                output_index,
-                value: value.as_u64(),
-                payment_id,
-                transaction_status,
-                is_mature,
-                commitment_mask_private_key,
-                script_key: None,
-            });
-        }
-        None
-    }
 
     /// Process all inputs in this block to detect spending of wallet outputs
     pub fn process_inputs(&self, wallet_state: &mut WalletState) -> WalletResult<usize> {

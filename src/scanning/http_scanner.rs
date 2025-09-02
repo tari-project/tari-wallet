@@ -48,7 +48,7 @@ use tari_transaction_components::{
         TransactionOutput,
     },
 };
-use tari_transaction_components::key_manager::{TariKeyAndId, TransactionKeyManagerInterface};
+use tari_transaction_components::key_manager::{TransactionKeyManagerInterface};
 use tari_transaction_components::rpc::models::{BlockUtxoInfo, SyncUtxosByBlockResponse};
 use tari_transaction_components::transaction_components::one_sided::shared_secret_to_output_encryption_key;
 use tari_transaction_components::transaction_components::TransactionError;
@@ -131,7 +131,6 @@ pub struct HttpBlockchainScanner<KM> {
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     timeout: Duration,
     key_manager: KM,
-    view_key: TariKeyAndId,
 }
 
 impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
@@ -156,13 +155,11 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
                     )),
                 ));
             }
-            let view_key = key_manager.get_view_key().await?;
             Ok(Self {
                 client,
                 base_url,
                 timeout,
                 key_manager,
-                view_key,
             })
         }
 
@@ -502,9 +499,11 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
 
+        let view_key = self.key_manager.get_view_key().await?;
+
         let shared_secret = self
             .key_manager
-            .get_diffie_hellman_shared_secret(&self.view_key.key_id, &output.sender_offset_public_key)
+            .get_diffie_hellman_shared_secret(&view_key.key_id, &output.sender_offset_public_key)
             .await?;
         let recovery_key = shared_secret_to_output_encryption_key(&shared_secret)
             .map_err(|e|WalletError::ConversionError(e.to_string()) )?;
@@ -566,8 +565,12 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
 
             // Check if we have a next header to continue with and haven't reached our limit
             if blocks_collected < max_blocks {
-                if let Some(next_header) = sync_response.next_header_to_scan {
-                    current_header_hash = Self::bytes_to_hex(&next_header);
+                if sync_response.next_header_to_scan.is_empty() {
+                    #[cfg(feature = "tracing")]
+                    debug!("No more headers to scan, reached end of available data");
+                    break;
+                } else {
+                    current_header_hash = Self::bytes_to_hex(&sync_response.next_header_to_scan);
                     #[cfg(feature = "tracing")]
                     debug!(
                         "Continuing with next header: {} (collected {}/{} blocks)",
@@ -575,10 +578,6 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
                         blocks_collected,
                         max_blocks
                     );
-                } else {
-                    #[cfg(feature = "tracing")]
-                    debug!("No more headers to scan, reached end of available data");
-                    break;
                 }
             }
         }
@@ -597,7 +596,7 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
 
 #[cfg(feature = "http")]
 #[async_trait(?Send)]
-impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> {
+impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface{
     async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
         #[cfg(feature = "tracing")]
         debug!(

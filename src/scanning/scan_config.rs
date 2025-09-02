@@ -7,10 +7,6 @@
 //! This module is part of the scanner.rs binary refactoring effort.
 
 
-use crate::{
-    errors::{ WalletResult},
-    wallet::Wallet,
-};
 
 /// Output format options for scanner results
 ///

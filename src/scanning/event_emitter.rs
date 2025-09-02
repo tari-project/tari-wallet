@@ -40,10 +40,9 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tari_utilities::ByteArray;
 #[cfg(target_arch = "wasm32")]
 use js_sys;
-use tari_transaction_components::transaction_components::{TransactionOutput, WalletOutput};
+use tari_transaction_components::transaction_components::{TransactionOutput};
 use tokio::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures;
@@ -60,13 +59,10 @@ use crate::{
             BlockInfo,
             EventMetadata,
             ScanConfig,
-            SpentOutputData,
-            TransactionData,
             WalletScanEvent,
         },
         EventDispatcher,
     },
-    hex_utils::HexEncodable,
     scanning::{BinaryScanConfig, ScanMetadata},
 };
 
@@ -198,56 +194,56 @@ impl ScanEventEmitter {
     /// This should be called when a wallet output is discovered during scanning.
     pub async fn emit_output_found(
         &mut self,
-        output: &TransactionOutput,
-        block_info: &BlockInfo,
-        address_info: &AddressInfo,
-        transaction: &WalletTransaction,
+        _output: &TransactionOutput,
+        _block_info: &BlockInfo,
+        _address_info: &AddressInfo,
+        _transaction: &WalletTransaction,
     ) -> Result<(), WalletError> {
-        let metadata = self.create_metadata();
-        let output_data = WalletOutput {
-            commitment: hex::encode(output.commitment.as_bytes()),
-            range_proof: hex::encode(output.proof.as_ref().map_or(vec![], |p| p.bytes.clone())),
-            encrypted_value: Some(output.encrypted_data.to_byte_vec()),
-            script: Some(hex::encode(output.script.bytes.clone())),
-            features: output.features.bytes().len() as u32, // Use bytes length as substitute
-            maturity_height: Some(output.features.maturity),
-            amount: Some(transaction.value),
-            is_mine: true,
-            key_index: None,
-            minimum_value_promise: output.minimum_value_promise.into(),
-            metadata_signature: output.metadata_signature.clone(),
-            covenant: output.covenant.clone(),
-            sender_offset_public_key: output.sender_offset_public_key.clone(),
-            commitment_mask_private_key: transaction.commitment_mask_private_key.clone(),
-            script_key: transaction.script_key.clone(),
-            output_features: output.output_features.clone(),
-        };
-
-        let block_info = BlockInfo::new(
-            block_info.height,
-            block_info.hash.clone(),
-            block_info.timestamp,
-            transaction.output_index.unwrap_or(0),
-        );
-
-        let transaction_data = TransactionData::new(
-            transaction.value,
-            format!("{:?}", transaction.transaction_status),
-            format!("{:?}", transaction.transaction_direction),
-            block_info.timestamp,
-        )
-        .with_output_index(transaction.output_index.unwrap_or(0))
-        .with_payment_id(transaction.payment_id.to_hex());
-
-        let event = WalletScanEvent::OutputFound {
-            metadata,
-            output_data,
-            block_info,
-            address_info: address_info.clone(),
-            transaction_data,
-        };
-
-        self.dispatch_event(event).await;
+        // let metadata = self.create_metadata();
+        // let output_data = WalletOutput {
+        //     commitment: hex::encode(output.commitment.as_bytes()),
+        //     range_proof: hex::encode(output.proof.as_ref().map_or(vec![], |p| p.bytes.clone())),
+        //     encrypted_value: Some(output.encrypted_data.to_byte_vec()),
+        //     script: Some(hex::encode(output.script.bytes.clone())),
+        //     features: output.features.bytes().len() as u32, // Use bytes length as substitute
+        //     maturity_height: Some(output.features.maturity),
+        //     amount: Some(transaction.value),
+        //     is_mine: true,
+        //     key_index: None,
+        //     minimum_value_promise: output.minimum_value_promise.into(),
+        //     metadata_signature: output.metadata_signature.clone(),
+        //     covenant: output.covenant.clone(),
+        //     sender_offset_public_key: output.sender_offset_public_key.clone(),
+        //     commitment_mask_private_key: transaction.commitment_mask_private_key.clone(),
+        //     script_key: transaction.script_key.clone(),
+        //     output_features: output.output_features.clone(),
+        // };
+        //
+        // let block_info = BlockInfo::new(
+        //     block_info.height,
+        //     block_info.hash.clone(),
+        //     block_info.timestamp,
+        //     transaction.output_index.unwrap_or(0),
+        // );
+        //
+        // let transaction_data = TransactionData::new(
+        //     transaction.value,
+        //     format!("{:?}", transaction.transaction_status),
+        //     format!("{:?}", transaction.transaction_direction),
+        //     block_info.timestamp,
+        // )
+        // .with_output_index(transaction.output_index.unwrap_or(0))
+        // .with_payment_id(transaction.payment_id.to_hex());
+        //
+        // let event = WalletScanEvent::OutputFound {
+        //     metadata,
+        //     output_data,
+        //     block_info,
+        //     address_info: address_info.clone(),
+        //     transaction_data,
+        // };
+        //
+        // self.dispatch_event(event).await;
         Ok(())
     }
 
@@ -256,62 +252,62 @@ impl ScanEventEmitter {
     /// This should be called when a previously found output is detected as spent (input found).
     pub async fn emit_spent_output_found(
         &mut self,
-        spent_output: &WalletTransaction,
-        spending_block: &Block,
-        input_index: usize,
-        match_method: &str,
-        original_block_info: &BlockInfo,
+        _spent_output: &WalletTransaction,
+        _spending_block: &Block,
+        _input_index: usize,
+        _match_method: &str,
+        _original_block_info: &BlockInfo,
     ) -> Result<(), WalletError> {
-        let metadata = self.create_metadata();
-
-        // Create spent output data
-        let spent_output_data = SpentOutputData::new(
-            hex::encode(spent_output.commitment.as_bytes()),
-            input_index,
-            original_block_info.height,
-            spending_block.height,
-            match_method.to_string(),
-        )
-        .with_spent_amount(spent_output.value)
-        .with_output_hash(spent_output.output_hash.as_ref().map(hex::encode).unwrap_or_default());
-
-        // Create spending block info
-        let spending_block_info = BlockInfo::new(
-            spending_block.height,
-            hex::encode(&spending_block.hash),
-            spending_block.timestamp,
-            input_index,
-        );
-
-        // Create original output info
-        let original_output_info = OutputData::new(
-            hex::encode(spent_output.commitment.as_bytes()),
-            String::new(), // range_proof not needed for spent events
-            0,             // features not needed for spent events
-            true,          // is_mine (we only track our own outputs)
-        )
-        .with_amount(spent_output.value)
-        .with_maturity_height(0); // maturity not relevant for spent outputs
-
-        // Create spending transaction data
-        let spending_transaction_data = TransactionData::new(
-            spent_output.value,
-            format!("{:?}", spent_output.transaction_status),
-            "Outbound".to_string(), // Spending is always outbound
-            spending_block.timestamp,
-        )
-        .with_output_index(input_index)
-        .with_payment_id(spent_output.payment_id.to_hex());
-
-        let event = WalletScanEvent::SpentOutputFound {
-            metadata,
-            spent_output_data,
-            spending_block_info,
-            original_output_info,
-            spending_transaction_data,
-        };
-
-        self.dispatch_event(event).await;
+        // let metadata = self.create_metadata();
+        //
+        // // Create spent output data
+        // let spent_output_data = SpentOutputData::new(
+        //     hex::encode(spent_output.commitment.as_bytes()),
+        //     input_index,
+        //     original_block_info.height,
+        //     spending_block.height,
+        //     match_method.to_string(),
+        // )
+        // .with_spent_amount(spent_output.value)
+        // .with_output_hash(spent_output.output_hash.as_ref().map(hex::encode).unwrap_or_default());
+        //
+        // // Create spending block info
+        // let spending_block_info = BlockInfo::new(
+        //     spending_block.height,
+        //     hex::encode(&spending_block.hash),
+        //     spending_block.timestamp,
+        //     input_index,
+        // );
+        //
+        // // Create original output info
+        // let original_output_info = OutputData::new(
+        //     hex::encode(spent_output.commitment.as_bytes()),
+        //     String::new(), // range_proof not needed for spent events
+        //     0,             // features not needed for spent events
+        //     true,          // is_mine (we only track our own outputs)
+        // )
+        // .with_amount(spent_output.value)
+        // .with_maturity_height(0); // maturity not relevant for spent outputs
+        //
+        // // Create spending transaction data
+        // let spending_transaction_data = TransactionData::new(
+        //     spent_output.value,
+        //     format!("{:?}", spent_output.transaction_status),
+        //     "Outbound".to_string(), // Spending is always outbound
+        //     spending_block.timestamp,
+        // )
+        // .with_output_index(input_index)
+        // .with_payment_id(spent_output.payment_id.to_hex());
+        //
+        // let event = WalletScanEvent::SpentOutputFound {
+        //     metadata,
+        //     spent_output_data,
+        //     spending_block_info,
+        //     original_output_info,
+        //     spending_transaction_data,
+        // };
+        //
+        // self.dispatch_event(event).await;
         Ok(())
     }
 
@@ -531,14 +527,14 @@ impl ScanEventEmitter {
 }
 
 /// Helper function to create AddressInfo from scan context and transaction
-pub fn create_address_info_from_transaction(context: &ScanContext, _transaction: &WalletTransaction) -> AddressInfo {
+pub fn create_address_info_from_transaction( _transaction: &WalletTransaction) -> AddressInfo {
     AddressInfo {
         address: "derived".to_string(), // Would be derived from context in real implementation
         address_type: "dual".to_string(),
         network: "localnet".to_string(), // Default for testing
         derivation_path: None,
-        public_spend_key: Some(hex::encode(context.view_key.as_bytes())),
-        view_key: Some(hex::encode(context.view_key.as_bytes())),
+        public_spend_key: None,
+        view_key: None,
     }
 }
 

@@ -4,7 +4,7 @@
 //! master keys, seed phrases, and wallet metadata.
 
 use std::{collections::HashMap, sync::Arc};
-
+use tari_common::configuration::Network;
 use tari_common_types::{
     seeds::{cipher_seed::CipherSeed, mnemonic::Mnemonic, seed_words::SeedWords},
     tari_address::{TariAddress, TariAddressFeatures},
@@ -14,9 +14,10 @@ use tari_transaction_components::{
     crypto_factories::CryptoFactories,
     key_manager::{TransactionKeyManagerBackend, TransactionKeyManagerWrapper},
 };
+use tari_transaction_components::key_manager::error::KeyManagerServiceError;
+use tari_transaction_components::key_manager::TransactionKeyManagerInterface;
 use tari_utilities::SafePassword;
 
-use crate::KeyManagementError;
 
 /// Core wallet struct containing master key, birthday, and metadata
 #[derive(Debug, Clone)]
@@ -27,6 +28,8 @@ pub struct Wallet<KMBackend> {
     original_seed_phrase: Option<String>,
     // Key manager used by the wallet
     key_manager: TransactionKeyManagerWrapper<KMBackend>,
+    // network
+    network: Network,
 }
 
 /// Wallet metadata containing additional configuration and state information
@@ -47,6 +50,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         crypto_factories: CryptoFactories,
         wallet_type: Arc<WalletType>,
         backend: KMBackend,
+        network: Network
     ) -> Self {
         let key_manager = TransactionKeyManagerWrapper::new(master_seed, backend, crypto_factories, wallet_type)
             .await
@@ -55,6 +59,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
             key_manager,
             metadata: WalletMetadata::default(),
             original_seed_phrase: None,
+            network
         }
     }
 
@@ -69,6 +74,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         crypto_factories: CryptoFactories,
         wallet_type: Arc<WalletType>,
         backend: KMBackend,
+        network: Network
     ) -> Result<Self, String> {
         // Convert seed phrase to master key
         let master_key = match CipherSeed::from_mnemonic(seed_words, passphrase) {
@@ -76,7 +82,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
             Err(e) => return Err(format!("Failed to create CipherSeed from mnemonic: {}", e)),
         };
 
-        Ok(Wallet::new(master_key, crypto_factories, wallet_type, backend).await)
+        Ok(Wallet::new(master_key, crypto_factories, wallet_type, backend,network).await)
     }
 
     /// Generate a new wallet with random entropy
@@ -89,15 +95,15 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         crypto_factories: CryptoFactories,
         wallet_type: Arc<WalletType>,
         backend: KMBackend,
+        network: Network
     ) -> Self {
         let master_key = CipherSeed::new();
-        Wallet::new(master_key, crypto_factories, wallet_type, backend).await
+        Wallet::new(master_key, crypto_factories, wallet_type, backend, network).await
     }
 
     /// Get the wallet birthday (creation timestamp)
-    pub fn birthday(&self) -> u64 {
-        5
-        // implement in keymanager with cipher seed, as it has the birthday encoded
+    pub fn birthday(&self) -> u16 {
+        self.key_manager.get_birthday()
     }
 
     /// Get a reference to the wallet metadata
@@ -158,7 +164,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         Ok(TariAddress::new_dual_address(
             view_key.pub_key,
             spend_key.pub_key,
-            self.network.as_network(),
+            self.network,
             features,
             payment_id,
         )?)

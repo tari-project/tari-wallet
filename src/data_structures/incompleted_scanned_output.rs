@@ -8,8 +8,6 @@ use tari_transaction_components::transaction_components::{EncryptedData, MemoFie
 use tari_utilities::ByteArray;
 use crate::{WalletError};
 
-use crate::WalletError;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncompleteScannedOutput {
     pub output_hash: Vec<u8>,
