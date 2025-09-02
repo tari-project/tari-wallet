@@ -1,7 +1,9 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
+use tari_common::configuration::Network;
 use tari_common_types::{
     key_branches::TransactionKeyManagerBranch,
+    seeds::seed_words::SeedWords,
     tari_address::{TariAddress, TariAddressFeatures},
     transaction::TxId,
     wallet_types::WalletType,
@@ -22,7 +24,7 @@ use tari_transaction_components::{
 };
 
 use crate::{
-    key_manager::TransactionKeyManager,
+    key_manager::{TransactionKeyManager, TransactionKeyManagerWalletStorage},
     models::{
         marshal_output_pair::{MarshalOutputPair, OutputPair},
         transaction_metadata::TransactionMetadata,
@@ -38,6 +40,7 @@ use crate::{
         output_converter::OutputConverter,
     },
     util::key_id::make_key_id_export_safe,
+    KeyManagementError,
     Wallet,
     WalletError,
     WalletResult,
@@ -47,7 +50,7 @@ use crate::{
 pub struct OneSidedTransaction {
     database: Arc<dyn WalletStorage>,
     wallet_id: u32,
-    wallet: Wallet,
+    wallet: Wallet<TransactionKeyManagerWalletStorage>,
     transaction_key_manager: TransactionKeyManager,
     output_converter: OutputConverter,
 }
@@ -56,7 +59,7 @@ impl OneSidedTransaction {
     fn new(
         database: Arc<dyn WalletStorage>,
         wallet_id: u32,
-        wallet: Wallet,
+        wallet: Wallet<TransactionKeyManagerWalletStorage>,
         transaction_key_manager: TransactionKeyManager,
         output_converter: OutputConverter,
     ) -> Self {
@@ -78,19 +81,27 @@ impl OneSidedTransaction {
         let seed_phrase = stored_wallet.seed_phrase.ok_or_else(|| {
             WalletError::InternalError(format!("Wallet with ID {} does not have a seed phrase", wallet_id,))
         })?;
-        let wallet = Wallet::new_from_seed_phrase(
-            &seed_phrase,
-            None,
-            CryptoFactories::default(),
-            WalletType::DerivedKeys,
-            stored_wallet,
-        )?;
+        let seed_words =
+            SeedWords::from_str(&seed_phrase).map_err(|e| KeyManagementError::SeedPhraseError(e.to_string()))?;
+        let network = Network::default(); // TODO: fetch network from somewhere
 
         let transaction_key_manager = TransactionKeyManager::build(
             database.clone(),
             stored_wallet.master_key,
             WalletType::default(),
             wallet_id,
+        )
+        .await?;
+
+        let storage = TransactionKeyManagerWalletStorage::build(database.clone(), wallet_id).await?;
+
+        let wallet = Wallet::new_from_seed_phrase(
+            &seed_words,
+            None,
+            CryptoFactories::default(),
+            Arc::new(WalletType::DerivedKeys),
+            storage,
+            network,
         )
         .await?;
 
@@ -276,8 +287,8 @@ impl OneSidedTransaction {
         };
         let sender_address = self
             .wallet
-            .get_dual_address(TariAddressFeatures::create_one_sided_only(), None)?
-            .into();
+            .get_dual_address(TariAddressFeatures::create_one_sided_only(), None)
+            .await?;
 
         let payment_id = self.get_payment_id(&sender_address, &dest_address, fee_per_gram, payment_id);
         let tx_id = TxId::new_random();
