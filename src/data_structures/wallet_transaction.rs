@@ -10,8 +10,7 @@ use tari_common_types::{
     transaction::{TransactionDirection, TransactionStatus},
     types::CompressedCommitment,
 };
-use tari_transaction_components::transaction_components::memo_field::MemoField;
-use tari_transaction_components::transaction_components::WalletOutput;
+use tari_transaction_components::transaction_components::{memo_field::MemoField, WalletOutput};
 use tari_utilities::ByteArray;
 // Simple number formatting (removed utils::number module)
 
@@ -178,6 +177,7 @@ impl WalletState {
         block_height: u64,
         output_index: usize,
         commitment: CompressedCommitment,
+        output: WalletOutput,
         output_hash: Option<Vec<u8>>,
         value: u64,
         payment_id: MemoField,
@@ -190,6 +190,7 @@ impl WalletState {
             Some(output_index),
             None,
             commitment.clone(),
+            output,
             output_hash.clone(),
             value,
             payment_id,
@@ -235,6 +236,7 @@ impl WalletState {
     pub fn mark_output_spent(
         &mut self,
         commitment: &CompressedCommitment,
+        output: WalletOutput,
         block_height: u64,
         input_index: usize,
     ) -> bool {
@@ -260,6 +262,7 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         commitment.clone(),
+                        output,
                         None, // No output_hash for spending
                         spent_value,
                         transaction.payment_id.clone(),
@@ -316,6 +319,7 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         transaction.commitment.clone(),
+                        transaction.output.clone(),
                         Some(output_hash.to_vec()), // Include the output hash that was spent
                         spent_value,
                         transaction.payment_id.clone(),

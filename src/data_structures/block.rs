@@ -11,14 +11,10 @@
 #[cfg(feature = "grpc")]
 use rayon::prelude::*;
 use tari_common_types::{
-    transaction::{TransactionStatus},
+    transaction::TransactionStatus,
     types::{CompressedPublicKey, PrivateKey},
 };
-use tari_transaction_components::transaction_components::{
-    MemoField,
-    TransactionInput,
-    TransactionOutput,
-};
+use tari_transaction_components::transaction_components::{MemoField, TransactionInput, TransactionOutput};
 
 #[cfg(feature = "grpc")]
 use crate::scanning::BlockInfo;
@@ -139,9 +135,6 @@ impl Block {
     //     Ok(found_count)
     // }
 
-
-
-
     // /// Process all inputs in this block to detect spending of wallet outputs
     // pub fn process_inputs(&self, wallet_state: &mut WalletState) -> WalletResult<usize> {
     //     let mut spent_outputs = 0;
@@ -212,8 +205,8 @@ impl Block {
     //                 if transaction.commitment.as_bytes() == commitment.as_bytes() && !transaction.is_spent {
     //                     // Additional verification: Only include transactions that were properly decrypted wallet
     //                     // outputs This filters out any incorrectly added transactions
-    //                     if transaction.value > 0 && transaction.transaction_direction == TransactionDirection::Inbound {
-    //                         spent_outputs.push(SpentOutputInfo {
+    //                     if transaction.value > 0 && transaction.transaction_direction ==
+    // TransactionDirection::Inbound {                         spent_outputs.push(SpentOutputInfo {
     //                             spent_transaction: transaction.clone(),
     //                             input_index,
     //                             match_method: "commitment".to_string(),

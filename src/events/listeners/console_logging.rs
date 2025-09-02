@@ -13,7 +13,15 @@ use std::{
 
 use async_trait::async_trait;
 use tari_transaction_components::transaction_components::WalletOutput;
-use crate::events::{types::{BlockInfo, EventType, SpentOutputData}, AddressInfo, EventListener, SerializableEvent, SharedEvent, WalletScanEvent};
+
+use crate::events::{
+    types::{BlockInfo, EventType, SpentOutputData},
+    AddressInfo,
+    EventListener,
+    SerializableEvent,
+    SharedEvent,
+    WalletScanEvent,
+};
 
 /// Verbosity levels for console logging
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -472,23 +480,20 @@ impl ConsoleLoggingListener {
     }
 
     /// Handle OutputFound events
-    fn handle_output_found(
-        &self,
-        output_data: &WalletOutput,
-        block_info: &BlockInfo,
-        address_info: &AddressInfo,
-    ) {
+    fn handle_output_found(&self, output_data: &WalletOutput, block_info: &BlockInfo, address_info: &AddressInfo) {
         if let Ok(mut stats) = self.stats.lock() {
             stats.outputs_found += 1;
         }
 
-        let amount_str = output_data.amount.map_or("unknown".to_string(), |a| format!("{a}"));
-        let mine_str = if output_data.is_mine { "MINE" } else { "OTHER" };
-        let color = if output_data.is_mine {
-            self.colors.success
-        } else {
-            self.colors.info
-        };
+        let amount_str = output_data.value.to_string();
+        // let mine_str = if output_data.is_mine { "MINE" } else { "OTHER" };
+        // let color = if output_data.is_mine {
+        //     self.colors.success
+        // } else {
+        //     self.colors.info
+        // };
+        let mine_str = "MINE";
+        let color = self.colors.success;
 
         let message = format!(
             "{}Found output{} at block {} - {} amount: {} ({}...)",
@@ -504,10 +509,10 @@ impl ConsoleLoggingListener {
             &WalletScanEvent::OutputFound {
                 metadata: crate::events::types::EventMetadata::new("console_logger", "unknown"),
                 output_data: output_data.clone(),
-                block_info: block_info.clone(),
+                block_info: Default::default(),
                 address_info: address_info.clone(),
                 transaction_data: crate::events::types::TransactionData::new(
-                    output_data.amount.unwrap_or(0),
+                    output_data.value.as_u64(),
                     "Found".to_string(),
                     "Inbound".to_string(),
                     block_info.timestamp,
@@ -541,12 +546,12 @@ impl ConsoleLoggingListener {
                 metadata: crate::events::types::EventMetadata::new("console_logger", "unknown"),
                 spent_output_data: spent_output_data.clone(),
                 spending_block_info: spending_block_info.clone(),
-                original_output_info: OutputData::new(
-                    spent_output_data.spent_commitment.clone(),
-                    String::new(),
-                    0,
-                    true,
-                ),
+                // original_output_info: OutputData::new(
+                //     spent_output_data.spent_commitment.clone(),
+                //     String::new(),
+                //     0,
+                //     true,
+                // ),
                 spending_transaction_data: crate::events::types::TransactionData::new(
                     spent_output_data.spent_amount.unwrap_or(0),
                     "Spent".to_string(),
@@ -1153,7 +1158,7 @@ impl EventListener for ConsoleLoggingListener {
                 address_info,
                 ..
             } => {
-                self.handle_output_found(output_data, block_info, address_info);
+                self.handle_output_found(output_data, &Default::default(), address_info);
             },
             WalletScanEvent::SpentOutputFound {
                 spent_output_data,

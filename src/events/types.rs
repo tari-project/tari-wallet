@@ -11,7 +11,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tari_transaction_components::transaction_components::{WalletOutput};
+use tari_transaction_components::transaction_components::WalletOutput;
 use thiserror::Error;
 use zeroize::Zeroize;
 
@@ -313,7 +313,7 @@ impl SpentOutputData {
 // }
 
 /// Block information associated with an output
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct BlockInfo {
     /// Block height where the output was found
     pub height: u64,
@@ -1203,7 +1203,7 @@ pub enum WalletScanEvent {
         metadata: EventMetadata,
         spent_output_data: SpentOutputData,
         spending_block_info: BlockInfo,
-        original_output_info: WalletOutput,
+        // original_output_info: WalletOutput,
         spending_transaction_data: TransactionData,
     },
     /// Emitted periodically to report scan progress
@@ -1287,10 +1287,11 @@ impl EventType for WalletScanEvent {
                 output_data,
                 ..
             } => {
-                let amount_str = output_data.amount.map_or("unknown".to_string(), |a| a.to_string());
+                let amount_str = output_data.value.to_string();
                 Some(format!(
                     "block: {}, amount: {amount_str}, mine: {}",
-                    block_info.height, output_data.is_mine
+                    block_info.height, // output_data.is_mine
+                    "MINE"
                 ))
             },
             WalletScanEvent::SpentOutputFound {
@@ -1344,28 +1345,6 @@ impl EventType for WalletScanEvent {
     }
 }
 
-impl Zeroize for WalletScanEvent {
-    fn zeroize(&mut self) {
-        match self {
-            WalletScanEvent::OutputFound {
-                output_data,
-                address_info,
-                ..
-            } => {
-                output_data.zeroize();
-                address_info.zeroize();
-            },
-            WalletScanEvent::SpentOutputFound {
-                original_output_info, ..
-            } => {
-                original_output_info.zeroize();
-            },
-            // For other variants, we only zeroize if they contain sensitive data
-            _ => {},
-        }
-    }
-}
-
 impl SerializableEvent for WalletScanEvent {
     fn to_debug_json(&self) -> Result<String, String> {
         // Use serde_json for proper JSON serialization (pretty-printed for debugging)
@@ -1400,10 +1379,9 @@ impl SerializableEvent for WalletScanEvent {
                 address_info,
                 ..
             } => {
-                let amount_str = output_data
-                    .amount
-                    .map_or("unknown amount".to_string(), |a| format!("{a} units"));
-                let mine_str = if output_data.is_mine { "mine" } else { "not mine" };
+                let amount_str = output_data.value.to_string();
+                // let mine_str = if output_data.is_mine { "mine" } else { "not mine" };
+                let mine_str = "MINE";
                 format!(
                     "Found output at block {} ({amount_str}, {mine_str}, addr: {})",
                     block_info.height, address_info.address
@@ -1412,12 +1390,12 @@ impl SerializableEvent for WalletScanEvent {
             WalletScanEvent::SpentOutputFound {
                 spending_block_info,
                 spent_output_data,
-                original_output_info,
+                // original_output_info,
                 ..
             } => {
                 let amount_str = spent_output_data
                     .spent_amount
-                    .or(original_output_info.amount)
+                    .or(Some(0))
                     .map_or("unknown amount".to_string(), |a| format!("{a} units"));
                 format!(
                     "Output spent at block {} ({amount_str}, method: {}, input index: {})",
@@ -1753,7 +1731,7 @@ impl WalletScanEvent {
             metadata: EventMetadata::new("wallet_scanner", wallet_id),
             spent_output_data,
             spending_block_info,
-            original_output_info,
+            // original_output_info,
             spending_transaction_data,
         }
     }

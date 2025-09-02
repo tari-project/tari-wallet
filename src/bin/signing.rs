@@ -8,7 +8,6 @@
 use std::fs;
 
 use clap::{Parser, Subcommand};
-use lightweight_wallet_libs::crypto::signing::{sign_message_with_hex_output, verify_message_from_hex};
 #[cfg(feature = "storage")]
 use lightweight_wallet_libs::{
     key_management::{derive_view_and_spend_keys_from_entropy, mnemonic_to_bytes, seed_phrase::CipherSeed},
@@ -175,43 +174,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             output_file,
             format,
         } => {
+            todo!("implement on key manager");
             // Get secret key from various sources
-            let secret_key = get_secret_key_for_signing(
-                secret_key,
-                secret_key_file,
-                #[cfg(feature = "storage")]
-                wallet_name,
-                #[cfg(feature = "storage")]
-                database_path,
-            )
-            .await?;
-
-            // Get message
-            let message_text = match (message, message_file) {
-                (Some(msg), None) => msg,
-                (None, Some(file)) => fs::read_to_string(&file)?,
-                _ => return Err("Must provide either --message or --message-file".into()),
-            };
-
-            // Sign the message
-            let (signature_hex, nonce_hex) = sign_message_with_hex_output(&secret_key, &message_text)?;
-
-            let output = match format.as_str() {
-                "compact" => format!("{signature_hex}:{nonce_hex}"),
-                "json" => serde_json::to_string_pretty(&serde_json::json!({
-                    "signature": signature_hex,
-                    "nonce": nonce_hex,
-                    "message": message_text
-                }))?,
-                _ => return Err("Invalid format. Use 'compact' or 'json'".into()),
-            };
-
-            if let Some(file) = output_file {
-                fs::write(&file, &output)?;
-                println!("Signature written to: {file}");
-            } else {
-                println!("{output}");
-            }
+           //  let secret_key = get_secret_key_for_signing(
+           //      secret_key,
+           //      secret_key_file,
+           //      #[cfg(feature = "storage")]
+           //      wallet_name,
+           //      #[cfg(feature = "storage")]
+           //      database_path,
+           //  )
+           //  .await?;
+           //
+           //  // Get message
+           //  let message_text = match (message, message_file) {
+           //      (Some(msg), None) => msg,
+           //      (None, Some(file)) => fs::read_to_string(&file)?,
+           //      _ => return Err("Must provide either --message or --message-file".into()),
+           //  };
+           //
+           //  // Sign the message
+           // // let (signature_hex, nonce_hex) = sign_message_with_hex_output(&secret_key, &message_text)?;
+           //
+           //  let output = match format.as_str() {
+           //      "compact" => format!("{signature_hex}:{nonce_hex}"),
+           //      "json" => serde_json::to_string_pretty(&serde_json::json!({
+           //          "signature": signature_hex,
+           //          "nonce": nonce_hex,
+           //          "message": message_text
+           //      }))?,
+           //      _ => return Err("Invalid format. Use 'compact' or 'json'".into()),
+           //  };
+           //
+           //  if let Some(file) = output_file {
+           //      fs::write(&file, &output)?;
+           //      println!("Signature written to: {file}");
+           //  } else {
+           //      println!("{output}");
+           //  }
         },
 
         Commands::Verify {
@@ -224,6 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             signature_file,
             verbose,
         } => {
+            todo!("implement on key manager");
             // Get public key
             let public_key_hex = match (public_key, public_key_file) {
                 (Some(key), None) => key,
@@ -265,8 +266,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // Verify the signature
-            let is_valid = verify_message_from_hex(&public_key, &message_text, &sig_hex, &nonce_hex)?;
-
+           // let is_valid = verify_message_from_hex(&public_key, &message_text, &sig_hex, &nonce_hex)?;
+let is_valid = true;
             if verbose {
                 println!("Message: \"{message_text}\"");
                 println!("Public Key: {public_key_hex}");

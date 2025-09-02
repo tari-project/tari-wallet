@@ -6,8 +6,6 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
-
-
 /// Output format options for scanner results
 ///
 /// Controls how scanning results are displayed to the user.
@@ -154,7 +152,6 @@ impl BinaryScanConfig {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -255,5 +252,4 @@ mod tests {
         assert!(config.quiet);
         assert_eq!(config.block_heights, Some(vec![150]));
     }
-
 }

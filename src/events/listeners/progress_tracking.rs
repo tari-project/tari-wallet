@@ -5,15 +5,19 @@
 //! It tracks scan statistics, calculates ETA, and reports progress at configurable intervals.
 
 use std::{
+    collections::HashMap,
     error::Error,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use std::collections::HashMap;
+
 use async_trait::async_trait;
 use tari_transaction_components::transaction_components::WalletOutput;
-use crate::BlockInfo;
-use crate::events::{AddressInfo, EventListener, SharedEvent, WalletScanEvent};
+
+use crate::{
+    events::{AddressInfo, EventListener, SharedEvent, WalletScanEvent},
+    BlockInfo,
+};
 
 /// Progress information for scanning operations
 ///
@@ -677,7 +681,10 @@ impl EventListener for ProgressTrackingListener {
                 block_info,
                 address_info,
                 ..
-            } => self.handle_output_found(output_data, block_info, address_info).await,
+            } => {
+                self.handle_output_found(output_data, &Default::default(), address_info)
+                    .await
+            },
             WalletScanEvent::SpentOutputFound { .. } => {
                 // Track spent outputs in inputs_found counter
                 if let Ok(mut state) = self.state.lock() {

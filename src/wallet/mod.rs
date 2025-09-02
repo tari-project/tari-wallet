@@ -59,7 +59,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         Self {
             key_manager,
             metadata: WalletMetadata::default(),
-            network
+            network,
         }
     }
 

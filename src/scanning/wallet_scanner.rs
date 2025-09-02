@@ -13,12 +13,12 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
-use tari_common_types::{transaction::TransactionDirection};
+use tari_common_types::transaction::TransactionDirection;
 use tokio::time::Instant;
 
+use super::BinaryScanConfig;
 #[cfg(all(feature = "grpc", feature = "storage"))]
 use super::ScannerStorage;
-use super::{BinaryScanConfig};
 #[cfg(feature = "grpc")]
 use crate::scanning::GrpcBlockchainScanner;
 #[allow(unused)]
@@ -26,11 +26,7 @@ use crate::scanning::{
     data_processor::{BlockData, CompletionData, DataProcessor, ProgressData},
     progress::ProgressTracker,
 };
-use crate::{
-    common::format_number,
-    data_structures::wallet_transaction::WalletState,
-    errors::{ WalletError},
-};
+use crate::{common::format_number, data_structures::wallet_transaction::WalletState, errors::WalletError};
 
 // =============================================================================
 // Transaction extraction helper functions
@@ -420,7 +416,6 @@ fn generate_transaction_id(block_height: u64, input_index: usize) -> u64 {
         tx_id
     }
 }
-//
 // /// Derive spending keys for a UTXO output using wallet entropy
 // /// For view-key mode (entropy all zeros), returns zero keys since spending is not possible
 // fn derive_utxo_spending_keys(entropy: &[u8; 16], output_index: u64) -> WalletResult<(PrivateKey, PrivateKey)> {

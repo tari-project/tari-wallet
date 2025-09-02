@@ -43,14 +43,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use serde_wasm_bindgen;
 use tari_transaction_components::{
-    transaction_components::{
-        TransactionOutput,
-    },
+    key_manager::TransactionKeyManagerInterface,
+    rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponse},
+    transaction_components::{one_sided::shared_secret_to_output_encryption_key, TransactionError, TransactionOutput},
 };
-use tari_transaction_components::key_manager::{TransactionKeyManagerInterface};
-use tari_transaction_components::rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponse};
-use tari_transaction_components::transaction_components::one_sided::shared_secret_to_output_encryption_key;
-use tari_transaction_components::transaction_components::TransactionError;
+use tari_utilities::hex::Hex;
 #[cfg(all(feature = "http", feature = "tracing"))]
 use tracing::debug;
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
@@ -60,8 +57,13 @@ use wasm_bindgen_futures::JsFuture;
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
-use crate::{errors::{WalletError, WalletResult}, extraction::{ExtractionConfig}, scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo}, UtxoScanResult};
-use crate::data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct};
+use crate::{
+    data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct},
+    errors::{WalletError, WalletResult},
+    extraction::ExtractionConfig,
+    scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
+    UtxoScanResult,
+};
 /// HTTP API tip info response - matches the actual API structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpTipInfoResponse {
@@ -127,8 +129,9 @@ pub struct HttpBlockchainScanner<KM> {
     key_manager: KM,
 }
 
-
-impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
+impl<KM> HttpBlockchainScanner<KM>
+where KM: TransactionKeyManagerInterface
+{
     /// Create a new HTTP scanner with the given base URL
     pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
@@ -436,7 +439,8 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
             Ok(sync_response)
         }
     }
-    async fn get_utxos_by_block(&self, current_header_hash: &str)-> WalletResult<GetUtxosByBlockResponse>{
+
+    async fn get_utxos_by_block(&self, current_header_hash: &str) -> WalletResult<GetUtxosByBlockResponse> {
         let url = format!("{}/get_utxos_by_block", self.base_url);
 
         // Native implementation using reqwest
@@ -445,9 +449,7 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
             let response = self
                 .client
                 .get(&url)
-                .query(&[
-                    ("header_hash", current_header_hash),
-                ])
+                .query(&[("header_hash", current_header_hash)])
                 .send()
                 .await
                 .map_err(|e| {
@@ -477,10 +479,7 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
         // WASM implementation using web-sys
         #[cfg(all(feature = "http", target_arch = "wasm32"))]
         {
-            let url_with_params = format!(
-                "{}?header_hash={}",
-                url, current_header_hash
-            );
+            let url_with_params = format!("{}?header_hash={}", url, current_header_hash);
 
             let opts = RequestInit::new();
             opts.set_method("GET");
@@ -545,15 +544,12 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-
     /// Create a scan config with wallet keys for block scanning
     pub fn create_scan_config_with_wallet_keys(
         &self,
         start_height: u64,
         end_height: Option<u64>,
     ) -> WalletResult<ScanConfig> {
-
-
         let extraction_config = ExtractionConfig::default();
 
         Ok(ScanConfig {
@@ -568,26 +564,23 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
         })
     }
 
-
     /// Scan for regular recoverable outputs using encrypted data decryption
     async fn scan_for_recoverable_output(
         &self,
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
-        let (commitment_mask, value, memo) = match self.key_manager.try_output_key_recovery(&output.commitment, &output.encrypted_data, None).await{
-
+        let (commitment_mask, value, memo) = match self
+            .key_manager
+            .try_output_key_recovery(&output.commitment, &output.encrypted_data, None)
+            .await
+        {
             Ok(value) => value,
             // Key manager errors here are actual errors and should not be suppressed.
             Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
             Err(_) => return Ok(None),
         };
 
-        let output = IncompleteScannedOutput::new(
-            output,
-            value,
-            commitment_mask,
-            memo,
-        )?;
+        let output = IncompleteScannedOutput::new(output, value, commitment_mask, memo)?;
         Ok(Some(output))
     }
 
@@ -596,7 +589,6 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
         &self,
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
-
         let view_key = self.key_manager.get_view_key().await?;
 
         let shared_secret = self
@@ -604,25 +596,22 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
             .get_diffie_hellman_shared_secret(&view_key.key_id, &output.sender_offset_public_key)
             .await?;
         let recovery_key = shared_secret_to_output_encryption_key(&shared_secret)
-            .map_err(|e|WalletError::ConversionError(e.to_string()) )?;
+            .map_err(|e| WalletError::ConversionError(e.to_string()))?;
 
-        let (commitment_mask, value, memo) = match self.key_manager.try_output_key_recovery(&output.commitment, &output.encrypted_data, Some(recovery_key)).await{
-
+        let (commitment_mask, value, memo) = match self
+            .key_manager
+            .try_output_key_recovery(&output.commitment, &output.encrypted_data, Some(recovery_key))
+            .await
+        {
             Ok(value) => value,
             // Key manager errors here are actual errors and should not be suppressed.
             Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
             Err(_) => return Ok(None),
         };
 
-        let output = IncompleteScannedOutput::new(
-            output,
-            value,
-            commitment_mask,
-            memo,
-        )?;
+        let output = IncompleteScannedOutput::new(output, value, commitment_mask, memo)?;
         Ok(Some(output))
     }
-
 
     /// Fetch block range using the sync_utxos_by_block endpoint
     async fn fetch_block_range(&self, start_height: u64, end_height: u64) -> WalletResult<Vec<BlockUtxoInfo>> {
@@ -694,7 +683,9 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
 
 #[cfg(feature = "http")]
 #[async_trait(?Send)]
-impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface{
+impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
+where KM: TransactionKeyManagerInterface
+{
     async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
         #[cfg(feature = "tracing")]
         debug!(
@@ -721,22 +712,16 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> where KM: TransactionKe
             for output in &http_block.outputs {
                 let scanned_output = output.clone().try_into()?;
 
-
                 // Strategy 1: Regular recoverable outputs
-                    if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
-                        wallet_outputs.push(wallet_output);
-                        continue;
-                    }
-
-
-                // Strategy 2: One-sided payments
-                    if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output).await? {
-                        wallet_outputs.push(wallet_output);
-
+                if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
+                    wallet_outputs.push(wallet_output);
+                    continue;
                 }
 
-
-
+                // Strategy 2: One-sided payments
+                if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output).await? {
+                    wallet_outputs.push(wallet_output);
+                }
             }
 
             utxos.push(UtxoScanResult {
@@ -750,9 +735,16 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> where KM: TransactionKe
         for block in utxos {
             let mut wallet_outputs = Vec::new();
             for output in block.wallet_outputs {
-                let block_response = self.get_utxos_by_block(&block.block_hash).await?;
-                if let Some(index) =  block_response.outputs.iter().position(|&o| *o.encrypted_data() == output.encrypted_data) {
-                    if let Some(wallet_output) = output.to_wallet_output(block_response.outputs[index].clone(), &self.key_manager).await?{
+                let block_response = self.get_utxos_by_block(&block.block_hash.to_hex()).await?;
+                if let Some(index) = block_response
+                    .outputs
+                    .iter()
+                    .position(|o| *o.encrypted_data() == output.encrypted_data)
+                {
+                    if let Some(wallet_output) = output
+                        .to_wallet_output(block_response.outputs[index].clone(), &self.key_manager)
+                        .await?
+                    {
                         wallet_outputs.push(wallet_output);
                     }
                 }

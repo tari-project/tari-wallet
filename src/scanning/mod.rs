@@ -13,23 +13,18 @@
 //! - `wallet_scanner`: Main scanning implementation for scanner binary
 //! - `progress`: Progress tracking utilities for scanner binary
 
-use std::time::{Duration};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tari_transaction_components::{
-    transaction_components::{
-        Transaction,
-        TransactionInput,
-        TransactionKernel,
-        TransactionOutput,
-    },
+    key_manager::TransactionKeyManagerInterface,
+    transaction_components::{Transaction, TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
 };
-use tari_transaction_components::key_manager::TransactionKeyManagerInterface;
-use tari_transaction_components::transaction_components::WalletOutput;
+
 use crate::{
     errors::{WalletError, WalletResult},
-    extraction::{ ExtractionConfig},
+    extraction::ExtractionConfig,
 };
 
 #[cfg(feature = "grpc")]
@@ -118,6 +113,7 @@ pub use event_emitter::{
     create_default_event_emitter,
     ScanEventEmitter,
 };
+
 use crate::data_structures::incompleted_scanned_output::IncompleteScannedOutput;
 
 /// Legacy progress callback for scanning operations (for compatibility)
@@ -211,7 +207,9 @@ pub struct WalletScanConfig<KM> {
     pub max_addresses_per_account: u32,
 }
 
-impl<KM> WalletScanConfig<KM> where KM: TransactionKeyManagerInterface{
+impl<KM> WalletScanConfig<KM>
+where KM: TransactionKeyManagerInterface
+{
     /// Create a new wallet scan config
     pub fn new(start_height: u64, key_manager: KM) -> Self {
         Self {
@@ -227,14 +225,11 @@ impl<KM> WalletScanConfig<KM> where KM: TransactionKeyManagerInterface{
         }
     }
 
-
-
     /// Set maximum addresses per account
     pub fn with_max_addresses_per_account(mut self, max: u32) -> Self {
         self.max_addresses_per_account = max;
         self
     }
-
 
     /// Set the end height
     pub fn with_end_height(mut self, end_height: u64) -> Self {
@@ -314,7 +309,7 @@ pub struct BlockScanResult {
 }
 
 /// Block information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BlockInfo {
     /// Block height
     pub height: u64,
@@ -361,7 +356,9 @@ pub trait BlockchainScanner: Send + Sync {
 /// This trait extends the basic blockchain scanner with wallet-specific
 /// functionality for scanning with key management.
 #[async_trait(?Send)]
-pub trait WalletScanner<KM>: Send + Sync  where KM: TransactionKeyManagerInterface{
+pub trait WalletScanner<KM>: Send + Sync
+where KM: TransactionKeyManagerInterface
+{
     /// Scan for wallet outputs using wallet keys
     async fn scan_wallet(&mut self, config: WalletScanConfig<KM>) -> WalletResult<WalletScanResult>;
 
@@ -386,7 +383,6 @@ pub trait TransactionBroadcaster: Send + Sync {
     /// Submit a transaction to base node
     async fn submit_transaction(&mut self, transaction: Transaction) -> WalletResult<i32>;
 }
-//
 // /// Default scanning logic implementation
 // #[derive(Debug, Clone)]
 // pub struct DefaultScanningLogic {
@@ -494,8 +490,8 @@ pub trait TransactionBroadcaster: Send + Sync {
 //                 if !found_output {
 //                     if let Some(wallet_output) = Self::scan_for_coinbase_output(output)? {
 //                         wallet_outputs.push(wallet_output);
-//                         // found_output = true; // Leaving this here in case we add additional strategies in the future
-//                     }
+//                         // found_output = true; // Leaving this here in case we add additional strategies in the
+// future                     }
 //                 }
 //             }
 //
@@ -741,7 +737,8 @@ impl MockBlockchainScanner {
 #[async_trait(?Send)]
 impl BlockchainScanner for MockBlockchainScanner {
     async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
-        DefaultScanningLogic::scan_blocks_with_progress(self, config, None).await
+        todo!("Implement scan_blocks for MockBlockchainScanner");
+        // DefaultScanningLogic::scan_blocks_with_progress(self, config, None).await
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {

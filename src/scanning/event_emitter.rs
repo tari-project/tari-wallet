@@ -40,9 +40,10 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+
 #[cfg(target_arch = "wasm32")]
 use js_sys;
-use tari_transaction_components::transaction_components::{TransactionOutput};
+use tari_transaction_components::transaction_components::TransactionOutput;
 use tokio::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures;
@@ -54,13 +55,7 @@ use crate::{
     },
     errors::WalletError,
     events::{
-        types::{
-            AddressInfo,
-            BlockInfo,
-            EventMetadata,
-            ScanConfig,
-            WalletScanEvent,
-        },
+        types::{AddressInfo, BlockInfo, EventMetadata, ScanConfig, WalletScanEvent},
         EventDispatcher,
     },
     scanning::{BinaryScanConfig, ScanMetadata},
@@ -124,7 +119,6 @@ impl ScanEventEmitter {
     pub fn set_scan_config(&mut self, config: BinaryScanConfig) {
         self.current_config = Some(config);
     }
-
 
     /// Get a reference to the event dispatcher (requires locking)
     pub fn dispatcher(&self) -> Arc<Mutex<EventDispatcher>> {
@@ -527,7 +521,7 @@ impl ScanEventEmitter {
 }
 
 /// Helper function to create AddressInfo from scan context and transaction
-pub fn create_address_info_from_transaction( _transaction: &WalletTransaction) -> AddressInfo {
+pub fn create_address_info_from_transaction(_transaction: &WalletTransaction) -> AddressInfo {
     AddressInfo {
         address: "derived".to_string(), // Would be derived from context in real implementation
         address_type: "dual".to_string(),
