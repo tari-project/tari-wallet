@@ -9,6 +9,7 @@ use tari_common_types::{
     transaction::{TransactionDirection, TransactionStatus},
     types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
 };
+use tari_utilities::ByteArray;
 
 use super::{output_status::OutputStatus, stored_output::StoredOutput};
 use crate::{
