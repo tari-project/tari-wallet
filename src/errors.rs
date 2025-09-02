@@ -1,3 +1,4 @@
+use tari_common_types::seeds::error::CipherError;
 use tari_script::ScriptError;
 use tari_transaction_components::{
     key_manager::error::{KeyManagerServiceError, KeyManagerStorageError},
@@ -60,6 +61,8 @@ pub enum WalletError {
     TransactionError(#[from] TransactionError),
     #[error("Script error: {0}")]
     ScriptError(#[from] ScriptError),
+    #[error("Cipher error: {0}")]
+    CipherError(#[from] CipherError),
 }
 
 /// Errors related to data structure operations
