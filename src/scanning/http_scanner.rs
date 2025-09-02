@@ -28,7 +28,6 @@
 //!     Ok(())
 //! }
 //! ```
-
 // Native targets use reqwest
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use std::time::Duration;
@@ -49,7 +48,7 @@ use tari_transaction_components::{
     },
 };
 use tari_transaction_components::key_manager::{TransactionKeyManagerInterface};
-use tari_transaction_components::rpc::models::{BlockUtxoInfo, SyncUtxosByBlockResponse};
+use tari_transaction_components::rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponse};
 use tari_transaction_components::transaction_components::one_sided::shared_secret_to_output_encryption_key;
 use tari_transaction_components::transaction_components::TransactionError;
 #[cfg(all(feature = "http", feature = "tracing"))]
@@ -61,13 +60,8 @@ use wasm_bindgen_futures::JsFuture;
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
-use crate::{
-    errors::{WalletError, WalletResult},
-    extraction::{ ExtractionConfig},
-    scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
-};
+use crate::{errors::{WalletError, WalletResult}, extraction::{ExtractionConfig}, scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo}, UtxoScanResult};
 use crate::data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct};
-
 /// HTTP API tip info response - matches the actual API structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpTipInfoResponse {
@@ -132,6 +126,7 @@ pub struct HttpBlockchainScanner<KM> {
     timeout: Duration,
     key_manager: KM,
 }
+
 
 impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
     /// Create a new HTTP scanner with the given base URL
@@ -441,6 +436,109 @@ impl<KM> HttpBlockchainScanner<KM> where KM: TransactionKeyManagerInterface {
             Ok(sync_response)
         }
     }
+    async fn get_utxos_by_block(&self, current_header_hash: &str)-> WalletResult<GetUtxosByBlockResponse>{
+        let url = format!("{}/get_utxos_by_block", self.base_url);
+
+        // Native implementation using reqwest
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        {
+            let response = self
+                .client
+                .get(&url)
+                .query(&[
+                    ("header_hash", current_header_hash),
+                ])
+                .send()
+                .await
+                .map_err(|e| {
+                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP request failed: {e}"
+                    )))
+                })?;
+
+            if !response.status().is_success() {
+                return Err(WalletError::ScanningError(
+                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP error: {}",
+                        response.status()
+                    )),
+                ));
+            }
+
+            let sync_response: GetUtxosByBlockResponse = response.json().await.map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to parse response: {e}"
+                )))
+            })?;
+
+            Ok(sync_response)
+        }
+
+        // WASM implementation using web-sys
+        #[cfg(all(feature = "http", target_arch = "wasm32"))]
+        {
+            let url_with_params = format!(
+                "{}?header_hash={}",
+                url, current_header_hash
+            );
+
+            let opts = RequestInit::new();
+            opts.set_method("GET");
+            opts.set_mode(RequestMode::Cors);
+
+            let request = Request::new_with_str_and_init(&url_with_params, &opts)?;
+            request.headers().set("Accept", "application/json")?;
+
+            let window = window().ok_or_else(|| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
+            })?;
+
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "HTTP request failed",
+                ))
+            })?;
+
+            let response: Response = resp_value.dyn_into().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
+            })?;
+
+            if !response.ok() {
+                return Err(WalletError::ScanningError(
+                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP error: {}",
+                        response.status()
+                    )),
+                ));
+            }
+
+            // Get JSON response
+            let json_promise = response.json().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to get JSON response",
+                ))
+            })?;
+
+            let json_value = JsFuture::from(json_promise).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to parse JSON response",
+                ))
+            })?;
+
+            let sync_response: GetUtxosByBlockResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to deserialize response: {}",
+                    e
+                )))
+            })?;
+
+            Ok(sync_response)
+        }
+    }
 
     /// Convert bytes to hex string
     fn bytes_to_hex(bytes: &[u8]) -> String {
@@ -615,7 +713,7 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> where KM: TransactionKe
         // Fetch blocks using the new API
         let http_blocks = self.fetch_block_range(config.start_height, end_height).await?;
 
-        let mut results = Vec::new();
+        let mut utxos = Vec::new();
 
         for http_block in http_blocks {
             let mut wallet_outputs = Vec::new();
@@ -625,14 +723,14 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> where KM: TransactionKe
 
 
                 // Strategy 1: Regular recoverable outputs
-                    if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output)? {
+                    if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
                         wallet_outputs.push(wallet_output);
                         continue;
                     }
 
 
                 // Strategy 2: One-sided payments
-                    if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output)? {
+                    if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output).await? {
                         wallet_outputs.push(wallet_output);
 
                 }
@@ -641,11 +739,29 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM> where KM: TransactionKe
 
             }
 
-            results.push(BlockScanResult {
+            utxos.push(UtxoScanResult {
                 height: http_block.height,
                 block_hash: http_block.header_hash,
                 wallet_outputs,
                 mined_timestamp: http_block.mined_timestamp,
+            });
+        }
+        let mut results = Vec::new();
+        for block in utxos {
+            let mut wallet_outputs = Vec::new();
+            for output in block.wallet_outputs {
+                let block_response = self.get_utxos_by_block(&block.block_hash).await?;
+                if let Some(index) =  block_response.outputs.iter().position(|&o| *o.encrypted_data() == output.encrypted_data) {
+                    if let Some(wallet_output) = output.to_wallet_output(block_response.outputs[index].clone(), &self.key_manager).await?{
+                        wallet_outputs.push(wallet_output);
+                    }
+                }
+            }
+            results.push(BlockScanResult {
+                height: block.height,
+                block_hash: block.block_hash,
+                wallet_outputs,
+                mined_timestamp: block.mined_timestamp,
             });
         }
 

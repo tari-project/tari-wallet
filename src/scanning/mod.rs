@@ -26,7 +26,7 @@ use tari_transaction_components::{
     },
 };
 use tari_transaction_components::key_manager::TransactionKeyManagerInterface;
-
+use tari_transaction_components::transaction_components::WalletOutput;
 use crate::{
     errors::{WalletError, WalletResult},
     extraction::{ ExtractionConfig},
@@ -289,13 +289,26 @@ pub struct TipInfo {
 
 /// Result of a block scan operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockScanResult {
+pub struct UtxoScanResult {
     /// Block height
     pub height: u64,
     /// Block hash
     pub block_hash: Vec<u8>,
     /// Wallet outputs extracted from transaction outputs
     pub wallet_outputs: Vec<IncompleteScannedOutput>,
+    /// Timestamp when block was mined
+    pub mined_timestamp: u64,
+}
+
+/// Result of a block scan operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockScanResult {
+    /// Block height
+    pub height: u64,
+    /// Block hash
+    pub block_hash: Vec<u8>,
+    /// Wallet outputs extracted from transaction outputs
+    pub wallet_outputs: Vec<WalletOutput>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
 }

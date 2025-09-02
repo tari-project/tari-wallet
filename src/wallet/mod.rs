@@ -27,8 +27,6 @@ use tari_utilities::SafePassword;
 pub struct Wallet<KMBackend> {
     /// Wallet metadata for additional configuration and state
     metadata: WalletMetadata,
-    /// Original seed phrase (stored only if wallet was created from a seed phrase)
-    original_seed_phrase: Option<String>,
     // Key manager used by the wallet
     key_manager: TransactionKeyManagerWrapper<KMBackend>,
     // network
@@ -61,8 +59,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
         Self {
             key_manager,
             metadata: WalletMetadata::default(),
-            original_seed_phrase: None,
-            network,
+            network
         }
     }
 

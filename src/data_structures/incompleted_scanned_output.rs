@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
-use tari_common_types::types::{CompressedCommitment, CompressedPublicKey};
+use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, PrivateKey};
 use tari_crypto::compressed_key::CompressedKey;
-use tari_transaction_components::key_manager::TariKeyId;
+use tari_crypto::keys::SecretKey;
+use tari_script::{inputs, script, ExecutionStack, Opcode, TariScript};
+use tari_transaction_components::key_manager::{SerializedKeyString, TariKeyId, TransactionKeyManagerInterface};
 use tari_transaction_components::MicroMinotari;
 use tari_transaction_components::rpc::models::MinimalUtxoSyncInfo;
-use tari_transaction_components::transaction_components::{EncryptedData, MemoField};
+use tari_transaction_components::transaction_components::{EncryptedData, MemoField, TransactionOutput, WalletOutput};
 use tari_utilities::ByteArray;
 use crate::{WalletError};
 
@@ -29,6 +31,75 @@ impl IncompleteScannedOutput{
             encrypted_data: scanning_info.encrypted_data.clone(),
             memo,
         })
+    }
+
+    async fn get_script_private_key_id<KM: TransactionKeyManagerInterface>(&self, script: &TariScript, key_manager: &KM) -> Result<Option<(ExecutionStack, TariKeyId)>, WalletError> {
+        if script == &script!(Nop)? {
+            // This is a nop, so we can just create a new key for the input stack.
+                let private_key = PrivateKey::random(&mut rand::thread_rng());
+                let  key_id = key_manager.import_key(private_key).await?;
+            let public_key = key_manager.get_public_key_at_key_id(&key_id).await?;
+            return Ok(Some((inputs!(public_key), key_id)))
+        }
+                // this is push public key script, so lets see if we know the public key
+                if let [Opcode::PushPubKey(public_key)] = script.as_slice() {
+                    //first lets check the commitment mask derived keys
+                    let result = key_manager
+                        .find_script_key_id_from_commitment_mask_key_id(&self.commitment_mask_key_id, Some(&public_key))
+                        .await?;
+                    if let Some(script_key_id) = result {
+                        return Ok(Some((ExecutionStack::default(), script_key_id)))
+                    }
+                    // now lets try stealth
+                    let spend_key = key_manager.get_spend_key().await?;
+                    let script_spending_key = key_manager
+                        .stealth_address_script_spending_key(
+                            &self.commitment_mask_key_id,
+                            &spend_key.pub_key,
+                        )
+                        .await?;
+
+                    if script_spending_key == **public_key {
+                        let script_key = TariKeyId::Derived {
+                            key: SerializedKeyString::from(self.commitment_mask_key_id.to_string()),
+                        };
+                        return Ok(Some((ExecutionStack::default(), script_key)))
+                    }
+
+
+                }
+
+        //no match
+
+        Ok(None)
+    }
+
+    pub async fn to_wallet_output<KM: TransactionKeyManagerInterface>(&self, output: TransactionOutput, key_manager: &KM) -> Result<Option<WalletOutput>, WalletError> {
+            let (input_data, script_key) = match self
+                .get_script_private_key_id(&output.script, key_manager)
+                .await?
+            {
+                Some((input_data, script_key)) => (input_data, script_key),
+                None => return Ok(None),
+            };
+            let wallet = Some(WalletOutput::new_with_rangeproof(
+                output.version,
+                self.value,
+                self.commitment_mask_key_id.clone(),
+                output.features,
+                output.script,
+                input_data,
+                script_key,
+                output.sender_offset_public_key,
+                output.metadata_signature,
+                0,
+                output.covenant,
+                output.encrypted_data,
+                output.minimum_value_promise,
+                output.proof,
+                self.memo.clone(),
+            ));
+        Ok(wallet)
     }
 }
 
