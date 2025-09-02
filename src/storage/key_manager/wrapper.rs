@@ -28,7 +28,8 @@ impl TransactionKeyManager {
         )
         .map_err(|err| EncryptionError::DecryptionFailed(err.to_string()))?;
         let wrapper =
-            TransactionKeyManagerWrapper::new(seed, storage.clone(), CryptoFactories::default(), wallet_type.into())?;
+            TransactionKeyManagerWrapper::new(seed, storage.clone(), CryptoFactories::default(), wallet_type.into())
+                .await?;
         Ok(Self(wrapper))
     }
 
