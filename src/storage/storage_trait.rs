@@ -234,9 +234,7 @@ impl StoredWallet {
         if bytes.len() != 32 {
             return Err(format!("View key must be 32 bytes, got {}", bytes.len()));
         }
-        let mut key_bytes = [0u8; 32];
-        key_bytes.copy_from_slice(&bytes);
-        Ok(PrivateKey::new(key_bytes))
+        Ok(PrivateKey::from_canonical_bytes(&bytes).map_err(|e| e.to_string())?)
     }
 
     /// Get the spend key as PrivateKey (decode from hex)
@@ -246,9 +244,7 @@ impl StoredWallet {
             if bytes.len() != 32 {
                 return Err(format!("Spend key must be 32 bytes, got {}", bytes.len()));
             }
-            let mut key_bytes = [0u8; 32];
-            key_bytes.copy_from_slice(&bytes);
-            Ok(PrivateKey::new(key_bytes))
+            Ok(PrivateKey::from_canonical_bytes(&bytes).map_err(|e| e.to_string())?)
         } else {
             Err("No spend key available".to_string())
         }
