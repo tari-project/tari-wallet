@@ -3,7 +3,7 @@
 //! This module provides comprehensive validation for minimum value promises
 //! in transaction outputs, ensuring they are consistent with range proofs
 //! and meet all cryptographic requirements.
-
+use tari_utilities::ByteArray;
 use tari_common_types::types::{CompressedCommitment, PrivateKey, RangeProof};
 use tari_transaction_components::{transaction_components::RangeProofType, MicroMinotari};
 

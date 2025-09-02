@@ -16,7 +16,6 @@
 use std::time::{Duration};
 
 use async_trait::async_trait;
-use blake2::{ Digest};
 use serde::{Deserialize, Serialize};
 use tari_transaction_components::{
     transaction_components::{

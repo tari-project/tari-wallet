@@ -18,7 +18,7 @@ pub mod scanning;
 pub mod signing;
 pub mod storage;
 pub mod utils;
-pub mod validation;
+// pub mod validation;
 pub mod wallet;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
@@ -37,5 +37,5 @@ pub use scanning::*;
 #[cfg(feature = "storage")]
 pub use signing::*;
 pub use storage::*;
-pub use validation::*;
+// pub use validation::*;
 pub use wallet::*;

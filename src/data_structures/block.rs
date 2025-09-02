@@ -152,9 +152,6 @@ impl Block {
         None
     }
 
-    /// Optimized coinbase output processing
-
-
 
     /// Process all inputs in this block to detect spending of wallet outputs
     pub fn process_inputs(&self, wallet_state: &mut WalletState) -> WalletResult<usize> {

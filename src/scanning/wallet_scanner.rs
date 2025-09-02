@@ -13,7 +13,6 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
-use blake2::{ Digest};
 use tari_common_types::{transaction::TransactionDirection};
 use tokio::time::Instant;
 
