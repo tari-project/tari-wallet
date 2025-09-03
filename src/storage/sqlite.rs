@@ -198,6 +198,7 @@ impl SqliteStorage {
                 mined_height BIGINT,
                 block_hash TEXT,
                 spent_in_tx_id BIGINT,
+                received_in_tx_id BIGINT,
 
                 -- Timestamps
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -249,6 +250,7 @@ impl SqliteStorage {
             CREATE INDEX IF NOT EXISTS idx_outputs_maturity ON outputs(maturity);
             CREATE INDEX IF NOT EXISTS idx_outputs_mined_height ON outputs(mined_height);
             CREATE INDEX IF NOT EXISTS idx_outputs_spent_tx ON outputs(spent_in_tx_id);
+            CREATE INDEX IF NOT EXISTS idx_outputs_received_tx ON outputs(received_in_tx_id);
             CREATE INDEX IF NOT EXISTS idx_outputs_wallet_status ON outputs(wallet_id, status);
             CREATE INDEX IF NOT EXISTS idx_outputs_spendable ON outputs(wallet_id, status, maturity, script_lock_height);
 
@@ -409,6 +411,7 @@ impl SqliteStorage {
             mined_height: row.get::<_, Option<i64>>("mined_height")?.map(|h| h as u64),
             block_hash: row.get("block_hash")?,
             spent_in_tx_id: row.get::<_, Option<i64>>("spent_in_tx_id")?.map(|id| id as u64),
+            received_in_tx_id: row.get::<_, Option<i64>>("received_in_tx_id")?.map(|id| id as u64),
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,
         })
@@ -1275,7 +1278,7 @@ impl WalletStorage for SqliteStorage {
                     metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                     metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
                     minimum_value_promise = ?, payment_id = ?, rangeproof = ?, status = ?, mined_height = ?,
-                    block_hash = ?, spent_in_tx_id = ?
+                    block_hash = ?, spent_in_tx_id = ?, received_in_tx_id = ?
                     WHERE id = ?
                     "#,
                         params![
@@ -1305,6 +1308,7 @@ impl WalletStorage for SqliteStorage {
                             output_clone.mined_height.map(|h| h as i64),
                             output_clone.block_hash,
                             output_clone.spent_in_tx_id.map(|id| id as i64),
+                            output_clone.received_in_tx_id.map(|id| id as i64),
                             output_id as i64,
                         ],
                     )?;
@@ -1323,8 +1327,8 @@ impl WalletStorage for SqliteStorage {
                     script_lock_height, sender_offset_public_key, metadata_signature_ephemeral_commitment,
                     metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                     metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
-                    status, mined_height, block_hash, spent_in_tx_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, mined_height, block_hash, spent_in_tx_id, received_in_tx_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                         params![
                             output_clone.wallet_id as i64,
@@ -1353,6 +1357,7 @@ impl WalletStorage for SqliteStorage {
                             output_clone.mined_height.map(|h| h as i64),
                             output_clone.block_hash,
                             output_clone.spent_in_tx_id.map(|id| id as i64),
+                            output_clone.received_in_tx_id.map(|id| id as i64),
                         ],
                     )?;
 
@@ -1383,7 +1388,7 @@ impl WalletStorage for SqliteStorage {
                             metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                             metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
                             minimum_value_promise = ?, payment_id = ?, rangeproof = ?, status = ?, mined_height = ?,
-                            spent_in_tx_id = ?
+                            spent_in_tx_id = ?, received_in_tx_id = ?
                         WHERE id = ?
                         "#,
                             params![
@@ -1412,6 +1417,7 @@ impl WalletStorage for SqliteStorage {
                                 output.status as i64,
                                 output.mined_height.map(|h| h as i64),
                                 output.spent_in_tx_id.map(|id| id as i64),
+                                output.received_in_tx_id.map(|id| id as i64),
                                 output_id as i64,
                             ],
                         )?;
@@ -1429,12 +1435,13 @@ impl WalletStorage for SqliteStorage {
                          script_lock_height, sender_offset_public_key, metadata_signature_ephemeral_commitment,
                          metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                          metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
-                         status, mined_height, block_hash, spent_in_tx_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         status, mined_height, block_hash, spent_in_tx_id, received_in_tx_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(wallet_id, commitment) DO UPDATE SET
                             status = EXCLUDED.status,
                             mined_height = COALESCE(EXCLUDED.mined_height, mined_height),
                             spent_in_tx_id = COALESCE(EXCLUDED.spent_in_tx_id, spent_in_tx_id),
+                            received_in_tx_id = COALESCE(EXCLUDED.received_in_tx_id, received_in_tx_id),
                             updated_at = CURRENT_TIMESTAMP
                         "#,
                             params![
@@ -1464,6 +1471,7 @@ impl WalletStorage for SqliteStorage {
                                 output.mined_height.map(|h| h as i64),
                                 output.block_hash,
                                 output.spent_in_tx_id.map(|id| id as i64),
+                                output.received_in_tx_id.map(|id| id as i64),
                             ],
                         )?;
 
@@ -1508,7 +1516,7 @@ impl WalletStorage for SqliteStorage {
                     metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                     metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
                     minimum_value_promise = ?, payment_id = ?, rangeproof = ?, status = ?, mined_height = ?,
-                    spent_in_tx_id = ?
+                    spent_in_tx_id = ?, received_in_tx_id = ?
                 WHERE id = ?
                 "#,
                     params![
@@ -1537,6 +1545,7 @@ impl WalletStorage for SqliteStorage {
                         output_clone.status as i64,
                         output_clone.mined_height.map(|h| h as i64),
                         output_clone.spent_in_tx_id.map(|id| id as i64),
+                        output_clone.received_in_tx_id.map(|id| id as i64),
                         output_id as i64,
                     ],
                 )?;

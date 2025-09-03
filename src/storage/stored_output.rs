@@ -59,10 +59,11 @@ pub struct StoredOutput {
     pub rangeproof: Option<Vec<u8>>, // Range proof bytes (nullable)
 
     // Status and spending tracking
-    pub status: u32,                 // 0=Unspent, 1=Spent, 2=Locked, etc.
-    pub mined_height: Option<u64>,   // Block height when mined
-    pub block_hash: Option<String>,  // Block hash when mined (hex string)
-    pub spent_in_tx_id: Option<u64>, // Transaction ID where spent
+    pub status: u32,                    // 0=Unspent, 1=Spent, 2=Locked, etc.
+    pub mined_height: Option<u64>,      // Block height when mined
+    pub block_hash: Option<String>,     // Block hash when mined (hex string)
+    pub spent_in_tx_id: Option<u64>,    // Transaction ID where spent
+    pub received_in_tx_id: Option<u64>, // Transaction ID received in
 
     // Timestamps
     pub created_at: Option<String>,
@@ -163,6 +164,7 @@ impl StoredOutput {
             mined_height: bi.map(|bi| bi.height),
             block_hash: bi.map(|bi| bi.hash.clone()),
             spent_in_tx_id: None,
+            received_in_tx_id: None,
             created_at: None,
             updated_at: None,
         })
