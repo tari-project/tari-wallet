@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 
-use crate::{data_structures::wallet_transaction::WalletTransaction, errors::WalletResult};
+use crate::{errors::WalletResult, WalletTransaction};
 
 /// Block data that can be processed during scanning
 #[derive(Debug, Clone)]

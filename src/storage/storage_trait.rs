@@ -13,9 +13,10 @@ use tari_utilities::ByteArray;
 
 use super::{output_status::OutputStatus, stored_output::StoredOutput};
 use crate::{
-    data_structures::wallet_transaction::{WalletState, WalletTransaction},
     errors::WalletResult,
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
+    WalletState,
+    WalletTransaction,
 };
 
 /// Query filters for retrieving outputs
@@ -273,6 +274,8 @@ pub struct TransactionFilter {
     pub is_spent: Option<bool>,
     /// Filter by maturity status
     pub is_mature: Option<bool>,
+    /// Filter by coinbase status
+    pub is_coinbase: Option<bool>,
     /// Limit number of results
     pub limit: Option<usize>,
     /// Offset for pagination
@@ -520,6 +523,12 @@ impl TransactionFilter {
     /// Filter by maturity status
     pub fn with_maturity(mut self, is_mature: bool) -> Self {
         self.is_mature = Some(is_mature);
+        self
+    }
+
+    /// Filter by coinbase status
+    pub fn with_coinbase(mut self, is_coinbase: bool) -> Self {
+        self.is_coinbase = Some(is_coinbase);
         self
     }
 

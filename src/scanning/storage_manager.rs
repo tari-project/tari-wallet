@@ -16,9 +16,10 @@ use super::background_writer::{BackgroundWriter, BackgroundWriterCommand};
 use super::scan_config::{BinaryScanConfig, ScanContext};
 #[cfg(feature = "storage")]
 use crate::{
-    data_structures::{types::CompressedCommitment, wallet_transaction::WalletTransaction},
+    data_structures::types::CompressedCommitment,
     errors::{WalletError, WalletResult},
     storage::{BatchOperations, SqliteStorage, StoredOutput, StoredWallet, WalletStorage},
+    WalletTransaction,
 };
 #[cfg(feature = "storage")]
 use crate::{

@@ -182,7 +182,7 @@ impl DataProcessor for DatabaseDataProcessor {
 #[derive(Debug, Default)]
 pub struct MemoryStorageProcessor {
     /// All transactions found during scanning
-    pub transactions: Vec<crate::data_structures::wallet_transaction::WalletTransaction>,
+    pub transactions: Vec<crate::WalletTransaction>,
     /// Latest block scanned
     pub latest_block: Option<u64>,
 }
@@ -197,7 +197,7 @@ impl MemoryStorageProcessor {
     }
 
     /// Get all transactions
-    pub fn get_transactions(&self) -> &[crate::data_structures::wallet_transaction::WalletTransaction] {
+    pub fn get_transactions(&self) -> &[crate::WalletTransaction] {
         &self.transactions
     }
 

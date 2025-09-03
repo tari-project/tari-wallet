@@ -37,7 +37,7 @@ fn filter_block_transactions(
     wallet_state: &WalletState,
     block_height: u64,
     direction: TransactionDirection,
-) -> Vec<&crate::data_structures::wallet_transaction::WalletTransaction> {
+) -> Vec<&crate::WalletTransaction> {
     wallet_state
         .transactions
         .iter()

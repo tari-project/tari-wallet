@@ -18,6 +18,7 @@ use tari_transaction_components::transaction_components::{MemoField, Transaction
 
 #[cfg(feature = "grpc")]
 use crate::scanning::BlockInfo;
+use crate::WalletTransaction;
 
 /// A block with wallet-focused processing capabilities
 ///
@@ -39,7 +40,7 @@ pub struct Block {
 /// Information about a spent output detected during input processing
 #[derive(Debug, Clone)]
 pub struct SpentOutputInfo {
-    pub spent_transaction: crate::data_structures::wallet_transaction::WalletTransaction,
+    pub spent_transaction: WalletTransaction,
     pub input_index: usize,
     pub match_method: String, // "output_hash" or "commitment"
     pub original_block_height: u64,

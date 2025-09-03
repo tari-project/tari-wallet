@@ -49,16 +49,15 @@ use tokio::sync::Mutex;
 use wasm_bindgen_futures;
 
 use crate::{
-    data_structures::{
-        block::Block,
-        wallet_transaction::{WalletState, WalletTransaction},
-    },
+    data_structures::block::Block,
     errors::WalletError,
     events::{
         types::{AddressInfo, BlockInfo, EventMetadata, ScanConfig, WalletScanEvent},
         EventDispatcher,
     },
     scanning::{BinaryScanConfig, ScanMetadata},
+    WalletState,
+    WalletTransaction,
 };
 
 /// Event emitter for wallet scanner integration

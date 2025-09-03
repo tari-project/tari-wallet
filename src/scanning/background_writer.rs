@@ -11,9 +11,10 @@ use tokio::sync::{mpsc, oneshot};
 
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 use crate::{
-    data_structures::{types::CompressedCommitment, wallet_transaction::WalletTransaction},
+    data_structures::types::CompressedCommitment,
     errors::WalletResult,
     storage::{StoredOutput, WalletStorage},
+    WalletTransaction,
 };
 
 /// Background writer commands for non-WASM32 architectures
@@ -197,11 +198,11 @@ mod tests {
     use tari_common_types::types::CompressedPublicKey;
 
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    use crate::data_structures::WalletState;
-    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use crate::key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql};
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use crate::storage::{OutputFilter, StorageStats, StoredWallet, TransactionFilter};
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    use crate::WalletState;
 
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     #[derive(Debug, Clone)]

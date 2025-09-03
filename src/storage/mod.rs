@@ -19,6 +19,7 @@ pub mod sqlite;
 #[cfg(feature = "storage")]
 pub mod storage_trait;
 pub mod stored_output;
+pub mod wallet_transaction;
 
 #[cfg(feature = "storage")]
 pub use connection_pool::*;
@@ -32,3 +33,4 @@ pub use sqlite::*;
 #[cfg(feature = "storage")]
 pub use storage_trait::*;
 pub use stored_output::*;
+pub use wallet_transaction::*;

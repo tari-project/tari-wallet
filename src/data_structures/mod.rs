@@ -15,7 +15,6 @@ pub mod block;
 // pub mod types;
 // pub mod wallet_output;
 pub mod incompleted_scanned_output;
-pub mod wallet_transaction;
 
 // pub use address::*;
 pub use block::{Block, BlockSummary};
@@ -27,4 +26,3 @@ pub use block::{Block, BlockSummary};
 // pub use transaction_output::*;
 // pub use types::*;
 // pub use wallet_output::*;
-pub use wallet_transaction::*;

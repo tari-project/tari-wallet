@@ -29,7 +29,6 @@ use crate::events::types::WalletEventResult;
 use crate::storage::event_storage::{EventFilter, EventStorage, EventStorageStats, StoredEvent};
 #[cfg(feature = "storage")]
 use crate::{
-    data_structures::wallet_transaction::{WalletState, WalletTransaction},
     errors::{WalletError, WalletResult},
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
     storage::{
@@ -44,6 +43,8 @@ use crate::{
     },
     DataStructureError,
 };
+#[cfg(feature = "storage")]
+use crate::{WalletState, WalletTransaction};
 
 /// SQLite storage backend for wallet transactions
 #[cfg(feature = "storage")]
@@ -142,6 +143,7 @@ impl SqliteStorage {
                 transaction_status INTEGER NOT NULL,
                 transaction_direction INTEGER NOT NULL,
                 is_mature BOOLEAN NOT NULL,
+                is_coinbase BOOLEAN NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
@@ -344,8 +346,16 @@ impl SqliteStorage {
             serde_json::from_str(&payment_id_json).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
         let transaction_status_int: i32 = row.get("transaction_status")?;
-        let transaction_status = TransactionStatus::try_from(transaction_status_int)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        let transaction_status = match transaction_status_int {
+            0 => Ok(TransactionStatus::Completed),
+            1 => Ok(TransactionStatus::Broadcast),
+            2 => Ok(TransactionStatus::MinedUnconfirmed),
+            3 => Ok(TransactionStatus::MinedConfirmed),
+            4 => Ok(TransactionStatus::Rejected),
+            _ => Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
+                WalletError::ConversionError(format!("Invalid transaction status: {transaction_status_int}")),
+            ))),
+        }?;
 
         let transaction_direction_int: i32 = row.get("transaction_direction")?;
         let transaction_direction = TransactionDirection::try_from(transaction_direction_int)
@@ -365,6 +375,7 @@ impl SqliteStorage {
             transaction_status,
             transaction_direction,
             is_mature: row.get("is_mature")?,
+            is_coinbase: row.get("is_coinbase")?,
         })
     }
 
@@ -965,6 +976,7 @@ impl WalletStorage for SqliteStorage {
                         transaction.transaction_status,
                         transaction.transaction_direction,
                         transaction.is_mature,
+                        transaction.is_coinbase,
                     );
 
                     // If the transaction is spent, mark it as spent

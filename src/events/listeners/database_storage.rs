@@ -43,6 +43,8 @@ use crate::{
         StoredOutput,
         WalletStorage,
     },
+    WalletState,
+    WalletTransaction,
 };
 
 /// Database storage listener that persists scan results to SQLite
@@ -472,11 +474,11 @@ impl DatabaseStorageListener {
             payment_id::MemoField,
             transaction::{TransactionDirection, TransactionStatus},
             types::CompressedCommitment,
-            wallet_transaction::WalletTransaction,
         };
 
         if let Some(wallet_id) = self.wallet_id {
             // Parse the commitment
+
             let commitment =
                 CompressedCommitment::from_hex(commitment_hex).map_err(|e| format!("Invalid commitment hex: {e}"))?;
 

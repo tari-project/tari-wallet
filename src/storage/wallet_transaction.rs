@@ -10,7 +10,7 @@ use tari_common_types::{
     transaction::{TransactionDirection, TransactionStatus},
     types::CompressedCommitment,
 };
-use tari_transaction_components::transaction_components::{memo_field::MemoField, WalletOutput};
+use tari_transaction_components::transaction_components::memo_field::MemoField;
 use tari_utilities::ByteArray;
 // Simple number formatting (removed utils::number module)
 
@@ -23,8 +23,6 @@ pub struct WalletTransaction {
     pub output_index: Option<usize>,
     /// Input index if this represents a spent transaction
     pub input_index: Option<usize>,
-    /// wallet_output
-    pub output: WalletOutput,
     /// Commitment of the output/input
     pub commitment: CompressedCommitment,
     /// Output hash from HTTP response (for identification and matching)
@@ -45,6 +43,8 @@ pub struct WalletTransaction {
     pub transaction_direction: TransactionDirection,
     /// Whether this transaction is mature (can be spent)
     pub is_mature: bool,
+    /// Whether this transaction is a coinbase transaction
+    pub is_coinbase: bool,
 }
 
 impl WalletTransaction {
@@ -55,20 +55,19 @@ impl WalletTransaction {
         output_index: Option<usize>,
         input_index: Option<usize>,
         commitment: CompressedCommitment,
-        output: WalletOutput,
         output_hash: Option<Vec<u8>>,
         value: u64,
         payment_id: MemoField,
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
+        is_coinbase: bool,
     ) -> Self {
         Self {
             block_height,
             output_index,
             input_index,
             commitment,
-            output,
             output_hash,
             value,
             payment_id,
@@ -78,6 +77,7 @@ impl WalletTransaction {
             transaction_status,
             transaction_direction,
             is_mature,
+            is_coinbase,
         }
     }
 
@@ -90,7 +90,7 @@ impl WalletTransaction {
 
     /// Check if this is a coinbase transaction
     pub fn is_coinbase(&self) -> bool {
-        self.output.features.is_coinbase()
+        self.is_coinbase
     }
 
     /// Check if this transaction is confirmed
@@ -177,26 +177,26 @@ impl WalletState {
         block_height: u64,
         output_index: usize,
         commitment: CompressedCommitment,
-        output: WalletOutput,
         output_hash: Option<Vec<u8>>,
         value: u64,
         payment_id: MemoField,
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
+        is_coinbase: bool,
     ) {
         let transaction = WalletTransaction::new(
             block_height,
             Some(output_index),
             None,
             commitment.clone(),
-            output,
             output_hash.clone(),
             value,
             payment_id,
             transaction_status,
             transaction_direction,
             is_mature,
+            is_coinbase,
         );
 
         let tx_index = self.transactions.len();
@@ -236,7 +236,6 @@ impl WalletState {
     pub fn mark_output_spent(
         &mut self,
         commitment: &CompressedCommitment,
-        output: WalletOutput,
         block_height: u64,
         input_index: usize,
     ) -> bool {
@@ -262,13 +261,13 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         commitment.clone(),
-                        output,
                         None, // No output_hash for spending
                         spent_value,
                         transaction.payment_id.clone(),
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
+                        false,
                     );
 
                     self.transactions.push(outbound_transaction);
@@ -319,13 +318,13 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         transaction.commitment.clone(),
-                        transaction.output.clone(),
                         Some(output_hash.to_vec()), // Include the output hash that was spent
                         spent_value,
                         transaction.payment_id.clone(),
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
+                        false,
                     );
 
                     self.transactions.push(outbound_transaction);
@@ -521,6 +520,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         assert_eq!(tx.block_height, 100);
@@ -545,6 +545,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         assert!(!tx.is_spent);
@@ -583,6 +584,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         assert_eq!(state.transactions.len(), 1);
@@ -612,6 +614,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         assert_eq!(state.transactions.len(), 1);
@@ -685,6 +688,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
         state.add_received_output(
             200,
@@ -696,6 +700,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         // Spend one
@@ -721,8 +726,9 @@ mod tests {
             None,
             1000000,
             MemoField::default(),
-            TransactionStatus::CoinbaseConfirmed,
+            TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
+            true,
             true,
         );
 
@@ -737,6 +743,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         assert!(coinbase_tx.is_coinbase());
@@ -760,6 +767,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
         state.add_received_output(
             200,
@@ -771,6 +779,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         // Initial state: 2 inbound, 0 outbound
@@ -811,6 +820,7 @@ mod tests {
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
+            false,
         );
 
         // Test JSON serialization
