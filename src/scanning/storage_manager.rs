@@ -6,40 +6,25 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
+#[cfg(feature = "storage")]
+#[cfg(feature = "storage")]
+use tari_common_types::types::CompressedCommitment;
 // Required imports for ScannerStorage functionality
+#[cfg(feature = "storage")]
+use tari_common_types::{seeds::cipher_seed::CipherSeed, types::PrivateKey};
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 use super::background_writer::{BackgroundWriter, BackgroundWriterCommand};
 #[cfg(feature = "storage")]
-use super::scan_config::{BinaryScanConfig, ScanContext};
+use super::scan_config::BinaryScanConfig;
 #[cfg(feature = "storage")]
 use crate::{
-    data_structures::types::CompressedCommitment,
     errors::{WalletError, WalletResult},
     storage::{BatchOperations, SqliteStorage, StoredOutput, StoredWallet, WalletStorage},
     WalletTransaction,
 };
-#[cfg(feature = "storage")]
-use crate::{
-    errors::KeyManagementError,
-    key_management::seed_phrase::{mnemonic_to_bytes, CipherSeed},
-};
-
-/// Derive entropy from a seed phrase string
-#[cfg(feature = "storage")]
-pub fn derive_entropy_from_seed_phrase(seed_phrase: &str) -> WalletResult<[u8; 16]> {
-    let encrypted_bytes = mnemonic_to_bytes(seed_phrase)?;
-    let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)?;
-    let entropy = cipher_seed.entropy();
-
-    let entropy_array: [u8; 16] = entropy
-        .try_into()
-        .map_err(|_| KeyManagementError::key_derivation_failed("Invalid entropy length"))?;
-
-    Ok(entropy_array)
-}
 
 /// Unified storage handler for the scanner
 ///
@@ -181,82 +166,18 @@ impl ScannerStorage {
         }
     }
 
-    /// Load scan context from stored wallet
-    #[cfg(feature = "storage")]
-    pub async fn load_scan_context_from_wallet(&self, quiet: bool) -> WalletResult<Option<ScanContext>> {
-        let storage = self
-            .database
-            .as_ref()
-            .ok_or_else(|| WalletError::StorageError("No database available".to_string()))?;
-        let wallet_id = self
-            .wallet_id
-            .ok_or_else(|| WalletError::StorageError("No wallet selected".to_string()))?;
-
-        if let Some(wallet) = storage.get_wallet_by_id(wallet_id).await? {
-            // Note: In library mode, we don't print directly. The caller can decide what to log.
-            if !quiet {
-                // For library usage, this could be logged via a callback or returned as part of result
-                // For now, we'll skip the printing in library mode
-            }
-
-            let view_key = wallet
-                .get_view_key()
-                .map_err(|e| WalletError::StorageError(format!("Failed to get view key: {e}")))?;
-
-            // Create entropy array - derive from seed phrase if available
-            let entropy = if wallet.has_seed_phrase() {
-                // Derive entropy from stored seed phrase
-                if let Some(seed_phrase) = &wallet.seed_phrase {
-                    match derive_entropy_from_seed_phrase(seed_phrase) {
-                        Ok(entropy_array) => entropy_array,
-                        Err(_) => {
-                            if !quiet {
-                                // Warning could be returned as part of result or logged via callback
-                                // For now, we'll just use default entropy
-                            }
-                            [0u8; 16]
-                        },
-                    }
-                } else {
-                    [0u8; 16]
-                }
-            } else {
-                [0u8; 16] // View-only wallet
-            };
-
-            Ok(Some(ScanContext { view_key, entropy }))
-        } else {
-            Err(WalletError::ResourceNotFound(format!(
-                "Wallet with ID {wallet_id} not found"
-            )))
-        }
-    }
-
     /// Handle wallet operations (list, create, select) - library version
     ///
     /// This method handles wallet selection and loading for library usage.
     /// It returns information about available wallets and selected wallet,
     /// but doesn't perform interactive user prompts (that's handled by the binary).
     #[cfg(feature = "storage")]
-    pub async fn handle_wallet_operations(
-        &mut self,
-        config: &BinaryScanConfig,
-        scan_context: Option<&ScanContext>,
-    ) -> WalletResult<Option<ScanContext>> {
+    pub async fn handle_wallet_operations(&mut self, config: &BinaryScanConfig) -> WalletResult<()> {
         // Only perform database operations if database is available
-        if self.database.is_none() {
-            return Ok(None);
+        if self.database.is_some() {
+            self.wallet_id = self.select_or_create_wallet(config).await?;
         }
-
-        // Handle wallet selection and loading
-        self.wallet_id = self.select_or_create_wallet(config, scan_context).await?;
-
-        // Load scan context from database if needed
-        if scan_context.is_none() && self.wallet_id.is_some() {
-            self.load_scan_context_from_wallet(config.quiet).await
-        } else {
-            Ok(None)
-        }
+        Ok(())
     }
 
     /// Select or create a wallet (library version)
@@ -265,11 +186,7 @@ impl ScannerStorage {
     /// It handles automatic wallet selection but returns information for cases that
     /// require user interaction in the binary.
     #[cfg(feature = "storage")]
-    pub async fn select_or_create_wallet(
-        &self,
-        config: &BinaryScanConfig,
-        scan_context: Option<&ScanContext>,
-    ) -> WalletResult<Option<u32>> {
+    pub async fn select_or_create_wallet(&self, config: &BinaryScanConfig) -> WalletResult<Option<u32>> {
         let storage = self
             .database
             .as_ref()
@@ -291,22 +208,13 @@ impl ScannerStorage {
         // Auto-select wallet or prompt for creation
         let wallets = storage.list_wallets().await?;
         if wallets.is_empty() {
-            if let Some(scan_ctx) = scan_context {
-                // Create default wallet automatically
-                let wallet =
-                    StoredWallet::view_only("default".to_string(), CipherSeed::new(), scan_ctx.view_key.clone(), 0);
-                let wallet_id = storage.save_wallet(&wallet).await?;
-                // Note: In library mode, success information should be logged by caller
-                Ok(Some(wallet_id))
-            } else {
-                Err(WalletError::InvalidArgument {
-                    argument: "wallets".to_string(),
-                    value: "empty".to_string(),
-                    message: "No wallets found and no keys provided to create one. Provide --seed-phrase or \
-                              --view-key, or use an existing wallet."
-                        .to_string(),
-                })
-            }
+            // TODO: This should be retrieved somehow differently
+
+            let view_key = PrivateKey::default();
+            let wallet = StoredWallet::view_only("default".to_string(), CipherSeed::new(), view_key, 0);
+            let wallet_id = storage.save_wallet(&wallet).await?;
+            // Note: In library mode, success information should be logged by caller
+            Ok(Some(wallet_id))
         } else if wallets.len() == 1 {
             let wallet = &wallets[0];
             // Automatically use the single wallet
@@ -655,7 +563,7 @@ impl ScannerStorage {
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_entropy_from_seed_phrase, ScannerStorage};
+    use super::ScannerStorage;
     use crate::scanning::BinaryScanConfig;
 
     #[cfg(feature = "storage")]
@@ -896,40 +804,12 @@ mod tests {
 
     #[cfg(feature = "storage")]
     #[tokio::test]
-    async fn test_derive_entropy_from_seed_phrase_invalid() {
-        // Test with invalid seed phrase
-        let result = derive_entropy_from_seed_phrase("invalid seed phrase");
-        assert!(result.is_err());
-    }
-
-    #[cfg(feature = "storage")]
-    #[tokio::test]
-    async fn test_load_scan_context_no_database() {
-        let storage = ScannerStorage::new_memory();
-
-        let result = storage.load_scan_context_from_wallet(true).await;
-        assert!(result.is_err());
-        // Should get "No database available" error
-    }
-
-    #[cfg(feature = "storage")]
-    #[tokio::test]
-    async fn test_load_scan_context_no_wallet_selected() {
-        let storage = ScannerStorage::new_with_database(":memory:").await.unwrap();
-
-        let result = storage.load_scan_context_from_wallet(true).await;
-        assert!(result.is_err());
-        // Should get "No wallet selected" error
-    }
-
-    #[cfg(feature = "storage")]
-    #[tokio::test]
     async fn test_handle_wallet_operations_no_database() {
         let mut storage = ScannerStorage::new_memory();
         let config = BinaryScanConfig::new(100, 200);
 
-        let result = storage.handle_wallet_operations(&config, None).await.unwrap();
-        assert!(result.is_none()); // No database, should return None
+        let result = storage.handle_wallet_operations(&config).await;
+        assert!(result.is_ok())
     }
 
     #[cfg(feature = "storage")]
@@ -938,7 +818,7 @@ mod tests {
         let storage = ScannerStorage::new_memory();
         let config = BinaryScanConfig::new(100, 200);
 
-        let result = storage.select_or_create_wallet(&config, None).await;
+        let result = storage.select_or_create_wallet(&config).await;
         assert!(result.is_err());
         // Should get "No database available" error
     }
@@ -949,7 +829,7 @@ mod tests {
         let storage = ScannerStorage::new_with_database(":memory:").await.unwrap();
         let config = BinaryScanConfig::new(100, 200).with_wallet_name("nonexistent".to_string());
 
-        let result = storage.select_or_create_wallet(&config, None).await;
+        let result = storage.select_or_create_wallet(&config).await;
         assert!(result.is_err());
         // Should get wallet not found error
     }
@@ -960,7 +840,7 @@ mod tests {
         let storage = ScannerStorage::new_with_database(":memory:").await.unwrap();
         let config = BinaryScanConfig::new(100, 200);
 
-        let result = storage.select_or_create_wallet(&config, None).await;
+        let result = storage.select_or_create_wallet(&config).await;
         assert!(result.is_err());
         // Should get error about no wallets and no keys
         let error_msg = format!("{:?}", result.unwrap_err());
