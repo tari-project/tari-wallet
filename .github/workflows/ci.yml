@@ -1,11 +1,27 @@
+---
 name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches:
+      - development
+      - main
+      - "ci-*"
   pull_request:
-    branches: [ main, develop ]
+    branches:
+      - development
+      - main
+  schedule:
+      # Runs every Sunday at 00:05 UTC
+    - cron: "05 00 * * 0"
   workflow_call:
+
+permissions: {}
+
+concurrency:
+  # https://docs.github.com/en/actions/examples/using-concurrency-expressions-and-a-test-matrix
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') || github.ref != 'refs/heads/development' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,21 +32,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install protobuf compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Setup proto files
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto
+          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -52,6 +65,22 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  licenses:
+    name: file licenses
+    runs-on: [ubuntu-latest]
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: install ripgrep
+        run: |
+          wget https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep_14.1.0-1_amd64.deb
+          sudo dpkg -i ripgrep_14.1.0-1_amd64.deb
+          rg --version || exit 1
+
+      - name: run the license check
+        run: ./scripts/file_license_check.sh
+
   test:
     name: Test Suite
     runs-on: ubuntu-latest
@@ -67,24 +96,21 @@ jobs:
           - "--features grpc-storage"
           - "--features http-storage"
           - "--all-features"
-    
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install protobuf compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Setup proto files
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto
+          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -107,21 +133,18 @@ jobs:
     needs: check
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install protobuf compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Setup proto files
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto
+          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -175,21 +198,18 @@ jobs:
     if: false # Skip this job
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install protobuf compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Setup proto files
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto
-          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto
+          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -210,13 +230,14 @@ jobs:
 
       - name: Test WASM
         run: wasm-pack test --node --features http 
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest
     needs: check
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -233,7 +254,7 @@ jobs:
     needs: check
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
