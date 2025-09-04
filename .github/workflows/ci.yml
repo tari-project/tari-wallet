@@ -43,7 +43,7 @@ jobs:
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
+          bash "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -110,7 +110,7 @@ jobs:
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
+          bash "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -144,7 +144,7 @@ jobs:
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
+          bash "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -209,7 +209,7 @@ jobs:
         run: |
           mkdir -p ../tari/applications/minotari_app_grpc/proto
           cd ../tari/applications/minotari_app_grpc/proto
-          sh "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
+          bash "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
