@@ -35,6 +35,8 @@
 //! # }
 //! ```
 
+#[cfg(target_arch = "wasm32")]
+use std::sync::Mutex;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -45,6 +47,7 @@ use std::{
 use js_sys;
 use tari_node_components::blocks::HistoricalBlock;
 use tari_transaction_components::transaction_components::{TransactionOutput, WalletOutput};
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures;
@@ -453,7 +456,7 @@ impl ScanEventEmitter {
     async fn dispatch_event(&mut self, event: WalletScanEvent) {
         if self.fire_and_forget {
             // For fire-and-forget mode, spawn the dispatch operation in the background
-            let dispatcher = Arc::clone(&self.dispatcher);
+            let dispatcher = self.dispatcher();
 
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -469,15 +472,23 @@ impl ScanEventEmitter {
             {
                 // Use spawn_local for WASM
                 wasm_bindgen_futures::spawn_local(async move {
-                    let mut disp = dispatcher.lock().await;
+                    let mut disp = dispatcher.lock().unwrap();
                     disp.dispatch(event).await;
                 });
                 // Return immediately without waiting for the spawned task
             }
         } else {
             // Standard blocking dispatch
-            let mut disp = self.dispatcher.lock().await;
-            disp.dispatch(event).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let mut disp = self.dispatcher.lock().await;
+                disp.dispatch(event).await;
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let mut disp = self.dispatcher.lock().unwrap();
+                disp.dispatch(event).await;
+            }
         }
     }
 

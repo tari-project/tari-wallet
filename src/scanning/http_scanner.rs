@@ -226,9 +226,9 @@ where KM: TransactionKeyManagerInterface
 
     /// Create a new HTTP scanner with custom timeout (WASM - timeout ignored)
     #[cfg(all(feature = "http", target_arch = "wasm32"))]
-    pub async fn with_timeout(base_url: String, _timeout: Duration) -> WalletResult<Self> {
+    pub async fn with_timeout(base_url: String, _timeout: Duration, key_manager: KM) -> WalletResult<Self> {
         // WASM doesn't support timeouts in the same way, so we ignore the timeout parameter
-        Self::new(base_url).await
+        Self::new(base_url, key_manager).await
     }
 
     /// Get header by height - matches WASM example usage
@@ -896,6 +896,7 @@ where KM: TransactionKeyManagerInterface
         Ok(blocks)
     }
 
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
         let url = format!("{}/base_node/blocks/{}", self.base_url, height);
 
@@ -920,6 +921,81 @@ where KM: TransactionKeyManagerInterface
         let block_response: SingleBlockResponse = response.json().await.map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to parse block response for height {height}: {e}"
+            )))
+        })?;
+
+        let block = block_response.block;
+        Ok(Some(BlockInfo {
+            height: block.header.height,
+            hash: hex::decode(&block.header.hash).map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid block hash format",
+                ))
+            })?,
+            outputs: block.body.outputs,
+            inputs: Vec::new(),  // HTTP API doesn't provide input details
+            kernels: Vec::new(), // HTTP API doesn't provide kernel details
+            timestamp: block.header.timestamp,
+        }))
+    }
+
+    #[cfg(all(feature = "http", target_arch = "wasm32"))]
+    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
+        let url = format!("{}/base_node/blocks/{}", self.base_url, height);
+
+        let opts = RequestInit::new();
+        opts.set_method("GET");
+        opts.set_mode(RequestMode::Cors);
+
+        let request = Request::new_with_str_and_init(&url, &opts)?;
+        request.headers().set("Accept", "application/json")?;
+
+        let window = window().ok_or_else(|| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "No window object available",
+            ))
+        })?;
+
+        let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to fetch block {height}"
+            )))
+        })?;
+
+        let response: Response = resp_value.dyn_into().map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "Invalid response type",
+            ))
+        })?;
+
+        if !response.ok() {
+            if response.status() == 404 {
+                return Ok(None);
+            }
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP {} error fetching block {height}",
+                    response.status()
+                )),
+            ));
+        }
+
+        // Get JSON response
+        let json_promise = response.json().map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "Failed to get JSON response",
+            ))
+        })?;
+
+        let json_value = JsFuture::from(json_promise).await.map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "Failed to parse JSON response",
+            ))
+        })?;
+
+        let block_response: SingleBlockResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to deserialize block response for height {height}: {e}"
             )))
         })?;
 

@@ -1724,7 +1724,7 @@ impl WalletScanEvent {
         wallet_id: &str,
         spent_output_data: SpentOutputData,
         spending_block_info: BlockInfo,
-        original_output_info: WalletOutput,
+        _original_output_info: WalletOutput,
         spending_transaction_data: TransactionData,
     ) -> Self {
         Self::SpentOutputFound {
