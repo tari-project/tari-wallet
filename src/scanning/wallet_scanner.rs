@@ -18,7 +18,37 @@ use tari_common_types::{
     types::CompressedCommitment,
 };
 use tari_transaction_components::{key_manager::TransactionKeyManagerInterface, transaction_components::MemoField};
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time::Instant;
+
+// A stub for wasm32, where tokio::time::Instant is not available.
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Instant(f64);
+
+#[cfg(target_arch = "wasm32")]
+impl Instant {
+    pub fn now() -> Self {
+        let performance = web_sys::window()
+            .expect("window not available")
+            .performance()
+            .expect("performance not available");
+        Instant(performance.now())
+    }
+
+    pub fn duration_since(&self, earlier: Self) -> std::time::Duration {
+        if self.0 >= earlier.0 {
+            std::time::Duration::from_millis((self.0 - earlier.0) as u64)
+        } else {
+            std::time::Duration::from_secs(0)
+        }
+    }
+
+    pub fn elapsed(&self) -> std::time::Duration {
+        let now = Instant::now();
+        now.duration_since(*self)
+    }
+}
 
 use super::BinaryScanConfig;
 #[cfg(all(feature = "grpc", feature = "storage"))]
@@ -557,7 +587,7 @@ pub struct ScanMetadata {
     pub had_specific_blocks: bool,
     /// Start time of the scan operation
     pub start_time: Option<Instant>,
-    /// End time of the scan operation  
+    /// End time of the scan operation
     pub end_time: Option<Instant>,
 }
 

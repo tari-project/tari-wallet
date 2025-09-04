@@ -111,6 +111,7 @@ web-sys = { version = "0.3", features = [
     "RequestInit",
     "RequestMode",
     "Window",
+    "Performance",
 ], optional = true }
 js-sys = { version = "0.3", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
