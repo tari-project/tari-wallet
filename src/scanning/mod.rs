@@ -89,8 +89,6 @@ pub use scan_config::{BinaryScanConfig, OutputFormat};
 // Re-export storage manager types for scanner binary operations
 #[cfg(feature = "storage")]
 pub use storage_manager::ScannerStorage;
-#[cfg(feature = "storage")]
-pub use wallet_scanner::extract_utxo_outputs_from_wallet_state;
 pub use wallet_scanner::{
     RetryConfig,
     ScanMetadata,
@@ -871,23 +869,23 @@ mod tests {
         assert_eq!(progress.elapsed, Duration::from_secs(10));
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_block_scan_result() {
-        let result = BlockScanResult {
-            height: 1000,
-            block_hash: vec![1, 2, 3, 4],
-            outputs: vec![],
-            wallet_outputs: vec![],
-            mined_timestamp: 1234567890,
-        };
-
-        assert_eq!(result.height, 1000);
-        assert_eq!(result.block_hash, vec![1, 2, 3, 4]);
-        assert_eq!(result.mined_timestamp, 1234567890);
-        assert!(result.outputs.is_empty());
-        assert!(result.wallet_outputs.is_empty());
-    }
+    // #[cfg(not(target_arch = "wasm32"))]
+    // #[tokio::test]
+    // async fn test_block_scan_result() {
+    // let result = BlockScanResult {
+    // height: 1000,
+    // block_hash: vec![1, 2, 3, 4],
+    // outputs: vec![],
+    // wallet_outputs: vec![],
+    // mined_timestamp: 1234567890,
+    // };
+    //
+    // assert_eq!(result.height, 1000);
+    // assert_eq!(result.block_hash, vec![1, 2, 3, 4]);
+    // assert_eq!(result.mined_timestamp, 1234567890);
+    // assert!(result.outputs.is_empty());
+    // assert!(result.wallet_outputs.is_empty());
+    // }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]

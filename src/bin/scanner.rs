@@ -546,10 +546,7 @@ async fn main_unified() -> WalletResult<()> {
         (None, None)
     } else {
         // No keys provided - use database storage
-        let loaded_context = match storage_backend
-            .handle_wallet_operations(&temp_config, scan_context.as_ref())
-            .await
-        {
+        let loaded_context = match storage_backend.handle_wallet_operations(&temp_config).await {
             Ok(context) => context,
             Err(WalletError::InvalidArgument { argument, value, .. })
                 if argument == "wallet_selection" && value == "multiple_wallets" =>

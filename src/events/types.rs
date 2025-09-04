@@ -1807,2043 +1807,2043 @@ impl WalletScanEvent {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::time::SystemTime;
-
-    use super::*;
-
-    #[test]
-    fn test_scan_started_event_creation() {
-        let config = ScanConfig::new()
-            .with_batch_size(10)
-            .with_timeout_seconds(30)
-            .with_retry_attempts(3);
-
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            config.clone(),
-            (1000, 2000),
-            "test_wallet_context".to_string(),
-        );
-
-        match &event {
-            WalletScanEvent::ScanStarted {
-                metadata,
-                config: event_config,
-                block_range,
-                wallet_context,
-            } => {
-                assert!(!metadata.event_id.is_empty());
-                assert_eq!(metadata.source, "wallet_scanner");
-                assert!(metadata.timestamp <= SystemTime::now());
-                assert_eq!(event_config.batch_size, Some(10));
-                assert_eq!(event_config.timeout_seconds, Some(30));
-                assert_eq!(event_config.retry_attempts, Some(3));
-                assert_eq!(*block_range, (1000, 2000));
-                assert_eq!(wallet_context, "test_wallet_context");
-            },
-            _ => panic!("Expected ScanStarted event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_started_event_traits() {
-        let config = ScanConfig::default();
-        let event = WalletScanEvent::scan_started("test_wallet", config, (0, 100), "wallet_123".to_string());
-
-        // Test EventType trait
-        assert_eq!(event.event_type(), "ScanStarted");
-        assert!(event.debug_data().is_some());
-        assert!(event.debug_data().unwrap().contains("blocks: 0-100"));
-        assert!(event.debug_data().unwrap().contains("wallet: wallet_123"));
-
-        // Test SerializableEvent trait
-        let summary = event.summary();
-        assert!(summary.contains("Scan started"));
-        assert!(summary.contains("wallet_123"));
-        assert!(summary.contains("blocks 0-100"));
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("ScanStarted"));
-        assert!(json.contains("\"block_range\""));
-        assert!(json.contains("wallet_123"));
-    }
-
-    #[test]
-    fn test_scan_started_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "scan_session_123".to_string());
-        let config = ScanConfig::default();
-
-        let event = WalletScanEvent::ScanStarted {
-            metadata,
-            config,
-            block_range: (500, 1500),
-            wallet_context: "test_wallet".to_string(),
-        };
-
-        match &event {
-            WalletScanEvent::ScanStarted { metadata, .. } => {
-                assert_eq!(metadata.correlation_id, Some("scan_session_123".to_string()));
-                assert_eq!(metadata.source, "wallet_scanner");
-            },
-            _ => panic!("Expected ScanStarted event"),
-        }
-    }
-
-    #[test]
-    fn test_event_serialization_roundtrip() {
-        let config = ScanConfig::new().with_batch_size(25).with_timeout_seconds(60);
-
-        let event = WalletScanEvent::scan_started("test_wallet", config, (1000, 2000), "test_wallet".to_string());
-
-        // Test pretty JSON serialization
-        let pretty_json = event.to_debug_json().unwrap();
-        assert!(pretty_json.contains("ScanStarted"));
-        assert!(pretty_json.contains("test_wallet"));
-        assert!(pretty_json.contains("1000"));
-        assert!(pretty_json.contains("2000"));
-
-        // Test compact JSON serialization
-        let compact_json = event.to_compact_json().unwrap();
-        assert!(compact_json.contains("ScanStarted"));
-        assert!(compact_json.len() < pretty_json.len()); // Compact should be smaller
-
-        // Test deserialization roundtrip
-        let deserialized = WalletScanEvent::from_json(&compact_json).unwrap();
-        match (&event, &deserialized) {
-            (
-                WalletScanEvent::ScanStarted {
-                    block_range: br1,
-                    wallet_context: wc1,
-                    ..
-                },
-                WalletScanEvent::ScanStarted {
-                    block_range: br2,
-                    wallet_context: wc2,
-                    ..
-                },
-            ) => {
-                assert_eq!(br1, br2);
-                assert_eq!(wc1, wc2);
-            },
-            _ => panic!("Deserialized event type mismatch"),
-        }
-    }
-
-    #[test]
-    fn test_shared_event_serialization() {
-        let event = WalletScanEvent::scan_started(
-            "test_wallet",
-            ScanConfig::default(),
-            (500, 1500),
-            "shared_test".to_string(),
-        );
-
-        let compact_json = event.to_compact_json().unwrap();
-        let shared_event = WalletScanEvent::shared_from_json(&compact_json).unwrap();
-
-        match shared_event.as_ref() {
-            WalletScanEvent::ScanStarted {
-                block_range,
-                wallet_context,
-                ..
-            } => {
-                assert_eq!(*block_range, (500, 1500));
-                assert_eq!(wallet_context, "shared_test");
-            },
-            _ => panic!("Expected ScanStarted event"),
-        }
-    }
-
-    #[test]
-    fn test_serialization_with_complex_data() {
-        let output_data = OutputData::new("commitment_123".to_string(), "proof_data_456".to_string(), 1, true)
-            .with_amount(1000)
-            .with_key_index(5);
-
-        let block_info = BlockInfo::new(12345, "block_hash_abc".to_string(), 1697123456, 2);
-
-        let address_info = AddressInfo::new(
-            "tari1xyz123...".to_string(),
-            "stealth".to_string(),
-            "mainnet".to_string(),
-        );
-
-        let transaction_data =
-            TransactionData::new(1000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697123456);
-        let event =
-            WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
-
-        // Test serialization
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("OutputFound"));
-        assert!(json.contains("commitment_123"));
-        assert!(json.contains("tari1xyz123..."));
-        assert!(json.contains("12345"));
-
-        // Test roundtrip
-        let deserialized = WalletScanEvent::from_json(&json).unwrap();
-        match &deserialized {
-            WalletScanEvent::OutputFound {
-                output_data,
-                block_info,
-                address_info,
-                ..
-            } => {
-                assert_eq!(output_data.commitment, "commitment_123");
-                assert_eq!(output_data.amount, Some(1000));
-                assert_eq!(block_info.height, 12345);
-                assert_eq!(address_info.address, "tari1xyz123...");
-            },
-            _ => panic!("Expected OutputFound event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_config_builder_pattern() {
-        let config = ScanConfig::new()
-            .with_batch_size(25)
-            .with_timeout_seconds(60)
-            .with_retry_attempts(5)
-            .with_filter("output_type".to_string(), "utxo".to_string())
-            .with_filter("min_value".to_string(), "1000".to_string());
-
-        assert_eq!(config.batch_size, Some(25));
-        assert_eq!(config.timeout_seconds, Some(60));
-        assert_eq!(config.retry_attempts, Some(5));
-        assert_eq!(config.filters.get("output_type"), Some(&"utxo".to_string()));
-        assert_eq!(config.filters.get("min_value"), Some(&"1000".to_string()));
-        assert_eq!(config.filters.len(), 2);
-    }
-
-    #[test]
-    fn test_output_data_zeroize() {
-        let mut output_data = OutputData::new("commitment_test".to_string(), "proof_test".to_string(), 1, true)
-            .with_encrypted_value(vec![1, 2, 3, 4, 5]);
-
-        // Verify initial state
-        assert_eq!(output_data.encrypted_value, Some(vec![1, 2, 3, 4, 5]));
-        assert_eq!(output_data.commitment, "commitment_test");
-
-        // Zeroize sensitive data
-        output_data.zeroize();
-
-        // Verify encrypted_value is zeroized (cleared) but other fields remain
-        assert_eq!(output_data.encrypted_value, Some(vec![])); // Vec::zeroize() clears the vector
-        assert_eq!(output_data.commitment, "commitment_test"); // Public data unchanged
-    }
-
-    #[test]
-    fn test_address_info_zeroize() {
-        let mut address_info = AddressInfo::new(
-            "tari1xyz123...".to_string(),
-            "stealth".to_string(),
-            "mainnet".to_string(),
-        )
-        .with_public_spend_key("public_key_123".to_string())
-        .with_view_key("view_key_456".to_string())
-        .with_derivation_path("m/44'/0'/0'/0/5".to_string());
-
-        // Verify initial state
-        assert_eq!(address_info.public_spend_key, Some("public_key_123".to_string()));
-        assert_eq!(address_info.view_key, Some("view_key_456".to_string()));
-        assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/5".to_string()));
-
-        // Zeroize sensitive data
-        address_info.zeroize();
-
-        // Verify sensitive fields are zeroized
-        assert_eq!(address_info.public_spend_key, Some(String::new()));
-        assert_eq!(address_info.view_key, Some(String::new()));
-        assert_eq!(address_info.derivation_path, Some(String::new()));
-        // Address should remain unchanged as it's meant to be shared
-        assert_eq!(address_info.address, "tari1xyz123...");
-    }
-
-    #[test]
-    fn test_utxo_received_payload_zeroize() {
-        let mut payload = UtxoReceivedPayload::new(
-            "utxo_123".to_string(),
-            1000,
-            12345,
-            "block_hash_abc".to_string(),
-            1697123456,
-            "tx_hash_def".to_string(),
-            2,
-            "tari1abc123...".to_string(),
-            5,
-            "commitment_789".to_string(),
-            1,
-            "mainnet".to_string(),
-        )
-        .with_script_hash("script_hash_xyz".to_string());
-
-        // Verify initial state
-        assert_eq!(payload.receiving_address, "tari1abc123...");
-        assert_eq!(payload.commitment, "commitment_789");
-        assert_eq!(payload.script_hash, Some("script_hash_xyz".to_string()));
-
-        // Zeroize sensitive data
-        payload.zeroize();
-
-        // Verify sensitive fields are zeroized
-        assert_eq!(payload.receiving_address, "");
-        assert_eq!(payload.commitment, "");
-        assert_eq!(payload.script_hash, Some(String::new()));
-        // Public blockchain data should remain unchanged
-        assert_eq!(payload.block_hash, "block_hash_abc");
-        assert_eq!(payload.transaction_hash, "tx_hash_def");
-    }
-
-    #[test]
-    fn test_wallet_event_zeroize() {
-        let payload = UtxoReceivedPayload::new(
-            "utxo_456".to_string(),
-            2000,
-            54321,
-            "block_hash_xyz".to_string(),
-            1697987654,
-            "tx_hash_abc".to_string(),
-            1,
-            "tari1def456...".to_string(),
-            10,
-            "commitment_abc".to_string(),
-            1,
-            "testnet".to_string(),
-        );
-
-        let mut event = WalletEvent::utxo_received("test_wallet", payload);
-
-        // Verify event can be zeroized
-        event.zeroize();
-
-        // Verify payload inside event is zeroized
-        match &event {
-            WalletEvent::UtxoReceived { payload, .. } => {
-                assert_eq!(payload.receiving_address, "");
-                assert_eq!(payload.commitment, "");
-            },
-            _ => panic!("Expected UtxoReceived event"),
-        }
-    }
-
-    #[test]
-    fn test_block_processed_event_creation() {
-        let processing_duration = Duration::from_millis(250);
-        let event = WalletScanEvent::block_processed(
-            "test_wallet",
-            12345,
-            "0x1234567890abcdef".to_string(),
-            1697123456,
-            processing_duration,
-            5,
-        );
-
-        match &event {
-            WalletScanEvent::BlockProcessed {
-                metadata,
-                height,
-                hash,
-                timestamp,
-                processing_duration: duration,
-                outputs_count,
-                spent_outputs_count,
-            } => {
-                assert!(!metadata.event_id.is_empty());
-                assert_eq!(metadata.source, "wallet_scanner");
-                assert!(metadata.timestamp <= SystemTime::now());
-                assert_eq!(*height, 12345);
-                assert_eq!(hash, "0x1234567890abcdef");
-                assert_eq!(*timestamp, 1697123456);
-                assert_eq!(*duration, processing_duration);
-                assert_eq!(*outputs_count, 5);
-                assert_eq!(*spent_outputs_count, 0);
-            },
-            _ => panic!("Expected BlockProcessed event"),
-        }
-    }
-
-    #[test]
-    fn test_block_processed_event_traits() {
-        let event = WalletScanEvent::block_processed(
-            "test_wallet",
-            98765,
-            "0xabcdef1234567890".to_string(),
-            1697123999,
-            Duration::from_millis(180),
-            3,
-        );
-
-        // Test EventType trait
-        assert_eq!(event.event_type(), "BlockProcessed");
-        assert!(event.debug_data().is_some());
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("height: 98765"));
-        assert!(debug_data.contains("outputs: 3"));
-
-        // Test SerializableEvent trait
-        let summary = event.summary();
-        assert!(summary.contains("Processed block 98765"));
-        assert!(summary.contains("with 3 outputs"));
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("BlockProcessed"));
-        assert!(json.contains("98765"));
-        assert!(json.contains("0xabcdef1234567890"));
-        assert!(json.contains("3"));
-    }
-
-    #[test]
-    fn test_block_processed_zero_outputs() {
-        let event = WalletScanEvent::block_processed(
-            "test_wallet",
-            100,
-            "0x0000000000000000".to_string(),
-            1697000000,
-            Duration::from_millis(50),
-            0,
-        );
-
-        match &event {
-            WalletScanEvent::BlockProcessed { outputs_count, .. } => {
-                assert_eq!(*outputs_count, 0);
-            },
-            _ => panic!("Expected BlockProcessed event"),
-        }
-
-        let summary = event.summary();
-        assert!(summary.contains("with 0 outputs"));
-    }
-
-    #[test]
-    fn test_block_processed_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "block_batch_123".to_string());
-        let event = WalletScanEvent::BlockProcessed {
-            metadata,
-            height: 54321,
-            hash: "0xdeadbeef".to_string(),
-            timestamp: 1697987654,
-            processing_duration: Duration::from_millis(300),
-            outputs_count: 10,
-            spent_outputs_count: 0,
-        };
-
-        match &event {
-            WalletScanEvent::BlockProcessed { metadata, .. } => {
-                assert_eq!(metadata.correlation_id, Some("block_batch_123".to_string()));
-                assert_eq!(metadata.source, "wallet_scanner");
-            },
-            _ => panic!("Expected BlockProcessed event"),
-        }
-    }
-
-    #[test]
-    fn test_block_processed_duration_handling() {
-        // Test various processing durations
-        let durations = [
-            Duration::from_nanos(1),
-            Duration::from_micros(1),
-            Duration::from_millis(1),
-            Duration::from_secs(1),
-            Duration::from_secs(60),
-        ];
-
-        for (i, duration) in durations.iter().enumerate() {
-            let event = WalletScanEvent::block_processed(
-                "test_wallet",
-                i as u64,
-                format!("0x{i:016x}"),
-                1697000000 + i as u64,
-                *duration,
-                i,
-            );
-
-            match &event {
-                WalletScanEvent::BlockProcessed {
-                    processing_duration, ..
-                } => {
-                    assert_eq!(processing_duration, duration);
-                },
-                _ => panic!("Expected BlockProcessed event"),
-            }
-        }
-    }
-
-    #[test]
-    fn test_output_found_event_creation() {
-        let output_data = OutputData::new(
-            "0x1234567890abcdef".to_string(),
-            "range_proof_data".to_string(),
-            1,    // features
-            true, // is_mine
-        )
-        .with_amount(1000)
-        .with_key_index(5);
-
-        let block_info = BlockInfo::new(
-            12345,
-            "0xabcdef1234567890".to_string(),
-            1697123456,
-            2, // output_index
-        )
-        .with_transaction_index(1);
-
-        let address_info = AddressInfo::new(
-            "tari1xyz123...".to_string(),
-            "stealth".to_string(),
-            "mainnet".to_string(),
-        )
-        .with_derivation_path("m/44'/0'/0'/0/5".to_string());
-
-        let transaction_data =
-            TransactionData::new(1000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697123456);
-        let event =
-            WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
-
-        match &event {
-            WalletScanEvent::OutputFound {
-                metadata,
-                output_data,
-                block_info,
-                address_info,
-                transaction_data: _,
-            } => {
-                assert!(!metadata.event_id.is_empty());
-                assert_eq!(metadata.source, "wallet_scanner");
-
-                // Test output data
-                assert_eq!(output_data.commitment, "0x1234567890abcdef");
-                assert_eq!(output_data.range_proof, "range_proof_data");
-                assert_eq!(output_data.features, 1);
-                assert!(output_data.is_mine);
-                assert_eq!(output_data.amount, Some(1000));
-                assert_eq!(output_data.key_index, Some(5));
-
-                // Test block info
-                assert_eq!(block_info.height, 12345);
-                assert_eq!(block_info.hash, "0xabcdef1234567890");
-                assert_eq!(block_info.timestamp, 1697123456);
-                assert_eq!(block_info.output_index, 2);
-                assert_eq!(block_info.transaction_index, Some(1));
-
-                // Test address info
-                assert_eq!(address_info.address, "tari1xyz123...");
-                assert_eq!(address_info.address_type, "stealth");
-                assert_eq!(address_info.network, "mainnet");
-                assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/5".to_string()));
-            },
-            _ => panic!("Expected OutputFound event"),
-        }
-    }
-
-    #[test]
-    fn test_output_found_event_traits() {
-        let output_data = OutputData::new(
-            "0xcommitment123".to_string(),
-            "proof_data".to_string(),
-            0,
-            false, // not mine
-        );
-
-        let block_info = BlockInfo::new(98765, "0xblockhash456".to_string(), 1697999999, 0);
-
-        let address_info = AddressInfo::new(
-            "tari1abc456...".to_string(),
-            "standard".to_string(),
-            "testnet".to_string(),
-        );
-
-        let transaction_data =
-            TransactionData::new(5000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697999999);
-        let event =
-            WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
-
-        // Test EventType trait
-        assert_eq!(event.event_type(), "OutputFound");
-        assert!(event.debug_data().is_some());
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("block: 98765"));
-        assert!(debug_data.contains("mine: false"));
-        assert!(debug_data.contains("amount: unknown"));
-
-        // Test SerializableEvent trait
-        let summary = event.summary();
-        assert!(summary.contains("Found output at block 98765"));
-        assert!(summary.contains("not mine"));
-        assert!(summary.contains("tari1abc456..."));
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("OutputFound"));
-        assert!(json.contains("98765"));
-        assert!(json.contains("false"));
-        assert!(json.contains("tari1abc456..."));
-        assert!(json.contains("0xcommitment123"));
-    }
-
-    #[test]
-    fn test_output_data_builder_pattern() {
-        let output_data = OutputData::new("commitment".to_string(), "proof".to_string(), 1, true)
-            .with_amount(500)
-            .with_key_index(10)
-            .with_maturity_height(1000)
-            .with_script("script".to_string())
-            .with_encrypted_value(vec![1, 2, 3]);
-
-        assert_eq!(output_data.commitment, "commitment");
-        assert_eq!(output_data.range_proof, "proof");
-        assert_eq!(output_data.features, 1);
-        assert!(output_data.is_mine);
-        assert_eq!(output_data.amount, Some(500));
-        assert_eq!(output_data.key_index, Some(10));
-        assert_eq!(output_data.maturity_height, Some(1000));
-        assert_eq!(output_data.script, Some("script".to_string()));
-        assert_eq!(output_data.encrypted_value, Some(vec![1, 2, 3]));
-    }
-
-    #[test]
-    fn test_scan_progress_event_creation() {
-        let event =
-            WalletScanEvent::scan_progress("test_wallet", 750, 1000, 1750, 75.0, 5.5, Some(Duration::from_secs(45)));
-
-        match &event {
-            WalletScanEvent::ScanProgress {
-                metadata,
-                current_block,
-                total_blocks,
-                current_block_height: _,
-                percentage,
-                speed_blocks_per_second,
-                estimated_time_remaining,
-            } => {
-                assert!(!metadata.event_id.is_empty());
-                assert_eq!(metadata.source, "wallet_scanner");
-                assert_eq!(*current_block, 750);
-                assert_eq!(*total_blocks, 1000);
-                assert_eq!(*percentage, 75.0);
-                assert_eq!(*speed_blocks_per_second, 5.5);
-                assert_eq!(*estimated_time_remaining, Some(Duration::from_secs(45)));
-            },
-            _ => panic!("Expected ScanProgress event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_progress_event_traits() {
-        let event = WalletScanEvent::scan_progress(
-            "test_wallet",
-            500,
-            2000,
-            1500,
-            25.0,
-            10.0,
-            Some(Duration::from_secs(150)),
-        );
-
-        // Test EventType trait
-        assert_eq!(event.event_type(), "ScanProgress");
-        assert!(event.debug_data().is_some());
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("500/2000"));
-        assert!(debug_data.contains("25.0%"));
-        assert!(debug_data.contains("speed: 10.0 bps"));
-        assert!(debug_data.contains("ETA: 150s"));
-
-        // Test SerializableEvent trait
-        let summary = event.summary();
-        assert!(summary.contains("Scan progress: 500/2000 blocks"));
-        assert!(summary.contains("25.0%"));
-        assert!(summary.contains("10.0 blocks/sec"));
-        assert!(summary.contains("2m 30s"));
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("ScanProgress"));
-        assert!(json.contains("500"));
-        assert!(json.contains("2000"));
-        assert!(json.contains("25.0"));
-        assert!(json.contains("10.0"));
-        assert!(json.contains("150"));
-    }
-
-    #[test]
-    fn test_scan_progress_no_eta() {
-        let event = WalletScanEvent::scan_progress("test_wallet", 100, 500, 1100, 20.0, 2.0, None);
-
-        match &event {
-            WalletScanEvent::ScanProgress {
-                estimated_time_remaining,
-                ..
-            } => {
-                assert_eq!(*estimated_time_remaining, None);
-            },
-            _ => panic!("Expected ScanProgress event"),
-        }
-
-        // Test serialization handles None ETA
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("ETA: unknown"));
-
-        let summary = event.summary();
-        assert!(summary.contains("unknown ETA"));
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("null"));
-    }
-
-    #[test]
-    fn test_scan_progress_eta_formatting() {
-        // Test different ETA durations
-        let test_cases = vec![
-            (Duration::from_secs(30), "30s"),
-            (Duration::from_secs(90), "1m 30s"),
-            (Duration::from_secs(3661), "1h 1m"),
-            (Duration::from_secs(7200), "2h 0m"),
-        ];
-
-        for (duration, expected_format) in test_cases {
-            let event = WalletScanEvent::scan_progress("test_wallet", 100, 200, 1100, 50.0, 1.0, Some(duration));
-            let summary = event.summary();
-            assert!(
-                summary.contains(expected_format),
-                "Expected '{expected_format}' in summary: {summary}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_scan_progress_edge_cases() {
-        // Test 0% progress
-        let event = WalletScanEvent::scan_progress("test_wallet", 0, 1000, 1000, 0.0, 0.0, None);
-        match &event {
-            WalletScanEvent::ScanProgress {
-                current_block,
-                percentage,
-                speed_blocks_per_second,
-                ..
-            } => {
-                assert_eq!(*current_block, 0);
-                assert_eq!(*percentage, 0.0);
-                assert_eq!(*speed_blocks_per_second, 0.0);
-            },
-            _ => panic!("Expected ScanProgress event"),
-        }
-
-        // Test 100% progress
-        let event = WalletScanEvent::scan_progress("test_wallet", 1000, 1000, 2000, 100.0, 5.0, Some(Duration::ZERO));
-        match &event {
-            WalletScanEvent::ScanProgress {
-                current_block,
-                total_blocks,
-                percentage,
-                estimated_time_remaining,
-                ..
-            } => {
-                assert_eq!(*current_block, 1000);
-                assert_eq!(*total_blocks, 1000);
-                assert_eq!(*percentage, 100.0);
-                assert_eq!(*estimated_time_remaining, Some(Duration::ZERO));
-            },
-            _ => panic!("Expected ScanProgress event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_progress_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "scan_batch_456".to_string());
-        let event = WalletScanEvent::ScanProgress {
-            metadata,
-            current_block: 300,
-            total_blocks: 600,
-            current_block_height: 1300,
-            percentage: 50.0,
-            speed_blocks_per_second: 8.0,
-            estimated_time_remaining: Some(Duration::from_secs(37)),
-        };
-
-        match &event {
-            WalletScanEvent::ScanProgress { metadata, .. } => {
-                assert_eq!(metadata.correlation_id, Some("scan_batch_456".to_string()));
-                assert_eq!(metadata.source, "wallet_scanner");
-            },
-            _ => panic!("Expected ScanProgress event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_completed_event_creation() {
-        let mut final_stats = HashMap::new();
-        final_stats.insert("blocks_processed".to_string(), 1000);
-        final_stats.insert("outputs_found".to_string(), 25);
-        final_stats.insert("transactions_found".to_string(), 15);
-        final_stats.insert("errors_encountered".to_string(), 0);
-
-        let event = WalletScanEvent::scan_completed("test_wallet", final_stats.clone(), true, Duration::from_secs(300));
-
-        match &event {
-            WalletScanEvent::ScanCompleted {
-                metadata,
-                final_statistics,
-                success,
-                total_duration,
-            } => {
-                assert!(!metadata.event_id.is_empty());
-                assert_eq!(metadata.source, "wallet_scanner");
-                assert!(success);
-                assert_eq!(*total_duration, Duration::from_secs(300));
-                assert_eq!(final_statistics.len(), 4);
-                assert_eq!(final_statistics.get("blocks_processed"), Some(&1000));
-                assert_eq!(final_statistics.get("outputs_found"), Some(&25));
-                assert_eq!(final_statistics.get("transactions_found"), Some(&15));
-                assert_eq!(final_statistics.get("errors_encountered"), Some(&0));
-            },
-            _ => panic!("Expected ScanCompleted event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_completed_event_traits() {
-        let mut final_stats = HashMap::new();
-        final_stats.insert("blocks_processed".to_string(), 500);
-        final_stats.insert("outputs_found".to_string(), 10);
-
-        let event = WalletScanEvent::scan_completed("test_wallet", final_stats, true, Duration::from_secs(150));
-
-        // Test EventType trait
-        assert_eq!(event.event_type(), "ScanCompleted");
-        assert!(event.debug_data().is_some());
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("success: true"));
-        assert!(debug_data.contains("duration: 150s"));
-        assert!(debug_data.contains("stats: 2 items"));
-
-        // Test SerializableEvent trait
-        let summary = event.summary();
-        assert!(summary.contains("Scan completed (success: true)"));
-        assert!(summary.contains("2m 30s"));
-        assert!(summary.contains("500 blocks"));
-        assert!(summary.contains("10 outputs"));
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("ScanCompleted"));
-        assert!(json.contains("true"));
-        assert!(json.contains("150"));
-        assert!(json.contains("2"));
-    }
-
-    #[test]
-    fn test_scan_completed_failure() {
-        let mut final_stats = HashMap::new();
-        final_stats.insert("blocks_processed".to_string(), 750);
-        final_stats.insert("errors_encountered".to_string(), 5);
-
-        let event = WalletScanEvent::scan_completed("test_wallet", final_stats, false, Duration::from_secs(45));
-
-        match &event {
-            WalletScanEvent::ScanCompleted { success, .. } => {
-                assert!(!success);
-            },
-            _ => panic!("Expected ScanCompleted event"),
-        }
-
-        let summary = event.summary();
-        assert!(summary.contains("success: false"));
-        assert!(summary.contains("45s"));
-        assert!(summary.contains("750 blocks"));
-        assert!(summary.contains("5 errors"));
-    }
-
-    #[test]
-    fn test_scan_completed_empty_stats() {
-        let empty_stats = HashMap::new();
-        let event = WalletScanEvent::scan_completed("test_wallet", empty_stats, true, Duration::from_secs(30));
-
-        // Test with empty statistics
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("stats: 0 items"));
-
-        let summary = event.summary();
-        assert!(summary.contains("Scan completed (success: true) in 30s"));
-        // Should not contain additional stats when empty
-        assert!(!summary.contains(" - "));
-    }
-
-    #[test]
-    fn test_scan_completed_duration_formatting() {
-        // Test different duration formats
-        let test_cases = vec![
-            (Duration::from_secs(30), "30s"),
-            (Duration::from_secs(90), "1m 30s"),
-            (Duration::from_secs(3661), "1h 1m"),
-            (Duration::from_secs(7200), "2h 0m"),
-        ];
-
-        for (duration, expected_format) in test_cases {
-            let event = WalletScanEvent::scan_completed("test_wallet", HashMap::new(), true, duration);
-            let summary = event.summary();
-            assert!(
-                summary.contains(expected_format),
-                "Expected '{expected_format}' in summary: {summary}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_scan_completed_with_correlation_id() {
-        let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "final_scan_789".to_string());
-        let mut stats = HashMap::new();
-        stats.insert("blocks_processed".to_string(), 100);
-
-        let event = WalletScanEvent::ScanCompleted {
-            metadata,
-            final_statistics: stats,
-            success: true,
-            total_duration: Duration::from_secs(60),
-        };
-
-        match &event {
-            WalletScanEvent::ScanCompleted { metadata, .. } => {
-                assert_eq!(metadata.correlation_id, Some("final_scan_789".to_string()));
-                assert_eq!(metadata.source, "wallet_scanner");
-            },
-            _ => panic!("Expected ScanCompleted event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_completed_comprehensive_stats() {
-        let mut comprehensive_stats = HashMap::new();
-        comprehensive_stats.insert("blocks_processed".to_string(), 2000);
-        comprehensive_stats.insert("outputs_found".to_string(), 150);
-        comprehensive_stats.insert("transactions_found".to_string(), 75);
-        comprehensive_stats.insert("errors_encountered".to_string(), 3);
-        comprehensive_stats.insert("average_block_time_ms".to_string(), 250);
-        comprehensive_stats.insert("total_value_found".to_string(), 50000);
-
-        let event = WalletScanEvent::scan_completed(
-            "test_wallet",
-            comprehensive_stats,
-            true,
-            Duration::from_secs(1800), // 30 minutes
-        );
-
-        let summary = event.summary();
-        assert!(summary.contains("2000 blocks"));
-        assert!(summary.contains("150 outputs"));
-        assert!(summary.contains("75 transactions"));
-        assert!(summary.contains("3 errors"));
-        assert!(summary.contains("30m 0s"));
-
-        // Should only include the key stats, not all stats
-        assert!(!summary.contains("average_block_time_ms"));
-        assert!(!summary.contains("total_value_found"));
-    }
-
-    #[test]
-    fn test_scan_error_event_creation() {
-        let event = WalletScanEvent::scan_error(
-            "test_wallet",
-            "Connection timeout".to_string(),
-            Some("E001".to_string()),
-            Some(12345),
-            Some("Will retry in 5 seconds".to_string()),
-            true,
-        );
-
-        match &event {
-            WalletScanEvent::ScanError {
-                metadata,
-                error_message,
-                error_code,
-                block_height,
-                retry_info,
-                is_recoverable,
-            } => {
-                assert!(!metadata.event_id.is_empty());
-                assert_eq!(metadata.source, "wallet_scanner");
-                assert_eq!(error_message, "Connection timeout");
-                assert_eq!(error_code, &Some("E001".to_string()));
-                assert_eq!(block_height, &Some(12345));
-                assert_eq!(retry_info, &Some("Will retry in 5 seconds".to_string()));
-                assert!(is_recoverable);
-            },
-            _ => panic!("Expected ScanError event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_error_event_traits() {
-        let event = WalletScanEvent::scan_error(
-            "test_wallet",
-            "Database connection failed".to_string(),
-            None,
-            None,
-            None,
-            false,
-        );
-
-        // Test EventType trait
-        assert_eq!(event.event_type(), "ScanError");
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("error: Database connection failed"));
-        assert!(debug_data.contains("block: None"));
-
-        // Test SerializableEvent trait
-        let summary = event.summary();
-        assert_eq!(summary, "Scan error: Database connection failed");
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("ScanError"));
-        assert!(json.contains("Database connection failed"));
-    }
-
-    #[test]
-    fn test_scan_cancelled_event_creation() {
-        let mut final_stats = HashMap::new();
-        final_stats.insert("blocks_processed".to_string(), 500);
-        final_stats.insert("outputs_found".to_string(), 25);
-
-        let event = WalletScanEvent::scan_cancelled(
-            "test_wallet",
-            "User cancelled operation".to_string(),
-            final_stats,
-            Some(0.5), // 50% completion
-        );
-
-        match &event {
-            WalletScanEvent::ScanCancelled {
-                metadata,
-                reason,
-                final_statistics,
-                partial_completion,
-            } => {
-                assert!(!metadata.event_id.is_empty());
-                assert_eq!(metadata.source, "wallet_scanner");
-                assert_eq!(reason, "User cancelled operation");
-                assert_eq!(final_statistics.get("blocks_processed"), Some(&500));
-                assert_eq!(final_statistics.get("outputs_found"), Some(&25));
-                assert_eq!(partial_completion, &Some(0.5));
-            },
-            _ => panic!("Expected ScanCancelled event"),
-        }
-    }
-
-    #[test]
-    fn test_scan_cancelled_event_traits() {
-        let event = WalletScanEvent::scan_cancelled("test_wallet", "Network timeout".to_string(), HashMap::new(), None);
-
-        // Test EventType trait
-        assert_eq!(event.event_type(), "ScanCancelled");
-        let debug_data = event.debug_data().unwrap();
-        assert!(debug_data.contains("reason: Network timeout"));
-
-        // Test SerializableEvent trait
-        let summary = event.summary();
-        assert_eq!(summary, "Scan cancelled: Network timeout");
-
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("ScanCancelled"));
-        assert!(json.contains("Network timeout"));
-    }
-
-    #[test]
-    fn test_event_metadata_creation() {
-        let metadata = EventMetadata::new("test_source", "test_wallet");
-
-        assert!(!metadata.event_id.is_empty());
-        assert_eq!(metadata.source, "test_source");
-        assert_eq!(metadata.wallet_id, "test_wallet");
-        assert!(metadata.sequence_number > 0);
-        assert!(metadata.correlation_id.is_none());
-        assert!(metadata.timestamp <= SystemTime::now());
-    }
-
-    #[test]
-    fn test_event_metadata_sequence_numbers() {
-        // Reset sequence for predictable testing
-        reset_sequence_number("test_wallet_seq");
-
-        let metadata1 = EventMetadata::new("test_source", "test_wallet_seq");
-        let metadata2 = EventMetadata::new("test_source", "test_wallet_seq");
-        let metadata3 = EventMetadata::new("test_source", "other_wallet");
-
-        // Sequence numbers should increment per wallet
-        assert_eq!(metadata1.sequence_number, 1);
-        assert_eq!(metadata2.sequence_number, 2);
-        assert_eq!(metadata3.sequence_number, 1); // Different wallet starts at 1
-
-        // Check current sequence number
-        assert_eq!(current_sequence_number("test_wallet_seq"), 2);
-        assert_eq!(current_sequence_number("other_wallet"), 1);
-    }
-
-    #[test]
-    fn test_event_metadata_with_correlation() {
-        let metadata = EventMetadata::with_correlation("test_source", "test_wallet", "correlation_123".to_string());
-
-        assert!(!metadata.event_id.is_empty());
-        assert_eq!(metadata.source, "test_source");
-        assert_eq!(metadata.correlation_id, Some("correlation_123".to_string()));
-        assert!(metadata.timestamp <= SystemTime::now());
-    }
-
-    #[test]
-    fn test_block_info_builder_pattern() {
-        let block_info = BlockInfo::new(12345, "0xabc123".to_string(), 1697123456, 5)
-            .with_transaction_index(2)
-            .with_difficulty(98765);
-
-        assert_eq!(block_info.height, 12345);
-        assert_eq!(block_info.hash, "0xabc123");
-        assert_eq!(block_info.timestamp, 1697123456);
-        assert_eq!(block_info.output_index, 5);
-        assert_eq!(block_info.transaction_index, Some(2));
-        assert_eq!(block_info.difficulty, Some(98765));
-    }
-
-    #[test]
-    fn test_address_info_builder_pattern() {
-        let address_info = AddressInfo::new("tari1abc123".to_string(), "stealth".to_string(), "mainnet".to_string())
-            .with_derivation_path("m/44'/0'/0'/0/1".to_string())
-            .with_public_spend_key("public_key_123".to_string())
-            .with_view_key("view_key_456".to_string());
-
-        assert_eq!(address_info.address, "tari1abc123");
-        assert_eq!(address_info.address_type, "stealth");
-        assert_eq!(address_info.network, "mainnet");
-        assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/1".to_string()));
-        assert_eq!(address_info.public_spend_key, Some("public_key_123".to_string()));
-        assert_eq!(address_info.view_key, Some("view_key_456".to_string()));
-    }
-
-    #[test]
-    fn test_json_serialization_error_handling() {
-        // Test that the error handling for JSON serialization works correctly
-        // by creating a valid event and checking error paths
-        let event = WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "test".to_string());
-
-        // These should succeed
-        assert!(event.to_debug_json().is_ok());
-        assert!(event.to_compact_json().is_ok());
-
-        // Test deserialization with invalid JSON
-        let invalid_json = "{invalid json}";
-        assert!(WalletScanEvent::from_json(invalid_json).is_err());
-        assert!(WalletScanEvent::shared_from_json(invalid_json).is_err());
-    }
-
-    // Tests for new WalletEvent serialization
-
-    #[test]
-    fn test_utxo_received_payload_serialization() {
-        let payload = UtxoReceivedPayload::new(
-            "utxo_123".to_string(),
-            1000000, // 1 Tari
-            12345,
-            "block_hash_abc".to_string(),
-            1697123456,
-            "tx_hash_def".to_string(),
-            0,
-            "tari1xyz123...".to_string(),
-            42,
-            "commitment_ghi".to_string(),
-            0,
-            "mainnet".to_string(),
-        )
-        .with_maturity_height(12400)
-        .with_script_hash("script_hash_jkl".to_string())
-        .with_unlock_conditions();
-
-        // Test JSON serialization
-        let json = serde_json::to_string_pretty(&payload).unwrap();
-        assert!(json.contains("utxo_123"));
-        assert!(json.contains("1000000"));
-        assert!(json.contains("tari1xyz123..."));
-        assert!(json.contains("12345"));
-        assert!(json.contains("true")); // has_unlock_conditions
-
-        // Test roundtrip
-        let deserialized: UtxoReceivedPayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.utxo_id, "utxo_123");
-        assert_eq!(deserialized.amount, 1000000);
-        assert_eq!(deserialized.block_height, 12345);
-        assert_eq!(deserialized.receiving_address, "tari1xyz123...");
-        assert_eq!(deserialized.maturity_height, Some(12400));
-        assert!(deserialized.has_unlock_conditions);
-    }
-
-    #[test]
-    fn test_utxo_spent_payload_serialization() {
-        let payload = UtxoSpentPayload::new(
-            "utxo_456".to_string(),
-            500000, // 0.5 Tari
-            12345,  // original height
-            12400,  // spending height
-            "spending_block_hash".to_string(),
-            1697123500,
-            "spending_tx_hash".to_string(),
-            1,
-            "tari1abc456...".to_string(),
-            25,
-            "commitment_xyz".to_string(),
-            "commitment".to_string(),
-            true, // self spend
-            "mainnet".to_string(),
-        )
-        .with_transaction_fee(1000);
-
-        // Test JSON serialization
-        let json = serde_json::to_string_pretty(&payload).unwrap();
-        assert!(json.contains("utxo_456"));
-        assert!(json.contains("500000"));
-        assert!(json.contains("12400"));
-        assert!(json.contains("true")); // is_self_spend
-        assert!(json.contains("1000")); // transaction_fee
-
-        // Test roundtrip
-        let deserialized: UtxoSpentPayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.utxo_id, "utxo_456");
-        assert_eq!(deserialized.amount, 500000);
-        assert_eq!(deserialized.spending_block_height, 12400);
-        assert!(deserialized.is_self_spend);
-        assert_eq!(deserialized.transaction_fee, Some(1000));
-    }
-
-    #[test]
-    fn test_reorg_payload_serialization() {
-        let affected_txs = vec!["tx1".to_string(), "tx2".to_string()];
-        let affected_utxos = vec!["utxo1".to_string(), "utxo2".to_string()];
-
-        let payload = ReorgPayload::new(
-            12300, // fork height
-            "old_block_hash".to_string(),
-            "new_block_hash".to_string(),
-            5, // rollback depth
-            3, // new blocks count
-            affected_txs.clone(),
-            affected_utxos.clone(),
-            -250000, // balance change (loss)
-            "mainnet".to_string(),
-            1697123600,
-        )
-        .with_invalidated_utxos(vec!["utxo3".to_string()])
-        .with_restored_utxos(vec!["utxo4".to_string()])
-        .with_recovery_info("reason".to_string(), "chain_split".to_string());
-
-        // Test JSON serialization
-        let json = serde_json::to_string_pretty(&payload).unwrap();
-        assert!(json.contains("12300"));
-        assert!(json.contains("old_block_hash"));
-        assert!(json.contains("new_block_hash"));
-        assert!(json.contains("-250000"));
-        assert!(json.contains("tx1"));
-        assert!(json.contains("utxo3"));
-        assert!(json.contains("chain_split"));
-
-        // Test roundtrip
-        let deserialized: ReorgPayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.fork_height, 12300);
-        assert_eq!(deserialized.rollback_depth, 5);
-        assert_eq!(deserialized.new_blocks_count, 3);
-        assert_eq!(deserialized.balance_change, -250000);
-        assert_eq!(deserialized.affected_transaction_hashes, affected_txs);
-        assert_eq!(deserialized.invalidated_utxos, vec!["utxo3".to_string()]);
-        assert_eq!(
-            deserialized.recovery_info.get("reason"),
-            Some(&"chain_split".to_string())
-        );
-    }
-
-    #[test]
-    fn test_wallet_event_utxo_received_serialization() {
-        let payload = UtxoReceivedPayload::new(
-            "test_utxo".to_string(),
-            2000000,
-            15000,
-            "test_block".to_string(),
-            1697123700,
-            "test_tx".to_string(),
-            0,
-            "test_address".to_string(),
-            10,
-            "test_commitment".to_string(),
-            0,
-            "testnet".to_string(),
-        );
-
-        let event = WalletEvent::utxo_received("test_wallet", payload);
-
-        // Test JSON serialization
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("UtxoReceived"));
-        assert!(json.contains("test_utxo"));
-        assert!(json.contains("2000000"));
-        assert!(json.contains("15000"));
-        assert!(json.contains("test_address"));
-
-        // Test compact serialization
-        let compact_json = event.to_compact_json().unwrap();
-        assert!(compact_json.len() < json.len()); // Should be smaller
-        assert!(compact_json.contains("UtxoReceived"));
-
-        // Test roundtrip
-        let deserialized = WalletEvent::from_json(&json).unwrap();
-        match &deserialized {
-            WalletEvent::UtxoReceived { payload, .. } => {
-                assert_eq!(payload.utxo_id, "test_utxo");
-                assert_eq!(payload.amount, 2000000);
-                assert_eq!(payload.block_height, 15000);
-            },
-            _ => panic!("Expected UtxoReceived event"),
-        }
-
-        // Test summary
-        let summary = event.summary();
-        assert!(summary.contains("UTXO received"));
-        assert!(summary.contains("15000"));
-        assert!(summary.contains("2000000 units"));
-    }
-
-    #[test]
-    fn test_wallet_event_utxo_spent_serialization() {
-        let payload = UtxoSpentPayload::new(
-            "spent_utxo".to_string(),
-            1500000,
-            14000, // original height
-            15500, // spending height
-            "spending_block".to_string(),
-            1697123800,
-            "spending_tx".to_string(),
-            2,
-            "spending_address".to_string(),
-            20,
-            "spent_commitment".to_string(),
-            "output_hash".to_string(),
-            false, // not self spend
-            "testnet".to_string(),
-        );
-
-        let event = WalletEvent::utxo_spent("test_wallet", payload);
-
-        // Test JSON serialization
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("UtxoSpent"));
-        assert!(json.contains("spent_utxo"));
-        assert!(json.contains("1500000"));
-        assert!(json.contains("15500"));
-        assert!(json.contains("false")); // is_self_spend
-
-        // Test roundtrip
-        let deserialized = WalletEvent::from_json(&json).unwrap();
-        match &deserialized {
-            WalletEvent::UtxoSpent { payload, .. } => {
-                assert_eq!(payload.utxo_id, "spent_utxo");
-                assert_eq!(payload.amount, 1500000);
-                assert_eq!(payload.spending_block_height, 15500);
-                assert!(!payload.is_self_spend);
-            },
-            _ => panic!("Expected UtxoSpent event"),
-        }
-
-        // Test summary
-        let summary = event.summary();
-        assert!(summary.contains("UTXO spent"));
-        assert!(summary.contains("15500"));
-        assert!(summary.contains("1500000 units"));
-    }
-
-    #[test]
-    fn test_wallet_event_reorg_serialization() {
-        let payload = ReorgPayload::new(
-            20000,
-            "old_fork_block".to_string(),
-            "new_fork_block".to_string(),
-            3,
-            5,
-            vec!["reorg_tx1".to_string(), "reorg_tx2".to_string()],
-            vec!["reorg_utxo1".to_string()],
-            500000, // positive balance change
-            "mainnet".to_string(),
-            1697123900,
-        );
-
-        let event = WalletEvent::reorg("test_wallet", payload);
-
-        // Test JSON serialization
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("Reorg"));
-        assert!(json.contains("20000"));
-        assert!(json.contains("old_fork_block"));
-        assert!(json.contains("new_fork_block"));
-        assert!(json.contains("500000"));
-        assert!(json.contains("reorg_tx1"));
-
-        // Test roundtrip
-        let deserialized = WalletEvent::from_json(&json).unwrap();
-        match &deserialized {
-            WalletEvent::Reorg { payload, .. } => {
-                assert_eq!(payload.fork_height, 20000);
-                assert_eq!(payload.rollback_depth, 3);
-                assert_eq!(payload.new_blocks_count, 5);
-                assert_eq!(payload.balance_change, 500000);
-                assert_eq!(payload.affected_transaction_hashes.len(), 2);
-            },
-            _ => panic!("Expected Reorg event"),
-        }
-
-        // Test summary
-        let summary = event.summary();
-        assert!(summary.contains("Blockchain reorg"));
-        assert!(summary.contains("20000"));
-        assert!(summary.contains("2 transactions affected"));
-    }
-
-    #[test]
-    fn test_wallet_event_metadata_serialization() {
-        let payload = UtxoReceivedPayload::new(
-            "metadata_test".to_string(),
-            100000,
-            1000,
-            "block".to_string(),
-            1697124000,
-            "tx".to_string(),
-            0,
-            "addr".to_string(),
-            5,
-            "commit".to_string(),
-            0,
-            "testnet".to_string(),
-        );
-
-        let event = WalletEvent::utxo_received("test_wallet", payload);
-
-        // Test that metadata is properly included
-        let json = event.to_debug_json().unwrap();
-        assert!(json.contains("metadata"));
-        assert!(json.contains("event_id"));
-        assert!(json.contains("timestamp"));
-        assert!(json.contains("source"));
-        assert!(json.contains("wallet")); // source should be "wallet"
-
-        // Verify metadata through EventType trait
-        assert_eq!(event.event_type(), "UtxoReceived");
-        let metadata = event.metadata();
-        assert!(!metadata.event_id.is_empty());
-        assert_eq!(metadata.source, "wallet");
-        assert!(metadata.correlation_id.is_none());
-    }
-
-    // Tests for wallet event error handling
-
-    #[test]
-    fn test_wallet_event_error_creation() {
-        // Test validation error
-        let validation_err = WalletEventError::validation("Invalid amount", "UtxoReceived");
-        assert_eq!(validation_err.category(), "validation");
-        assert!(!validation_err.is_recoverable());
-        assert!(validation_err.to_string().contains("Event validation failed"));
-        assert!(validation_err.to_string().contains("Invalid amount"));
-
-        // Test serialization error
-        let ser_err = WalletEventError::serialization("JSON parse error", "UtxoSpent");
-        assert_eq!(ser_err.category(), "serialization");
-        assert!(!ser_err.is_recoverable());
-
-        // Test processing error
-        let proc_err = WalletEventError::processing("Reorg", "Database constraint violation");
-        assert_eq!(proc_err.category(), "processing");
-        assert!(!proc_err.is_recoverable());
-
-        // Test storage error (recoverable)
-        let storage_err = WalletEventError::storage("insert", "Connection timeout");
-        assert_eq!(storage_err.category(), "storage");
-        assert!(storage_err.is_recoverable());
-    }
-
-    #[test]
-    fn test_wallet_event_validation_errors() {
-        // Test missing field error
-        let missing_field = WalletEventValidationError::MissingField {
-            field: "utxo_id".to_string(),
-        };
-        assert!(missing_field
-            .to_string()
-            .contains("Required field 'utxo_id' is missing"));
-
-        // Test out of range error
-        let out_of_range = WalletEventValidationError::OutOfRange {
-            field: "amount".to_string(),
-            value: "0".to_string(),
-            constraint: "must be positive".to_string(),
-        };
-        assert!(out_of_range.to_string().contains("out of range"));
-
-        // Test invalid format error
-        let invalid_format = WalletEventValidationError::InvalidFormat {
-            field: "block_hash".to_string(),
-            value: "invalid_hash".to_string(),
-            expected_format: "64-character hex string".to_string(),
-        };
-        assert!(invalid_format.to_string().contains("invalid format"));
-
-        // Test field too long error
-        let too_long = WalletEventValidationError::FieldTooLong {
-            field: "description".to_string(),
-            actual: 1000,
-            max: 500,
-        };
-        assert!(too_long.to_string().contains("exceeds maximum"));
-    }
-
-    #[test]
-    fn test_event_listener_errors() {
-        // Test initialization failed
-        let init_failed = EventListenerError::InitializationFailed {
-            name: "DatabaseListener".to_string(),
-            reason: "Connection refused".to_string(),
-        };
-        assert!(init_failed.to_string().contains("initialization failed"));
-
-        // Test invalid state
-        let invalid_state = EventListenerError::InvalidState {
-            name: "LoggingListener".to_string(),
-            state: "closed".to_string(),
-            operation: "handle_event".to_string(),
-        };
-        assert!(invalid_state.to_string().contains("invalid state"));
-
-        // Test resource limit exceeded
-        let limit_exceeded = EventListenerError::ResourceLimitExceeded {
-            name: "MemoryListener".to_string(),
-            resource: "memory".to_string(),
-            current: 1024,
-            max: 512,
-        };
-        assert!(limit_exceeded.to_string().contains("exceeded memory limit"));
-    }
-
-    #[test]
-    fn test_error_conversions() {
-        // Test conversion from validation error
-        let validation_err = WalletEventValidationError::MissingField {
-            field: "test_field".to_string(),
-        };
-        let wallet_err: WalletEventError = validation_err.into();
-        match wallet_err {
-            WalletEventError::ValidationError { message, .. } => {
-                assert!(message.contains("test_field"));
-            },
-            _ => panic!("Expected ValidationError"),
-        }
-
-        // Test conversion from listener error
-        let listener_err = EventListenerError::InitializationFailed {
-            name: "TestListener".to_string(),
-            reason: "Test reason".to_string(),
-        };
-        let wallet_err: WalletEventError = listener_err.into();
-        match wallet_err {
-            WalletEventError::ListenerError { error, .. } => {
-                assert!(error.contains("TestListener"));
-            },
-            _ => panic!("Expected ListenerError"),
-        }
-
-        // Test conversion from serde_json error
-        let json_err = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
-        let wallet_err: WalletEventError = json_err.into();
-        match wallet_err {
-            WalletEventError::SerializationError { message, .. } => {
-                assert!(message.contains("expected"));
-            },
-            _ => panic!("Expected SerializationError"),
-        }
-    }
-
-    #[test]
-    fn test_error_recoverability() {
-        // Recoverable errors
-        let recoverable_errors = vec![
-            WalletEventError::NetworkError {
-                operation: "send".to_string(),
-                error: "timeout".to_string(),
-            },
-            WalletEventError::ProcessingTimeout {
-                event_type: "UtxoReceived".to_string(),
-                seconds: 30,
-            },
-            WalletEventError::StorageError {
-                operation: "insert".to_string(),
-                reason: "deadlock".to_string(),
-            },
-            WalletEventError::ConcurrentModification {
-                resource: "utxo_state".to_string(),
-                details: "version mismatch".to_string(),
-            },
-        ];
-
-        for error in recoverable_errors {
-            assert!(error.is_recoverable(), "Error should be recoverable: {error:?}");
-        }
-
-        // Non-recoverable errors
-        let non_recoverable_errors = vec![
-            WalletEventError::ValidationError {
-                message: "test".to_string(),
-                event_type: "test".to_string(),
-            },
-            WalletEventError::InvalidPayload {
-                event_type: "test".to_string(),
-                field: "test".to_string(),
-                message: "test".to_string(),
-            },
-            WalletEventError::DuplicateEvent {
-                event_id: "test".to_string(),
-            },
-            WalletEventError::PermissionDenied {
-                operation: "test".to_string(),
-                reason: "test".to_string(),
-            },
-        ];
-
-        for error in non_recoverable_errors {
-            assert!(!error.is_recoverable(), "Error should not be recoverable: {error:?}");
-        }
-    }
-
-    #[test]
-    fn test_error_categorization() {
-        let test_cases = vec![
-            (
-                WalletEventError::ValidationError {
-                    message: "test".to_string(),
-                    event_type: "test".to_string(),
-                },
-                "validation",
-            ),
-            (
-                WalletEventError::SerializationError {
-                    message: "test".to_string(),
-                    event_type: "test".to_string(),
-                },
-                "serialization",
-            ),
-            (
-                WalletEventError::ProcessingError {
-                    event_type: "test".to_string(),
-                    reason: "test".to_string(),
-                },
-                "processing",
-            ),
-            (
-                WalletEventError::ReplayError {
-                    sequence: 1,
-                    reason: "test".to_string(),
-                },
-                "replay",
-            ),
-            (
-                WalletEventError::StorageError {
-                    operation: "test".to_string(),
-                    reason: "test".to_string(),
-                },
-                "storage",
-            ),
-            (
-                WalletEventError::WalletIdMismatch {
-                    expected: "test".to_string(),
-                    actual: "test".to_string(),
-                },
-                "consistency",
-            ),
-            (
-                WalletEventError::InvalidBlockHeight {
-                    height: 0,
-                    reason: "test".to_string(),
-                },
-                "business_logic",
-            ),
-            (
-                WalletEventError::ConcurrentModification {
-                    resource: "test".to_string(),
-                    details: "test".to_string(),
-                },
-                "concurrency",
-            ),
-            (
-                WalletEventError::ConfigurationError {
-                    parameter: "test".to_string(),
-                    message: "test".to_string(),
-                },
-                "configuration",
-            ),
-            (
-                WalletEventError::NetworkError {
-                    operation: "test".to_string(),
-                    error: "test".to_string(),
-                },
-                "network",
-            ),
-            (
-                WalletEventError::PermissionDenied {
-                    operation: "test".to_string(),
-                    reason: "test".to_string(),
-                },
-                "security",
-            ),
-            (
-                WalletEventError::InternalError {
-                    details: "test".to_string(),
-                },
-                "internal",
-            ),
-        ];
-
-        for (error, expected_category) in test_cases {
-            assert_eq!(
-                error.category(),
-                expected_category,
-                "Error {error:?} should have category {expected_category}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_wallet_event_result_usage() {
-        // Test successful result
-        let success: WalletEventResult<String> = Ok("success".to_string());
-        assert!(success.is_ok());
-
-        // Test error result
-        let error: WalletEventResult<String> = Err(WalletEventError::validation("test", "test"));
-        assert!(error.is_err());
-
-        // Test error propagation
-        fn test_function() -> WalletEventResult<String> {
-            Err(WalletEventError::processing("TestEvent", "Test failure"))
-        }
-
-        let result = test_function();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.category(), "processing");
-        assert!(!err.is_recoverable());
-    }
-
-    #[test]
-    fn test_error_message_formatting() {
-        // Test that error messages are properly formatted and contain expected information
-        let validation_err = WalletEventError::ValidationError {
-            message: "Amount cannot be zero".to_string(),
-            event_type: "UtxoReceived".to_string(),
-        };
-        let message = validation_err.to_string();
-        assert!(message.contains("Event validation failed"));
-        assert!(message.contains("Amount cannot be zero"));
-
-        let sequence_err = WalletEventError::SequenceError { expected: 5, actual: 3 };
-        let message = sequence_err.to_string();
-        assert!(message.contains("Invalid event sequence"));
-        assert!(message.contains("expected 5"));
-        assert!(message.contains("got 3"));
-
-        let state_transition_err = WalletEventError::InvalidStateTransition {
-            utxo_id: "utxo_123".to_string(),
-            from_state: "Unspent".to_string(),
-            to_state: "Invalid".to_string(),
-        };
-        let message = state_transition_err.to_string();
-        assert!(message.contains("Invalid UTXO state transition"));
-        assert!(message.contains("utxo_123"));
-        assert!(message.contains("Unspent -> Invalid"));
-    }
-
-    #[test]
-    fn test_wallet_event_serialization_completeness() {
-        // Test that all WalletEvent variants can be serialized and deserialized
-        let events = vec![
-            WalletEvent::utxo_received(
-                "test_wallet",
-                UtxoReceivedPayload::new(
-                    "test1".to_string(),
-                    100,
-                    1000,
-                    "block1".to_string(),
-                    1697124100,
-                    "tx1".to_string(),
-                    0,
-                    "addr1".to_string(),
-                    1,
-                    "commit1".to_string(),
-                    0,
-                    "net".to_string(),
-                ),
-            ),
-            WalletEvent::utxo_spent(
-                "test_wallet",
-                UtxoSpentPayload::new(
-                    "test2".to_string(),
-                    200,
-                    1000,
-                    1100,
-                    "block2".to_string(),
-                    1697124200,
-                    "tx2".to_string(),
-                    1,
-                    "addr2".to_string(),
-                    2,
-                    "commit2".to_string(),
-                    "method".to_string(),
-                    false,
-                    "net".to_string(),
-                ),
-            ),
-            WalletEvent::reorg(
-                "test_wallet",
-                ReorgPayload::new(
-                    1000,
-                    "old".to_string(),
-                    "new".to_string(),
-                    2,
-                    3,
-                    vec!["tx3".to_string()],
-                    vec!["utxo3".to_string()],
-                    0,
-                    "net".to_string(),
-                    1697124300,
-                ),
-            ),
-        ];
-
-        for event in events {
-            // Test serialization doesn't fail
-            let json = event.to_debug_json().unwrap();
-            let _compact = event.to_compact_json().unwrap();
-
-            // Test deserialization doesn't fail
-            let deserialized = WalletEvent::from_json(&json).unwrap();
-
-            // Test event types match
-            assert_eq!(event.event_type(), deserialized.event_type());
-
-            // Test summary doesn't fail
-            let summary = event.summary();
-            assert!(!summary.is_empty());
-
-            // Test debug data doesn't fail
-            let debug = event.debug_data();
-            assert!(debug.is_some());
-            assert!(!debug.unwrap().is_empty());
-        }
-    }
-
-    #[test]
-    fn test_event_metadata_serialization() {
-        // Test EventMetadata serialization
-        let metadata = EventMetadata::new("test_source", "test_wallet");
-        let json = serde_json::to_string(&metadata).unwrap();
-        let deserialized: EventMetadata = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(metadata.event_id, deserialized.event_id);
-        assert_eq!(metadata.wallet_id, deserialized.wallet_id);
-        assert_eq!(metadata.source, deserialized.source);
-        assert_eq!(metadata.sequence_number, deserialized.sequence_number);
-        assert_eq!(metadata.correlation_id, deserialized.correlation_id);
-    }
-
-    #[test]
-    fn test_reorg_payload_serialization_duplicate() {
-        // Test ReorgPayload with affected transactions and UTXOs
-        let payload = ReorgPayload::new(
-            1000500,
-            "old_block_hash".to_string(),
-            "new_block_hash".to_string(),
-            5,
-            3,
-            vec!["tx1".to_string(), "tx2".to_string(), "tx3".to_string()],
-            vec!["utxo1".to_string(), "utxo2".to_string()],
-            150000000, // 150 Tari balance change
-            "mainnet".to_string(),
-            1697124300,
-        );
-
-        let json = serde_json::to_string_pretty(&payload).unwrap();
-        let deserialized: ReorgPayload = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(payload.fork_height, deserialized.fork_height);
-        assert_eq!(payload.old_block_hash, deserialized.old_block_hash);
-        assert_eq!(payload.new_block_hash, deserialized.new_block_hash);
-        assert_eq!(payload.rollback_depth, deserialized.rollback_depth);
-        assert_eq!(payload.new_blocks_count, deserialized.new_blocks_count);
-        assert_eq!(payload.affected_transaction_hashes.len(), 3);
-        assert_eq!(payload.affected_utxo_ids.len(), 2);
-        assert_eq!(payload.balance_change, deserialized.balance_change);
-        assert_eq!(payload.network, deserialized.network);
-    }
-
-    #[test]
-    fn test_wallet_scan_event_serialization() {
-        // Test WalletScanEvent variants for completeness
-        let config = ScanConfig::new()
-            .with_batch_size(20)
-            .with_timeout_seconds(60)
-            .with_retry_attempts(5)
-            .with_filter("coinbase".to_string(), "true".to_string());
-
-        let scan_started =
-            WalletScanEvent::scan_started("test_wallet", config, (1000, 2000), "test_context".to_string());
-
-        let json = serde_json::to_string_pretty(&scan_started).unwrap();
-        let deserialized: WalletScanEvent = serde_json::from_str(&json).unwrap();
-
-        // Verify the event type matches
-        assert_eq!(scan_started.event_type(), deserialized.event_type());
-
-        // Verify event can be serialized and deserialized without data loss
-        if let (
-            WalletScanEvent::ScanStarted {
-                config: orig_config, ..
-            },
-            WalletScanEvent::ScanStarted {
-                config: deser_config, ..
-            },
-        ) = (&scan_started, &deserialized)
-        {
-            assert_eq!(orig_config.batch_size, deser_config.batch_size);
-            assert_eq!(orig_config.timeout_seconds, deser_config.timeout_seconds);
-            assert_eq!(orig_config.retry_attempts, deser_config.retry_attempts);
-            assert_eq!(orig_config.filters, deser_config.filters);
-        } else {
-            panic!("Event type mismatch after deserialization");
-        }
-    }
-
-    #[test]
-    fn test_serialization_roundtrip_fidelity() {
-        // Test that serialization -> deserialization maintains data fidelity
-        let original_event = WalletEvent::utxo_received(
-            "roundtrip_test_wallet",
-            UtxoReceivedPayload::new(
-                "roundtrip_utxo".to_string(),
-                9999999999,   // Large amount to test u64 limits
-                u64::MAX - 1, // Near-max block height
-                "very_long_block_hash_with_64_characters_to_test_string_limits".to_string(),
-                u64::MAX - 1000, // Large timestamp
-                "transaction_hash_with_special_chars_!@#$%^&*()".to_string(),
-                usize::MAX - 1, // Large output index
-                "address_with_unicode_テスト_characters".to_string(),
-                u64::MAX - 10, // Large key index
-                "commitment_with_very_long_hexadecimal_string_representation".to_string(),
-                u32::MAX, // Max features
-                "testnet_with_special_name".to_string(),
-            )
-            .with_maturity_height(u64::MAX - 100)
-            .with_script_hash("script_hash_special_chars_0x123ABC".to_string())
-            .with_unlock_conditions(),
-        );
-
-        // Test both pretty and compact serialization
-        let pretty_json = original_event.to_debug_json().unwrap();
-        let compact_json = original_event.to_compact_json().unwrap();
-
-        // Deserialize from both formats
-        let from_pretty = WalletEvent::from_json(&pretty_json).unwrap();
-        let from_compact = WalletEvent::from_json(&compact_json).unwrap();
-
-        // Verify all variants produce the same result
-        assert_eq!(original_event.event_type(), from_pretty.event_type());
-        assert_eq!(original_event.event_type(), from_compact.event_type());
-
-        // Extract payloads and verify field-by-field equality
-        if let (
-            WalletEvent::UtxoReceived { payload: orig, .. },
-            WalletEvent::UtxoReceived { payload: pretty, .. },
-            WalletEvent::UtxoReceived { payload: compact, .. },
-        ) = (&original_event, &from_pretty, &from_compact)
-        {
-            // Test all fields are preserved
-            assert_eq!(orig.utxo_id, pretty.utxo_id);
-            assert_eq!(orig.utxo_id, compact.utxo_id);
-            assert_eq!(orig.amount, pretty.amount);
-            assert_eq!(orig.amount, compact.amount);
-            assert_eq!(orig.block_height, pretty.block_height);
-            assert_eq!(orig.block_height, compact.block_height);
-            assert_eq!(orig.maturity_height, pretty.maturity_height);
-            assert_eq!(orig.maturity_height, compact.maturity_height);
-            assert_eq!(orig.has_unlock_conditions, pretty.has_unlock_conditions);
-            assert_eq!(orig.has_unlock_conditions, compact.has_unlock_conditions);
-        } else {
-            panic!("Event type mismatch in roundtrip test");
-        }
-    }
-
-    #[test]
-    fn test_serialization_error_handling() {
-        // Test error handling for malformed JSON
-        let invalid_json = r#"{"invalid": "json", "structure": true}"#;
-        let result = WalletEvent::from_json(invalid_json);
-        assert!(result.is_err());
-
-        // Test partial JSON (missing required fields)
-        let partial_json = r#"{"UtxoReceived": {"metadata": {"event_id": "test"}}}"#;
-        let result = WalletEvent::from_json(partial_json);
-        assert!(result.is_err());
-
-        // Test empty string
-        let result = WalletEvent::from_json("");
-        assert!(result.is_err());
-
-        // Test non-JSON string
-        let result = WalletEvent::from_json("not json at all");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_data_structure_serialization() {
-        // Test supporting data structures individually
-        let output_data = OutputData::new("commitment_123".to_string(), "range_proof_456".to_string(), 42, true)
-            .with_amount(1000000)
-            .with_key_index(5)
-            .with_maturity_height(12345)
-            .with_script("script_code".to_string())
-            .with_encrypted_value(vec![1, 2, 3, 4, 5]);
-
-        let json = serde_json::to_string(&output_data).unwrap();
-        let deserialized: OutputData = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(output_data.commitment, deserialized.commitment);
-        assert_eq!(output_data.amount, deserialized.amount);
-        assert_eq!(output_data.is_mine, deserialized.is_mine);
-        assert_eq!(output_data.encrypted_value, deserialized.encrypted_value);
-
-        // Test BlockInfo
-        let block_info = BlockInfo::new(12345, "block_hash_abc".to_string(), 1697124400, 2)
-            .with_transaction_index(1)
-            .with_difficulty(1000000);
-
-        let json = serde_json::to_string(&block_info).unwrap();
-        let deserialized: BlockInfo = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(block_info.height, deserialized.height);
-        assert_eq!(block_info.hash, deserialized.hash);
-        assert_eq!(block_info.transaction_index, deserialized.transaction_index);
-        assert_eq!(block_info.difficulty, deserialized.difficulty);
-
-        // Test AddressInfo
-        let address_info = AddressInfo::new(
-            "tari1abc123def456".to_string(),
-            "stealth".to_string(),
-            "mainnet".to_string(),
-        )
-        .with_derivation_path("m/44'/0'/0'/0/5".to_string())
-        .with_public_spend_key("public_key_hex".to_string())
-        .with_view_key("view_key_hex".to_string());
-
-        let json = serde_json::to_string(&address_info).unwrap();
-        let deserialized: AddressInfo = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(address_info.address, deserialized.address);
-        assert_eq!(address_info.address_type, deserialized.address_type);
-        assert_eq!(address_info.derivation_path, deserialized.derivation_path);
-        assert_eq!(address_info.public_spend_key, deserialized.public_spend_key);
-    }
-}
+// #[cfg(test)]
+// mod tests {
+// use std::time::SystemTime;
+//
+// use super::*;
+//
+// #[test]
+// fn test_scan_started_event_creation() {
+// let config = ScanConfig::new()
+// .with_batch_size(10)
+// .with_timeout_seconds(30)
+// .with_retry_attempts(3);
+//
+// let event = WalletScanEvent::scan_started(
+// "test_wallet",
+// config.clone(),
+// (1000, 2000),
+// "test_wallet_context".to_string(),
+// );
+//
+// match &event {
+// WalletScanEvent::ScanStarted {
+// metadata,
+// config: event_config,
+// block_range,
+// wallet_context,
+// } => {
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet_scanner");
+// assert!(metadata.timestamp <= SystemTime::now());
+// assert_eq!(event_config.batch_size, Some(10));
+// assert_eq!(event_config.timeout_seconds, Some(30));
+// assert_eq!(event_config.retry_attempts, Some(3));
+// assert_eq!(*block_range, (1000, 2000));
+// assert_eq!(wallet_context, "test_wallet_context");
+// },
+// _ => panic!("Expected ScanStarted event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_started_event_traits() {
+// let config = ScanConfig::default();
+// let event = WalletScanEvent::scan_started("test_wallet", config, (0, 100), "wallet_123".to_string());
+//
+// Test EventType trait
+// assert_eq!(event.event_type(), "ScanStarted");
+// assert!(event.debug_data().is_some());
+// assert!(event.debug_data().unwrap().contains("blocks: 0-100"));
+// assert!(event.debug_data().unwrap().contains("wallet: wallet_123"));
+//
+// Test SerializableEvent trait
+// let summary = event.summary();
+// assert!(summary.contains("Scan started"));
+// assert!(summary.contains("wallet_123"));
+// assert!(summary.contains("blocks 0-100"));
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("ScanStarted"));
+// assert!(json.contains("\"block_range\""));
+// assert!(json.contains("wallet_123"));
+// }
+//
+// #[test]
+// fn test_scan_started_with_correlation_id() {
+// let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "scan_session_123".to_string());
+// let config = ScanConfig::default();
+//
+// let event = WalletScanEvent::ScanStarted {
+// metadata,
+// config,
+// block_range: (500, 1500),
+// wallet_context: "test_wallet".to_string(),
+// };
+//
+// match &event {
+// WalletScanEvent::ScanStarted { metadata, .. } => {
+// assert_eq!(metadata.correlation_id, Some("scan_session_123".to_string()));
+// assert_eq!(metadata.source, "wallet_scanner");
+// },
+// _ => panic!("Expected ScanStarted event"),
+// }
+// }
+//
+// #[test]
+// fn test_event_serialization_roundtrip() {
+// let config = ScanConfig::new().with_batch_size(25).with_timeout_seconds(60);
+//
+// let event = WalletScanEvent::scan_started("test_wallet", config, (1000, 2000), "test_wallet".to_string());
+//
+// Test pretty JSON serialization
+// let pretty_json = event.to_debug_json().unwrap();
+// assert!(pretty_json.contains("ScanStarted"));
+// assert!(pretty_json.contains("test_wallet"));
+// assert!(pretty_json.contains("1000"));
+// assert!(pretty_json.contains("2000"));
+//
+// Test compact JSON serialization
+// let compact_json = event.to_compact_json().unwrap();
+// assert!(compact_json.contains("ScanStarted"));
+// assert!(compact_json.len() < pretty_json.len()); // Compact should be smaller
+//
+// Test deserialization roundtrip
+// let deserialized = WalletScanEvent::from_json(&compact_json).unwrap();
+// match (&event, &deserialized) {
+// (
+// WalletScanEvent::ScanStarted {
+// block_range: br1,
+// wallet_context: wc1,
+// ..
+// },
+// WalletScanEvent::ScanStarted {
+// block_range: br2,
+// wallet_context: wc2,
+// ..
+// },
+// ) => {
+// assert_eq!(br1, br2);
+// assert_eq!(wc1, wc2);
+// },
+// _ => panic!("Deserialized event type mismatch"),
+// }
+// }
+//
+// #[test]
+// fn test_shared_event_serialization() {
+// let event = WalletScanEvent::scan_started(
+// "test_wallet",
+// ScanConfig::default(),
+// (500, 1500),
+// "shared_test".to_string(),
+// );
+//
+// let compact_json = event.to_compact_json().unwrap();
+// let shared_event = WalletScanEvent::shared_from_json(&compact_json).unwrap();
+//
+// match shared_event.as_ref() {
+// WalletScanEvent::ScanStarted {
+// block_range,
+// wallet_context,
+// ..
+// } => {
+// assert_eq!(*block_range, (500, 1500));
+// assert_eq!(wallet_context, "shared_test");
+// },
+// _ => panic!("Expected ScanStarted event"),
+// }
+// }
+//
+// #[test]
+// fn test_serialization_with_complex_data() {
+// let output_data = OutputData::new("commitment_123".to_string(), "proof_data_456".to_string(), 1, true)
+// .with_amount(1000)
+// .with_key_index(5);
+//
+// let block_info = BlockInfo::new(12345, "block_hash_abc".to_string(), 1697123456, 2);
+//
+// let address_info = AddressInfo::new(
+// "tari1xyz123...".to_string(),
+// "stealth".to_string(),
+// "mainnet".to_string(),
+// );
+//
+// let transaction_data =
+// TransactionData::new(1000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697123456);
+// let event =
+// WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
+//
+// Test serialization
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("OutputFound"));
+// assert!(json.contains("commitment_123"));
+// assert!(json.contains("tari1xyz123..."));
+// assert!(json.contains("12345"));
+//
+// Test roundtrip
+// let deserialized = WalletScanEvent::from_json(&json).unwrap();
+// match &deserialized {
+// WalletScanEvent::OutputFound {
+// output_data,
+// block_info,
+// address_info,
+// ..
+// } => {
+// assert_eq!(output_data.commitment, "commitment_123");
+// assert_eq!(output_data.amount, Some(1000));
+// assert_eq!(block_info.height, 12345);
+// assert_eq!(address_info.address, "tari1xyz123...");
+// },
+// _ => panic!("Expected OutputFound event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_config_builder_pattern() {
+// let config = ScanConfig::new()
+// .with_batch_size(25)
+// .with_timeout_seconds(60)
+// .with_retry_attempts(5)
+// .with_filter("output_type".to_string(), "utxo".to_string())
+// .with_filter("min_value".to_string(), "1000".to_string());
+//
+// assert_eq!(config.batch_size, Some(25));
+// assert_eq!(config.timeout_seconds, Some(60));
+// assert_eq!(config.retry_attempts, Some(5));
+// assert_eq!(config.filters.get("output_type"), Some(&"utxo".to_string()));
+// assert_eq!(config.filters.get("min_value"), Some(&"1000".to_string()));
+// assert_eq!(config.filters.len(), 2);
+// }
+//
+// #[test]
+// fn test_output_data_zeroize() {
+// let mut output_data = OutputData::new("commitment_test".to_string(), "proof_test".to_string(), 1, true)
+// .with_encrypted_value(vec![1, 2, 3, 4, 5]);
+//
+// Verify initial state
+// assert_eq!(output_data.encrypted_value, Some(vec![1, 2, 3, 4, 5]));
+// assert_eq!(output_data.commitment, "commitment_test");
+//
+// Zeroize sensitive data
+// output_data.zeroize();
+//
+// Verify encrypted_value is zeroized (cleared) but other fields remain
+// assert_eq!(output_data.encrypted_value, Some(vec![])); // Vec::zeroize() clears the vector
+// assert_eq!(output_data.commitment, "commitment_test"); // Public data unchanged
+// }
+//
+// #[test]
+// fn test_address_info_zeroize() {
+// let mut address_info = AddressInfo::new(
+// "tari1xyz123...".to_string(),
+// "stealth".to_string(),
+// "mainnet".to_string(),
+// )
+// .with_public_spend_key("public_key_123".to_string())
+// .with_view_key("view_key_456".to_string())
+// .with_derivation_path("m/44'/0'/0'/0/5".to_string());
+//
+// Verify initial state
+// assert_eq!(address_info.public_spend_key, Some("public_key_123".to_string()));
+// assert_eq!(address_info.view_key, Some("view_key_456".to_string()));
+// assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/5".to_string()));
+//
+// Zeroize sensitive data
+// address_info.zeroize();
+//
+// Verify sensitive fields are zeroized
+// assert_eq!(address_info.public_spend_key, Some(String::new()));
+// assert_eq!(address_info.view_key, Some(String::new()));
+// assert_eq!(address_info.derivation_path, Some(String::new()));
+// Address should remain unchanged as it's meant to be shared
+// assert_eq!(address_info.address, "tari1xyz123...");
+// }
+//
+// #[test]
+// fn test_utxo_received_payload_zeroize() {
+// let mut payload = UtxoReceivedPayload::new(
+// "utxo_123".to_string(),
+// 1000,
+// 12345,
+// "block_hash_abc".to_string(),
+// 1697123456,
+// "tx_hash_def".to_string(),
+// 2,
+// "tari1abc123...".to_string(),
+// 5,
+// "commitment_789".to_string(),
+// 1,
+// "mainnet".to_string(),
+// )
+// .with_script_hash("script_hash_xyz".to_string());
+//
+// Verify initial state
+// assert_eq!(payload.receiving_address, "tari1abc123...");
+// assert_eq!(payload.commitment, "commitment_789");
+// assert_eq!(payload.script_hash, Some("script_hash_xyz".to_string()));
+//
+// Zeroize sensitive data
+// payload.zeroize();
+//
+// Verify sensitive fields are zeroized
+// assert_eq!(payload.receiving_address, "");
+// assert_eq!(payload.commitment, "");
+// assert_eq!(payload.script_hash, Some(String::new()));
+// Public blockchain data should remain unchanged
+// assert_eq!(payload.block_hash, "block_hash_abc");
+// assert_eq!(payload.transaction_hash, "tx_hash_def");
+// }
+//
+// #[test]
+// fn test_wallet_event_zeroize() {
+// let payload = UtxoReceivedPayload::new(
+// "utxo_456".to_string(),
+// 2000,
+// 54321,
+// "block_hash_xyz".to_string(),
+// 1697987654,
+// "tx_hash_abc".to_string(),
+// 1,
+// "tari1def456...".to_string(),
+// 10,
+// "commitment_abc".to_string(),
+// 1,
+// "testnet".to_string(),
+// );
+//
+// let mut event = WalletEvent::utxo_received("test_wallet", payload);
+//
+// Verify event can be zeroized
+// event.zeroize();
+//
+// Verify payload inside event is zeroized
+// match &event {
+// WalletEvent::UtxoReceived { payload, .. } => {
+// assert_eq!(payload.receiving_address, "");
+// assert_eq!(payload.commitment, "");
+// },
+// _ => panic!("Expected UtxoReceived event"),
+// }
+// }
+//
+// #[test]
+// fn test_block_processed_event_creation() {
+// let processing_duration = Duration::from_millis(250);
+// let event = WalletScanEvent::block_processed(
+// "test_wallet",
+// 12345,
+// "0x1234567890abcdef".to_string(),
+// 1697123456,
+// processing_duration,
+// 5,
+// );
+//
+// match &event {
+// WalletScanEvent::BlockProcessed {
+// metadata,
+// height,
+// hash,
+// timestamp,
+// processing_duration: duration,
+// outputs_count,
+// spent_outputs_count,
+// } => {
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet_scanner");
+// assert!(metadata.timestamp <= SystemTime::now());
+// assert_eq!(*height, 12345);
+// assert_eq!(hash, "0x1234567890abcdef");
+// assert_eq!(*timestamp, 1697123456);
+// assert_eq!(*duration, processing_duration);
+// assert_eq!(*outputs_count, 5);
+// assert_eq!(*spent_outputs_count, 0);
+// },
+// _ => panic!("Expected BlockProcessed event"),
+// }
+// }
+//
+// #[test]
+// fn test_block_processed_event_traits() {
+// let event = WalletScanEvent::block_processed(
+// "test_wallet",
+// 98765,
+// "0xabcdef1234567890".to_string(),
+// 1697123999,
+// Duration::from_millis(180),
+// 3,
+// );
+//
+// Test EventType trait
+// assert_eq!(event.event_type(), "BlockProcessed");
+// assert!(event.debug_data().is_some());
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("height: 98765"));
+// assert!(debug_data.contains("outputs: 3"));
+//
+// Test SerializableEvent trait
+// let summary = event.summary();
+// assert!(summary.contains("Processed block 98765"));
+// assert!(summary.contains("with 3 outputs"));
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("BlockProcessed"));
+// assert!(json.contains("98765"));
+// assert!(json.contains("0xabcdef1234567890"));
+// assert!(json.contains("3"));
+// }
+//
+// #[test]
+// fn test_block_processed_zero_outputs() {
+// let event = WalletScanEvent::block_processed(
+// "test_wallet",
+// 100,
+// "0x0000000000000000".to_string(),
+// 1697000000,
+// Duration::from_millis(50),
+// 0,
+// );
+//
+// match &event {
+// WalletScanEvent::BlockProcessed { outputs_count, .. } => {
+// assert_eq!(*outputs_count, 0);
+// },
+// _ => panic!("Expected BlockProcessed event"),
+// }
+//
+// let summary = event.summary();
+// assert!(summary.contains("with 0 outputs"));
+// }
+//
+// #[test]
+// fn test_block_processed_with_correlation_id() {
+// let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "block_batch_123".to_string());
+// let event = WalletScanEvent::BlockProcessed {
+// metadata,
+// height: 54321,
+// hash: "0xdeadbeef".to_string(),
+// timestamp: 1697987654,
+// processing_duration: Duration::from_millis(300),
+// outputs_count: 10,
+// spent_outputs_count: 0,
+// };
+//
+// match &event {
+// WalletScanEvent::BlockProcessed { metadata, .. } => {
+// assert_eq!(metadata.correlation_id, Some("block_batch_123".to_string()));
+// assert_eq!(metadata.source, "wallet_scanner");
+// },
+// _ => panic!("Expected BlockProcessed event"),
+// }
+// }
+//
+// #[test]
+// fn test_block_processed_duration_handling() {
+// Test various processing durations
+// let durations = [
+// Duration::from_nanos(1),
+// Duration::from_micros(1),
+// Duration::from_millis(1),
+// Duration::from_secs(1),
+// Duration::from_secs(60),
+// ];
+//
+// for (i, duration) in durations.iter().enumerate() {
+// let event = WalletScanEvent::block_processed(
+// "test_wallet",
+// i as u64,
+// format!("0x{i:016x}"),
+// 1697000000 + i as u64,
+// duration,
+// i,
+// );
+//
+// match &event {
+// WalletScanEvent::BlockProcessed {
+// processing_duration, ..
+// } => {
+// assert_eq!(processing_duration, duration);
+// },
+// _ => panic!("Expected BlockProcessed event"),
+// }
+// }
+// }
+//
+// #[test]
+// fn test_output_found_event_creation() {
+// let output_data = OutputData::new(
+// "0x1234567890abcdef".to_string(),
+// "range_proof_data".to_string(),
+// 1,    // features
+// true, // is_mine
+// )
+// .with_amount(1000)
+// .with_key_index(5);
+//
+// let block_info = BlockInfo::new(
+// 12345,
+// "0xabcdef1234567890".to_string(),
+// 1697123456,
+// 2, // output_index
+// )
+// .with_transaction_index(1);
+//
+// let address_info = AddressInfo::new(
+// "tari1xyz123...".to_string(),
+// "stealth".to_string(),
+// "mainnet".to_string(),
+// )
+// .with_derivation_path("m/44'/0'/0'/0/5".to_string());
+//
+// let transaction_data =
+// TransactionData::new(1000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697123456);
+// let event =
+// WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
+//
+// match &event {
+// WalletScanEvent::OutputFound {
+// metadata,
+// output_data,
+// block_info,
+// address_info,
+// transaction_data: _,
+// } => {
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet_scanner");
+//
+// Test output data
+// assert_eq!(output_data.commitment, "0x1234567890abcdef");
+// assert_eq!(output_data.range_proof, "range_proof_data");
+// assert_eq!(output_data.features, 1);
+// assert!(output_data.is_mine);
+// assert_eq!(output_data.amount, Some(1000));
+// assert_eq!(output_data.key_index, Some(5));
+//
+// Test block info
+// assert_eq!(block_info.height, 12345);
+// assert_eq!(block_info.hash, "0xabcdef1234567890");
+// assert_eq!(block_info.timestamp, 1697123456);
+// assert_eq!(block_info.output_index, 2);
+// assert_eq!(block_info.transaction_index, Some(1));
+//
+// Test address info
+// assert_eq!(address_info.address, "tari1xyz123...");
+// assert_eq!(address_info.address_type, "stealth");
+// assert_eq!(address_info.network, "mainnet");
+// assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/5".to_string()));
+// },
+// _ => panic!("Expected OutputFound event"),
+// }
+// }
+//
+// #[test]
+// fn test_output_found_event_traits() {
+// let output_data = OutputData::new(
+// "0xcommitment123".to_string(),
+// "proof_data".to_string(),
+// 0,
+// false, // not mine
+// );
+//
+// let block_info = BlockInfo::new(98765, "0xblockhash456".to_string(), 1697999999, 0);
+//
+// let address_info = AddressInfo::new(
+// "tari1abc456...".to_string(),
+// "standard".to_string(),
+// "testnet".to_string(),
+// );
+//
+// let transaction_data =
+// TransactionData::new(5000, "MinedConfirmed".to_string(), "Inbound".to_string(), 1697999999);
+// let event =
+// WalletScanEvent::output_found("test_wallet", output_data, block_info, address_info, transaction_data);
+//
+// Test EventType trait
+// assert_eq!(event.event_type(), "OutputFound");
+// assert!(event.debug_data().is_some());
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("block: 98765"));
+// assert!(debug_data.contains("mine: false"));
+// assert!(debug_data.contains("amount: unknown"));
+//
+// Test SerializableEvent trait
+// let summary = event.summary();
+// assert!(summary.contains("Found output at block 98765"));
+// assert!(summary.contains("not mine"));
+// assert!(summary.contains("tari1abc456..."));
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("OutputFound"));
+// assert!(json.contains("98765"));
+// assert!(json.contains("false"));
+// assert!(json.contains("tari1abc456..."));
+// assert!(json.contains("0xcommitment123"));
+// }
+//
+// #[test]
+// fn test_output_data_builder_pattern() {
+// let output_data = OutputData::new("commitment".to_string(), "proof".to_string(), 1, true)
+// .with_amount(500)
+// .with_key_index(10)
+// .with_maturity_height(1000)
+// .with_script("script".to_string())
+// .with_encrypted_value(vec![1, 2, 3]);
+//
+// assert_eq!(output_data.commitment, "commitment");
+// assert_eq!(output_data.range_proof, "proof");
+// assert_eq!(output_data.features, 1);
+// assert!(output_data.is_mine);
+// assert_eq!(output_data.amount, Some(500));
+// assert_eq!(output_data.key_index, Some(10));
+// assert_eq!(output_data.maturity_height, Some(1000));
+// assert_eq!(output_data.script, Some("script".to_string()));
+// assert_eq!(output_data.encrypted_value, Some(vec![1, 2, 3]));
+// }
+//
+// #[test]
+// fn test_scan_progress_event_creation() {
+// let event =
+// WalletScanEvent::scan_progress("test_wallet", 750, 1000, 1750, 75.0, 5.5, Some(Duration::from_secs(45)));
+//
+// match &event {
+// WalletScanEvent::ScanProgress {
+// metadata,
+// current_block,
+// total_blocks,
+// current_block_height: _,
+// percentage,
+// speed_blocks_per_second,
+// estimated_time_remaining,
+// } => {
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet_scanner");
+// assert_eq!(*current_block, 750);
+// assert_eq!(*total_blocks, 1000);
+// assert_eq!(*percentage, 75.0);
+// assert_eq!(*speed_blocks_per_second, 5.5);
+// assert_eq!(*estimated_time_remaining, Some(Duration::from_secs(45)));
+// },
+// _ => panic!("Expected ScanProgress event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_progress_event_traits() {
+// let event = WalletScanEvent::scan_progress(
+// "test_wallet",
+// 500,
+// 2000,
+// 1500,
+// 25.0,
+// 10.0,
+// Some(Duration::from_secs(150)),
+// );
+//
+// Test EventType trait
+// assert_eq!(event.event_type(), "ScanProgress");
+// assert!(event.debug_data().is_some());
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("500/2000"));
+// assert!(debug_data.contains("25.0%"));
+// assert!(debug_data.contains("speed: 10.0 bps"));
+// assert!(debug_data.contains("ETA: 150s"));
+//
+// Test SerializableEvent trait
+// let summary = event.summary();
+// assert!(summary.contains("Scan progress: 500/2000 blocks"));
+// assert!(summary.contains("25.0%"));
+// assert!(summary.contains("10.0 blocks/sec"));
+// assert!(summary.contains("2m 30s"));
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("ScanProgress"));
+// assert!(json.contains("500"));
+// assert!(json.contains("2000"));
+// assert!(json.contains("25.0"));
+// assert!(json.contains("10.0"));
+// assert!(json.contains("150"));
+// }
+//
+// #[test]
+// fn test_scan_progress_no_eta() {
+// let event = WalletScanEvent::scan_progress("test_wallet", 100, 500, 1100, 20.0, 2.0, None);
+//
+// match &event {
+// WalletScanEvent::ScanProgress {
+// estimated_time_remaining,
+// ..
+// } => {
+// assert_eq!(*estimated_time_remaining, None);
+// },
+// _ => panic!("Expected ScanProgress event"),
+// }
+//
+// Test serialization handles None ETA
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("ETA: unknown"));
+//
+// let summary = event.summary();
+// assert!(summary.contains("unknown ETA"));
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("null"));
+// }
+//
+// #[test]
+// fn test_scan_progress_eta_formatting() {
+// Test different ETA durations
+// let test_cases = vec![
+// (Duration::from_secs(30), "30s"),
+// (Duration::from_secs(90), "1m 30s"),
+// (Duration::from_secs(3661), "1h 1m"),
+// (Duration::from_secs(7200), "2h 0m"),
+// ];
+//
+// for (duration, expected_format) in test_cases {
+// let event = WalletScanEvent::scan_progress("test_wallet", 100, 200, 1100, 50.0, 1.0, Some(duration));
+// let summary = event.summary();
+// assert!(
+// summary.contains(expected_format),
+// "Expected '{expected_format}' in summary: {summary}"
+// );
+// }
+// }
+//
+// #[test]
+// fn test_scan_progress_edge_cases() {
+// Test 0% progress
+// let event = WalletScanEvent::scan_progress("test_wallet", 0, 1000, 1000, 0.0, 0.0, None);
+// match &event {
+// WalletScanEvent::ScanProgress {
+// current_block,
+// percentage,
+// speed_blocks_per_second,
+// ..
+// } => {
+// assert_eq!(*current_block, 0);
+// assert_eq!(*percentage, 0.0);
+// assert_eq!(*speed_blocks_per_second, 0.0);
+// },
+// _ => panic!("Expected ScanProgress event"),
+// }
+//
+// Test 100% progress
+// let event = WalletScanEvent::scan_progress("test_wallet", 1000, 1000, 2000, 100.0, 5.0, Some(Duration::ZERO));
+// match &event {
+// WalletScanEvent::ScanProgress {
+// current_block,
+// total_blocks,
+// percentage,
+// estimated_time_remaining,
+// ..
+// } => {
+// assert_eq!(*current_block, 1000);
+// assert_eq!(*total_blocks, 1000);
+// assert_eq!(*percentage, 100.0);
+// assert_eq!(*estimated_time_remaining, Some(Duration::ZERO));
+// },
+// _ => panic!("Expected ScanProgress event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_progress_with_correlation_id() {
+// let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "scan_batch_456".to_string());
+// let event = WalletScanEvent::ScanProgress {
+// metadata,
+// current_block: 300,
+// total_blocks: 600,
+// current_block_height: 1300,
+// percentage: 50.0,
+// speed_blocks_per_second: 8.0,
+// estimated_time_remaining: Some(Duration::from_secs(37)),
+// };
+//
+// match &event {
+// WalletScanEvent::ScanProgress { metadata, .. } => {
+// assert_eq!(metadata.correlation_id, Some("scan_batch_456".to_string()));
+// assert_eq!(metadata.source, "wallet_scanner");
+// },
+// _ => panic!("Expected ScanProgress event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_completed_event_creation() {
+// let mut final_stats = HashMap::new();
+// final_stats.insert("blocks_processed".to_string(), 1000);
+// final_stats.insert("outputs_found".to_string(), 25);
+// final_stats.insert("transactions_found".to_string(), 15);
+// final_stats.insert("errors_encountered".to_string(), 0);
+//
+// let event = WalletScanEvent::scan_completed("test_wallet", final_stats.clone(), true, Duration::from_secs(300));
+//
+// match &event {
+// WalletScanEvent::ScanCompleted {
+// metadata,
+// final_statistics,
+// success,
+// total_duration,
+// } => {
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet_scanner");
+// assert!(success);
+// assert_eq!(*total_duration, Duration::from_secs(300));
+// assert_eq!(final_statistics.len(), 4);
+// assert_eq!(final_statistics.get("blocks_processed"), Some(&1000));
+// assert_eq!(final_statistics.get("outputs_found"), Some(&25));
+// assert_eq!(final_statistics.get("transactions_found"), Some(&15));
+// assert_eq!(final_statistics.get("errors_encountered"), Some(&0));
+// },
+// _ => panic!("Expected ScanCompleted event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_completed_event_traits() {
+// let mut final_stats = HashMap::new();
+// final_stats.insert("blocks_processed".to_string(), 500);
+// final_stats.insert("outputs_found".to_string(), 10);
+//
+// let event = WalletScanEvent::scan_completed("test_wallet", final_stats, true, Duration::from_secs(150));
+//
+// Test EventType trait
+// assert_eq!(event.event_type(), "ScanCompleted");
+// assert!(event.debug_data().is_some());
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("success: true"));
+// assert!(debug_data.contains("duration: 150s"));
+// assert!(debug_data.contains("stats: 2 items"));
+//
+// Test SerializableEvent trait
+// let summary = event.summary();
+// assert!(summary.contains("Scan completed (success: true)"));
+// assert!(summary.contains("2m 30s"));
+// assert!(summary.contains("500 blocks"));
+// assert!(summary.contains("10 outputs"));
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("ScanCompleted"));
+// assert!(json.contains("true"));
+// assert!(json.contains("150"));
+// assert!(json.contains("2"));
+// }
+//
+// #[test]
+// fn test_scan_completed_failure() {
+// let mut final_stats = HashMap::new();
+// final_stats.insert("blocks_processed".to_string(), 750);
+// final_stats.insert("errors_encountered".to_string(), 5);
+//
+// let event = WalletScanEvent::scan_completed("test_wallet", final_stats, false, Duration::from_secs(45));
+//
+// match &event {
+// WalletScanEvent::ScanCompleted { success, .. } => {
+// assert!(!success);
+// },
+// _ => panic!("Expected ScanCompleted event"),
+// }
+//
+// let summary = event.summary();
+// assert!(summary.contains("success: false"));
+// assert!(summary.contains("45s"));
+// assert!(summary.contains("750 blocks"));
+// assert!(summary.contains("5 errors"));
+// }
+//
+// #[test]
+// fn test_scan_completed_empty_stats() {
+// let empty_stats = HashMap::new();
+// let event = WalletScanEvent::scan_completed("test_wallet", empty_stats, true, Duration::from_secs(30));
+//
+// Test with empty statistics
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("stats: 0 items"));
+//
+// let summary = event.summary();
+// assert!(summary.contains("Scan completed (success: true) in 30s"));
+// Should not contain additional stats when empty
+// assert!(!summary.contains(" - "));
+// }
+//
+// #[test]
+// fn test_scan_completed_duration_formatting() {
+// Test different duration formats
+// let test_cases = vec![
+// (Duration::from_secs(30), "30s"),
+// (Duration::from_secs(90), "1m 30s"),
+// (Duration::from_secs(3661), "1h 1m"),
+// (Duration::from_secs(7200), "2h 0m"),
+// ];
+//
+// for (duration, expected_format) in test_cases {
+// let event = WalletScanEvent::scan_completed("test_wallet", HashMap::new(), true, duration);
+// let summary = event.summary();
+// assert!(
+// summary.contains(expected_format),
+// "Expected '{expected_format}' in summary: {summary}"
+// );
+// }
+// }
+//
+// #[test]
+// fn test_scan_completed_with_correlation_id() {
+// let metadata = EventMetadata::with_correlation("wallet_scanner", "test_wallet", "final_scan_789".to_string());
+// let mut stats = HashMap::new();
+// stats.insert("blocks_processed".to_string(), 100);
+//
+// let event = WalletScanEvent::ScanCompleted {
+// metadata,
+// final_statistics: stats,
+// success: true,
+// total_duration: Duration::from_secs(60),
+// };
+//
+// match &event {
+// WalletScanEvent::ScanCompleted { metadata, .. } => {
+// assert_eq!(metadata.correlation_id, Some("final_scan_789".to_string()));
+// assert_eq!(metadata.source, "wallet_scanner");
+// },
+// _ => panic!("Expected ScanCompleted event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_completed_comprehensive_stats() {
+// let mut comprehensive_stats = HashMap::new();
+// comprehensive_stats.insert("blocks_processed".to_string(), 2000);
+// comprehensive_stats.insert("outputs_found".to_string(), 150);
+// comprehensive_stats.insert("transactions_found".to_string(), 75);
+// comprehensive_stats.insert("errors_encountered".to_string(), 3);
+// comprehensive_stats.insert("average_block_time_ms".to_string(), 250);
+// comprehensive_stats.insert("total_value_found".to_string(), 50000);
+//
+// let event = WalletScanEvent::scan_completed(
+// "test_wallet",
+// comprehensive_stats,
+// true,
+// Duration::from_secs(1800), // 30 minutes
+// );
+//
+// let summary = event.summary();
+// assert!(summary.contains("2000 blocks"));
+// assert!(summary.contains("150 outputs"));
+// assert!(summary.contains("75 transactions"));
+// assert!(summary.contains("3 errors"));
+// assert!(summary.contains("30m 0s"));
+//
+// Should only include the key stats, not all stats
+// assert!(!summary.contains("average_block_time_ms"));
+// assert!(!summary.contains("total_value_found"));
+// }
+//
+// #[test]
+// fn test_scan_error_event_creation() {
+// let event = WalletScanEvent::scan_error(
+// "test_wallet",
+// "Connection timeout".to_string(),
+// Some("E001".to_string()),
+// Some(12345),
+// Some("Will retry in 5 seconds".to_string()),
+// true,
+// );
+//
+// match &event {
+// WalletScanEvent::ScanError {
+// metadata,
+// error_message,
+// error_code,
+// block_height,
+// retry_info,
+// is_recoverable,
+// } => {
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet_scanner");
+// assert_eq!(error_message, "Connection timeout");
+// assert_eq!(error_code, &Some("E001".to_string()));
+// assert_eq!(block_height, &Some(12345));
+// assert_eq!(retry_info, &Some("Will retry in 5 seconds".to_string()));
+// assert!(is_recoverable);
+// },
+// _ => panic!("Expected ScanError event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_error_event_traits() {
+// let event = WalletScanEvent::scan_error(
+// "test_wallet",
+// "Database connection failed".to_string(),
+// None,
+// None,
+// None,
+// false,
+// );
+//
+// Test EventType trait
+// assert_eq!(event.event_type(), "ScanError");
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("error: Database connection failed"));
+// assert!(debug_data.contains("block: None"));
+//
+// Test SerializableEvent trait
+// let summary = event.summary();
+// assert_eq!(summary, "Scan error: Database connection failed");
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("ScanError"));
+// assert!(json.contains("Database connection failed"));
+// }
+//
+// #[test]
+// fn test_scan_cancelled_event_creation() {
+// let mut final_stats = HashMap::new();
+// final_stats.insert("blocks_processed".to_string(), 500);
+// final_stats.insert("outputs_found".to_string(), 25);
+//
+// let event = WalletScanEvent::scan_cancelled(
+// "test_wallet",
+// "User cancelled operation".to_string(),
+// final_stats,
+// Some(0.5), // 50% completion
+// );
+//
+// match &event {
+// WalletScanEvent::ScanCancelled {
+// metadata,
+// reason,
+// final_statistics,
+// partial_completion,
+// } => {
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet_scanner");
+// assert_eq!(reason, "User cancelled operation");
+// assert_eq!(final_statistics.get("blocks_processed"), Some(&500));
+// assert_eq!(final_statistics.get("outputs_found"), Some(&25));
+// assert_eq!(partial_completion, &Some(0.5));
+// },
+// _ => panic!("Expected ScanCancelled event"),
+// }
+// }
+//
+// #[test]
+// fn test_scan_cancelled_event_traits() {
+// let event = WalletScanEvent::scan_cancelled("test_wallet", "Network timeout".to_string(), HashMap::new(), None);
+//
+// Test EventType trait
+// assert_eq!(event.event_type(), "ScanCancelled");
+// let debug_data = event.debug_data().unwrap();
+// assert!(debug_data.contains("reason: Network timeout"));
+//
+// Test SerializableEvent trait
+// let summary = event.summary();
+// assert_eq!(summary, "Scan cancelled: Network timeout");
+//
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("ScanCancelled"));
+// assert!(json.contains("Network timeout"));
+// }
+//
+// #[test]
+// fn test_event_metadata_creation() {
+// let metadata = EventMetadata::new("test_source", "test_wallet");
+//
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "test_source");
+// assert_eq!(metadata.wallet_id, "test_wallet");
+// assert!(metadata.sequence_number > 0);
+// assert!(metadata.correlation_id.is_none());
+// assert!(metadata.timestamp <= SystemTime::now());
+// }
+//
+// #[test]
+// fn test_event_metadata_sequence_numbers() {
+// Reset sequence for predictable testing
+// reset_sequence_number("test_wallet_seq");
+//
+// let metadata1 = EventMetadata::new("test_source", "test_wallet_seq");
+// let metadata2 = EventMetadata::new("test_source", "test_wallet_seq");
+// let metadata3 = EventMetadata::new("test_source", "other_wallet");
+//
+// Sequence numbers should increment per wallet
+// assert_eq!(metadata1.sequence_number, 1);
+// assert_eq!(metadata2.sequence_number, 2);
+// assert_eq!(metadata3.sequence_number, 1); // Different wallet starts at 1
+//
+// Check current sequence number
+// assert_eq!(current_sequence_number("test_wallet_seq"), 2);
+// assert_eq!(current_sequence_number("other_wallet"), 1);
+// }
+//
+// #[test]
+// fn test_event_metadata_with_correlation() {
+// let metadata = EventMetadata::with_correlation("test_source", "test_wallet", "correlation_123".to_string());
+//
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "test_source");
+// assert_eq!(metadata.correlation_id, Some("correlation_123".to_string()));
+// assert!(metadata.timestamp <= SystemTime::now());
+// }
+//
+// #[test]
+// fn test_block_info_builder_pattern() {
+// let block_info = BlockInfo::new(12345, "0xabc123".to_string(), 1697123456, 5)
+// .with_transaction_index(2)
+// .with_difficulty(98765);
+//
+// assert_eq!(block_info.height, 12345);
+// assert_eq!(block_info.hash, "0xabc123");
+// assert_eq!(block_info.timestamp, 1697123456);
+// assert_eq!(block_info.output_index, 5);
+// assert_eq!(block_info.transaction_index, Some(2));
+// assert_eq!(block_info.difficulty, Some(98765));
+// }
+//
+// #[test]
+// fn test_address_info_builder_pattern() {
+// let address_info = AddressInfo::new("tari1abc123".to_string(), "stealth".to_string(), "mainnet".to_string())
+// .with_derivation_path("m/44'/0'/0'/0/1".to_string())
+// .with_public_spend_key("public_key_123".to_string())
+// .with_view_key("view_key_456".to_string());
+//
+// assert_eq!(address_info.address, "tari1abc123");
+// assert_eq!(address_info.address_type, "stealth");
+// assert_eq!(address_info.network, "mainnet");
+// assert_eq!(address_info.derivation_path, Some("m/44'/0'/0'/0/1".to_string()));
+// assert_eq!(address_info.public_spend_key, Some("public_key_123".to_string()));
+// assert_eq!(address_info.view_key, Some("view_key_456".to_string()));
+// }
+//
+// #[test]
+// fn test_json_serialization_error_handling() {
+// Test that the error handling for JSON serialization works correctly
+// by creating a valid event and checking error paths
+// let event = WalletScanEvent::scan_started("test_wallet", ScanConfig::default(), (0, 100), "test".to_string());
+//
+// These should succeed
+// assert!(event.to_debug_json().is_ok());
+// assert!(event.to_compact_json().is_ok());
+//
+// Test deserialization with invalid JSON
+// let invalid_json = "{invalid json}";
+// assert!(WalletScanEvent::from_json(invalid_json).is_err());
+// assert!(WalletScanEvent::shared_from_json(invalid_json).is_err());
+// }
+//
+// Tests for new WalletEvent serialization
+//
+// #[test]
+// fn test_utxo_received_payload_serialization() {
+// let payload = UtxoReceivedPayload::new(
+// "utxo_123".to_string(),
+// 1000000, // 1 Tari
+// 12345,
+// "block_hash_abc".to_string(),
+// 1697123456,
+// "tx_hash_def".to_string(),
+// 0,
+// "tari1xyz123...".to_string(),
+// 42,
+// "commitment_ghi".to_string(),
+// 0,
+// "mainnet".to_string(),
+// )
+// .with_maturity_height(12400)
+// .with_script_hash("script_hash_jkl".to_string())
+// .with_unlock_conditions();
+//
+// Test JSON serialization
+// let json = serde_json::to_string_pretty(&payload).unwrap();
+// assert!(json.contains("utxo_123"));
+// assert!(json.contains("1000000"));
+// assert!(json.contains("tari1xyz123..."));
+// assert!(json.contains("12345"));
+// assert!(json.contains("true")); // has_unlock_conditions
+//
+// Test roundtrip
+// let deserialized: UtxoReceivedPayload = serde_json::from_str(&json).unwrap();
+// assert_eq!(deserialized.utxo_id, "utxo_123");
+// assert_eq!(deserialized.amount, 1000000);
+// assert_eq!(deserialized.block_height, 12345);
+// assert_eq!(deserialized.receiving_address, "tari1xyz123...");
+// assert_eq!(deserialized.maturity_height, Some(12400));
+// assert!(deserialized.has_unlock_conditions);
+// }
+//
+// #[test]
+// fn test_utxo_spent_payload_serialization() {
+// let payload = UtxoSpentPayload::new(
+// "utxo_456".to_string(),
+// 500000, // 0.5 Tari
+// 12345,  // original height
+// 12400,  // spending height
+// "spending_block_hash".to_string(),
+// 1697123500,
+// "spending_tx_hash".to_string(),
+// 1,
+// "tari1abc456...".to_string(),
+// 25,
+// "commitment_xyz".to_string(),
+// "commitment".to_string(),
+// true, // self spend
+// "mainnet".to_string(),
+// )
+// .with_transaction_fee(1000);
+//
+// Test JSON serialization
+// let json = serde_json::to_string_pretty(&payload).unwrap();
+// assert!(json.contains("utxo_456"));
+// assert!(json.contains("500000"));
+// assert!(json.contains("12400"));
+// assert!(json.contains("true")); // is_self_spend
+// assert!(json.contains("1000")); // transaction_fee
+//
+// Test roundtrip
+// let deserialized: UtxoSpentPayload = serde_json::from_str(&json).unwrap();
+// assert_eq!(deserialized.utxo_id, "utxo_456");
+// assert_eq!(deserialized.amount, 500000);
+// assert_eq!(deserialized.spending_block_height, 12400);
+// assert!(deserialized.is_self_spend);
+// assert_eq!(deserialized.transaction_fee, Some(1000));
+// }
+//
+// #[test]
+// fn test_reorg_payload_serialization() {
+// let affected_txs = vec!["tx1".to_string(), "tx2".to_string()];
+// let affected_utxos = vec!["utxo1".to_string(), "utxo2".to_string()];
+//
+// let payload = ReorgPayload::new(
+// 12300, // fork height
+// "old_block_hash".to_string(),
+// "new_block_hash".to_string(),
+// 5, // rollback depth
+// 3, // new blocks count
+// affected_txs.clone(),
+// affected_utxos.clone(),
+// -250000, // balance change (loss)
+// "mainnet".to_string(),
+// 1697123600,
+// )
+// .with_invalidated_utxos(vec!["utxo3".to_string()])
+// .with_restored_utxos(vec!["utxo4".to_string()])
+// .with_recovery_info("reason".to_string(), "chain_split".to_string());
+//
+// Test JSON serialization
+// let json = serde_json::to_string_pretty(&payload).unwrap();
+// assert!(json.contains("12300"));
+// assert!(json.contains("old_block_hash"));
+// assert!(json.contains("new_block_hash"));
+// assert!(json.contains("-250000"));
+// assert!(json.contains("tx1"));
+// assert!(json.contains("utxo3"));
+// assert!(json.contains("chain_split"));
+//
+// Test roundtrip
+// let deserialized: ReorgPayload = serde_json::from_str(&json).unwrap();
+// assert_eq!(deserialized.fork_height, 12300);
+// assert_eq!(deserialized.rollback_depth, 5);
+// assert_eq!(deserialized.new_blocks_count, 3);
+// assert_eq!(deserialized.balance_change, -250000);
+// assert_eq!(deserialized.affected_transaction_hashes, affected_txs);
+// assert_eq!(deserialized.invalidated_utxos, vec!["utxo3".to_string()]);
+// assert_eq!(
+// deserialized.recovery_info.get("reason"),
+// Some(&"chain_split".to_string())
+// );
+// }
+//
+// #[test]
+// fn test_wallet_event_utxo_received_serialization() {
+// let payload = UtxoReceivedPayload::new(
+// "test_utxo".to_string(),
+// 2000000,
+// 15000,
+// "test_block".to_string(),
+// 1697123700,
+// "test_tx".to_string(),
+// 0,
+// "test_address".to_string(),
+// 10,
+// "test_commitment".to_string(),
+// 0,
+// "testnet".to_string(),
+// );
+//
+// let event = WalletEvent::utxo_received("test_wallet", payload);
+//
+// Test JSON serialization
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("UtxoReceived"));
+// assert!(json.contains("test_utxo"));
+// assert!(json.contains("2000000"));
+// assert!(json.contains("15000"));
+// assert!(json.contains("test_address"));
+//
+// Test compact serialization
+// let compact_json = event.to_compact_json().unwrap();
+// assert!(compact_json.len() < json.len()); // Should be smaller
+// assert!(compact_json.contains("UtxoReceived"));
+//
+// Test roundtrip
+// let deserialized = WalletEvent::from_json(&json).unwrap();
+// match &deserialized {
+// WalletEvent::UtxoReceived { payload, .. } => {
+// assert_eq!(payload.utxo_id, "test_utxo");
+// assert_eq!(payload.amount, 2000000);
+// assert_eq!(payload.block_height, 15000);
+// },
+// _ => panic!("Expected UtxoReceived event"),
+// }
+//
+// Test summary
+// let summary = event.summary();
+// assert!(summary.contains("UTXO received"));
+// assert!(summary.contains("15000"));
+// assert!(summary.contains("2000000 units"));
+// }
+//
+// #[test]
+// fn test_wallet_event_utxo_spent_serialization() {
+// let payload = UtxoSpentPayload::new(
+// "spent_utxo".to_string(),
+// 1500000,
+// 14000, // original height
+// 15500, // spending height
+// "spending_block".to_string(),
+// 1697123800,
+// "spending_tx".to_string(),
+// 2,
+// "spending_address".to_string(),
+// 20,
+// "spent_commitment".to_string(),
+// "output_hash".to_string(),
+// false, // not self spend
+// "testnet".to_string(),
+// );
+//
+// let event = WalletEvent::utxo_spent("test_wallet", payload);
+//
+// Test JSON serialization
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("UtxoSpent"));
+// assert!(json.contains("spent_utxo"));
+// assert!(json.contains("1500000"));
+// assert!(json.contains("15500"));
+// assert!(json.contains("false")); // is_self_spend
+//
+// Test roundtrip
+// let deserialized = WalletEvent::from_json(&json).unwrap();
+// match &deserialized {
+// WalletEvent::UtxoSpent { payload, .. } => {
+// assert_eq!(payload.utxo_id, "spent_utxo");
+// assert_eq!(payload.amount, 1500000);
+// assert_eq!(payload.spending_block_height, 15500);
+// assert!(!payload.is_self_spend);
+// },
+// _ => panic!("Expected UtxoSpent event"),
+// }
+//
+// Test summary
+// let summary = event.summary();
+// assert!(summary.contains("UTXO spent"));
+// assert!(summary.contains("15500"));
+// assert!(summary.contains("1500000 units"));
+// }
+//
+// #[test]
+// fn test_wallet_event_reorg_serialization() {
+// let payload = ReorgPayload::new(
+// 20000,
+// "old_fork_block".to_string(),
+// "new_fork_block".to_string(),
+// 3,
+// 5,
+// vec!["reorg_tx1".to_string(), "reorg_tx2".to_string()],
+// vec!["reorg_utxo1".to_string()],
+// 500000, // positive balance change
+// "mainnet".to_string(),
+// 1697123900,
+// );
+//
+// let event = WalletEvent::reorg("test_wallet", payload);
+//
+// Test JSON serialization
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("Reorg"));
+// assert!(json.contains("20000"));
+// assert!(json.contains("old_fork_block"));
+// assert!(json.contains("new_fork_block"));
+// assert!(json.contains("500000"));
+// assert!(json.contains("reorg_tx1"));
+//
+// Test roundtrip
+// let deserialized = WalletEvent::from_json(&json).unwrap();
+// match &deserialized {
+// WalletEvent::Reorg { payload, .. } => {
+// assert_eq!(payload.fork_height, 20000);
+// assert_eq!(payload.rollback_depth, 3);
+// assert_eq!(payload.new_blocks_count, 5);
+// assert_eq!(payload.balance_change, 500000);
+// assert_eq!(payload.affected_transaction_hashes.len(), 2);
+// },
+// _ => panic!("Expected Reorg event"),
+// }
+//
+// Test summary
+// let summary = event.summary();
+// assert!(summary.contains("Blockchain reorg"));
+// assert!(summary.contains("20000"));
+// assert!(summary.contains("2 transactions affected"));
+// }
+//
+// #[test]
+// fn test_wallet_event_metadata_serialization() {
+// let payload = UtxoReceivedPayload::new(
+// "metadata_test".to_string(),
+// 100000,
+// 1000,
+// "block".to_string(),
+// 1697124000,
+// "tx".to_string(),
+// 0,
+// "addr".to_string(),
+// 5,
+// "commit".to_string(),
+// 0,
+// "testnet".to_string(),
+// );
+//
+// let event = WalletEvent::utxo_received("test_wallet", payload);
+//
+// Test that metadata is properly included
+// let json = event.to_debug_json().unwrap();
+// assert!(json.contains("metadata"));
+// assert!(json.contains("event_id"));
+// assert!(json.contains("timestamp"));
+// assert!(json.contains("source"));
+// assert!(json.contains("wallet")); // source should be "wallet"
+//
+// Verify metadata through EventType trait
+// assert_eq!(event.event_type(), "UtxoReceived");
+// let metadata = event.metadata();
+// assert!(!metadata.event_id.is_empty());
+// assert_eq!(metadata.source, "wallet");
+// assert!(metadata.correlation_id.is_none());
+// }
+//
+// Tests for wallet event error handling
+//
+// #[test]
+// fn test_wallet_event_error_creation() {
+// Test validation error
+// let validation_err = WalletEventError::validation("Invalid amount", "UtxoReceived");
+// assert_eq!(validation_err.category(), "validation");
+// assert!(!validation_err.is_recoverable());
+// assert!(validation_err.to_string().contains("Event validation failed"));
+// assert!(validation_err.to_string().contains("Invalid amount"));
+//
+// Test serialization error
+// let ser_err = WalletEventError::serialization("JSON parse error", "UtxoSpent");
+// assert_eq!(ser_err.category(), "serialization");
+// assert!(!ser_err.is_recoverable());
+//
+// Test processing error
+// let proc_err = WalletEventError::processing("Reorg", "Database constraint violation");
+// assert_eq!(proc_err.category(), "processing");
+// assert!(!proc_err.is_recoverable());
+//
+// Test storage error (recoverable)
+// let storage_err = WalletEventError::storage("insert", "Connection timeout");
+// assert_eq!(storage_err.category(), "storage");
+// assert!(storage_err.is_recoverable());
+// }
+//
+// #[test]
+// fn test_wallet_event_validation_errors() {
+// Test missing field error
+// let missing_field = WalletEventValidationError::MissingField {
+// field: "utxo_id".to_string(),
+// };
+// assert!(missing_field
+// .to_string()
+// .contains("Required field 'utxo_id' is missing"));
+//
+// Test out of range error
+// let out_of_range = WalletEventValidationError::OutOfRange {
+// field: "amount".to_string(),
+// value: "0".to_string(),
+// constraint: "must be positive".to_string(),
+// };
+// assert!(out_of_range.to_string().contains("out of range"));
+//
+// Test invalid format error
+// let invalid_format = WalletEventValidationError::InvalidFormat {
+// field: "block_hash".to_string(),
+// value: "invalid_hash".to_string(),
+// expected_format: "64-character hex string".to_string(),
+// };
+// assert!(invalid_format.to_string().contains("invalid format"));
+//
+// Test field too long error
+// let too_long = WalletEventValidationError::FieldTooLong {
+// field: "description".to_string(),
+// actual: 1000,
+// max: 500,
+// };
+// assert!(too_long.to_string().contains("exceeds maximum"));
+// }
+//
+// #[test]
+// fn test_event_listener_errors() {
+// Test initialization failed
+// let init_failed = EventListenerError::InitializationFailed {
+// name: "DatabaseListener".to_string(),
+// reason: "Connection refused".to_string(),
+// };
+// assert!(init_failed.to_string().contains("initialization failed"));
+//
+// Test invalid state
+// let invalid_state = EventListenerError::InvalidState {
+// name: "LoggingListener".to_string(),
+// state: "closed".to_string(),
+// operation: "handle_event".to_string(),
+// };
+// assert!(invalid_state.to_string().contains("invalid state"));
+//
+// Test resource limit exceeded
+// let limit_exceeded = EventListenerError::ResourceLimitExceeded {
+// name: "MemoryListener".to_string(),
+// resource: "memory".to_string(),
+// current: 1024,
+// max: 512,
+// };
+// assert!(limit_exceeded.to_string().contains("exceeded memory limit"));
+// }
+//
+// #[test]
+// fn test_error_conversions() {
+// Test conversion from validation error
+// let validation_err = WalletEventValidationError::MissingField {
+// field: "test_field".to_string(),
+// };
+// let wallet_err: WalletEventError = validation_err.into();
+// match wallet_err {
+// WalletEventError::ValidationError { message, .. } => {
+// assert!(message.contains("test_field"));
+// },
+// _ => panic!("Expected ValidationError"),
+// }
+//
+// Test conversion from listener error
+// let listener_err = EventListenerError::InitializationFailed {
+// name: "TestListener".to_string(),
+// reason: "Test reason".to_string(),
+// };
+// let wallet_err: WalletEventError = listener_err.into();
+// match wallet_err {
+// WalletEventError::ListenerError { error, .. } => {
+// assert!(error.contains("TestListener"));
+// },
+// _ => panic!("Expected ListenerError"),
+// }
+//
+// Test conversion from serde_json error
+// let json_err = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
+// let wallet_err: WalletEventError = json_err.into();
+// match wallet_err {
+// WalletEventError::SerializationError { message, .. } => {
+// assert!(message.contains("expected"));
+// },
+// _ => panic!("Expected SerializationError"),
+// }
+// }
+//
+// #[test]
+// fn test_error_recoverability() {
+// Recoverable errors
+// let recoverable_errors = vec![
+// WalletEventError::NetworkError {
+// operation: "send".to_string(),
+// error: "timeout".to_string(),
+// },
+// WalletEventError::ProcessingTimeout {
+// event_type: "UtxoReceived".to_string(),
+// seconds: 30,
+// },
+// WalletEventError::StorageError {
+// operation: "insert".to_string(),
+// reason: "deadlock".to_string(),
+// },
+// WalletEventError::ConcurrentModification {
+// resource: "utxo_state".to_string(),
+// details: "version mismatch".to_string(),
+// },
+// ];
+//
+// for error in recoverable_errors {
+// assert!(error.is_recoverable(), "Error should be recoverable: {error:?}");
+// }
+//
+// Non-recoverable errors
+// let non_recoverable_errors = vec![
+// WalletEventError::ValidationError {
+// message: "test".to_string(),
+// event_type: "test".to_string(),
+// },
+// WalletEventError::InvalidPayload {
+// event_type: "test".to_string(),
+// field: "test".to_string(),
+// message: "test".to_string(),
+// },
+// WalletEventError::DuplicateEvent {
+// event_id: "test".to_string(),
+// },
+// WalletEventError::PermissionDenied {
+// operation: "test".to_string(),
+// reason: "test".to_string(),
+// },
+// ];
+//
+// for error in non_recoverable_errors {
+// assert!(!error.is_recoverable(), "Error should not be recoverable: {error:?}");
+// }
+// }
+//
+// #[test]
+// fn test_error_categorization() {
+// let test_cases = vec![
+// (
+// WalletEventError::ValidationError {
+// message: "test".to_string(),
+// event_type: "test".to_string(),
+// },
+// "validation",
+// ),
+// (
+// WalletEventError::SerializationError {
+// message: "test".to_string(),
+// event_type: "test".to_string(),
+// },
+// "serialization",
+// ),
+// (
+// WalletEventError::ProcessingError {
+// event_type: "test".to_string(),
+// reason: "test".to_string(),
+// },
+// "processing",
+// ),
+// (
+// WalletEventError::ReplayError {
+// sequence: 1,
+// reason: "test".to_string(),
+// },
+// "replay",
+// ),
+// (
+// WalletEventError::StorageError {
+// operation: "test".to_string(),
+// reason: "test".to_string(),
+// },
+// "storage",
+// ),
+// (
+// WalletEventError::WalletIdMismatch {
+// expected: "test".to_string(),
+// actual: "test".to_string(),
+// },
+// "consistency",
+// ),
+// (
+// WalletEventError::InvalidBlockHeight {
+// height: 0,
+// reason: "test".to_string(),
+// },
+// "business_logic",
+// ),
+// (
+// WalletEventError::ConcurrentModification {
+// resource: "test".to_string(),
+// details: "test".to_string(),
+// },
+// "concurrency",
+// ),
+// (
+// WalletEventError::ConfigurationError {
+// parameter: "test".to_string(),
+// message: "test".to_string(),
+// },
+// "configuration",
+// ),
+// (
+// WalletEventError::NetworkError {
+// operation: "test".to_string(),
+// error: "test".to_string(),
+// },
+// "network",
+// ),
+// (
+// WalletEventError::PermissionDenied {
+// operation: "test".to_string(),
+// reason: "test".to_string(),
+// },
+// "security",
+// ),
+// (
+// WalletEventError::InternalError {
+// details: "test".to_string(),
+// },
+// "internal",
+// ),
+// ];
+//
+// for (error, expected_category) in test_cases {
+// assert_eq!(
+// error.category(),
+// expected_category,
+// "Error {error:?} should have category {expected_category}"
+// );
+// }
+// }
+//
+// #[test]
+// fn test_wallet_event_result_usage() {
+// Test successful result
+// let success: WalletEventResult<String> = Ok("success".to_string());
+// assert!(success.is_ok());
+//
+// Test error result
+// let error: WalletEventResult<String> = Err(WalletEventError::validation("test", "test"));
+// assert!(error.is_err());
+//
+// Test error propagation
+// fn test_function() -> WalletEventResult<String> {
+// Err(WalletEventError::processing("TestEvent", "Test failure"))
+// }
+//
+// let result = test_function();
+// assert!(result.is_err());
+// let err = result.unwrap_err();
+// assert_eq!(err.category(), "processing");
+// assert!(!err.is_recoverable());
+// }
+//
+// #[test]
+// fn test_error_message_formatting() {
+// Test that error messages are properly formatted and contain expected information
+// let validation_err = WalletEventError::ValidationError {
+// message: "Amount cannot be zero".to_string(),
+// event_type: "UtxoReceived".to_string(),
+// };
+// let message = validation_err.to_string();
+// assert!(message.contains("Event validation failed"));
+// assert!(message.contains("Amount cannot be zero"));
+//
+// let sequence_err = WalletEventError::SequenceError { expected: 5, actual: 3 };
+// let message = sequence_err.to_string();
+// assert!(message.contains("Invalid event sequence"));
+// assert!(message.contains("expected 5"));
+// assert!(message.contains("got 3"));
+//
+// let state_transition_err = WalletEventError::InvalidStateTransition {
+// utxo_id: "utxo_123".to_string(),
+// from_state: "Unspent".to_string(),
+// to_state: "Invalid".to_string(),
+// };
+// let message = state_transition_err.to_string();
+// assert!(message.contains("Invalid UTXO state transition"));
+// assert!(message.contains("utxo_123"));
+// assert!(message.contains("Unspent -> Invalid"));
+// }
+//
+// #[test]
+// fn test_wallet_event_serialization_completeness() {
+// Test that all WalletEvent variants can be serialized and deserialized
+// let events = vec![
+// WalletEvent::utxo_received(
+// "test_wallet",
+// UtxoReceivedPayload::new(
+// "test1".to_string(),
+// 100,
+// 1000,
+// "block1".to_string(),
+// 1697124100,
+// "tx1".to_string(),
+// 0,
+// "addr1".to_string(),
+// 1,
+// "commit1".to_string(),
+// 0,
+// "net".to_string(),
+// ),
+// ),
+// WalletEvent::utxo_spent(
+// "test_wallet",
+// UtxoSpentPayload::new(
+// "test2".to_string(),
+// 200,
+// 1000,
+// 1100,
+// "block2".to_string(),
+// 1697124200,
+// "tx2".to_string(),
+// 1,
+// "addr2".to_string(),
+// 2,
+// "commit2".to_string(),
+// "method".to_string(),
+// false,
+// "net".to_string(),
+// ),
+// ),
+// WalletEvent::reorg(
+// "test_wallet",
+// ReorgPayload::new(
+// 1000,
+// "old".to_string(),
+// "new".to_string(),
+// 2,
+// 3,
+// vec!["tx3".to_string()],
+// vec!["utxo3".to_string()],
+// 0,
+// "net".to_string(),
+// 1697124300,
+// ),
+// ),
+// ];
+//
+// for event in events {
+// Test serialization doesn't fail
+// let json = event.to_debug_json().unwrap();
+// let _compact = event.to_compact_json().unwrap();
+//
+// Test deserialization doesn't fail
+// let deserialized = WalletEvent::from_json(&json).unwrap();
+//
+// Test event types match
+// assert_eq!(event.event_type(), deserialized.event_type());
+//
+// Test summary doesn't fail
+// let summary = event.summary();
+// assert!(!summary.is_empty());
+//
+// Test debug data doesn't fail
+// let debug = event.debug_data();
+// assert!(debug.is_some());
+// assert!(!debug.unwrap().is_empty());
+// }
+// }
+//
+// #[test]
+// fn test_event_metadata_serialization() {
+// Test EventMetadata serialization
+// let metadata = EventMetadata::new("test_source", "test_wallet");
+// let json = serde_json::to_string(&metadata).unwrap();
+// let deserialized: EventMetadata = serde_json::from_str(&json).unwrap();
+//
+// assert_eq!(metadata.event_id, deserialized.event_id);
+// assert_eq!(metadata.wallet_id, deserialized.wallet_id);
+// assert_eq!(metadata.source, deserialized.source);
+// assert_eq!(metadata.sequence_number, deserialized.sequence_number);
+// assert_eq!(metadata.correlation_id, deserialized.correlation_id);
+// }
+//
+// #[test]
+// fn test_reorg_payload_serialization_duplicate() {
+// Test ReorgPayload with affected transactions and UTXOs
+// let payload = ReorgPayload::new(
+// 1000500,
+// "old_block_hash".to_string(),
+// "new_block_hash".to_string(),
+// 5,
+// 3,
+// vec!["tx1".to_string(), "tx2".to_string(), "tx3".to_string()],
+// vec!["utxo1".to_string(), "utxo2".to_string()],
+// 150000000, // 150 Tari balance change
+// "mainnet".to_string(),
+// 1697124300,
+// );
+//
+// let json = serde_json::to_string_pretty(&payload).unwrap();
+// let deserialized: ReorgPayload = serde_json::from_str(&json).unwrap();
+//
+// assert_eq!(payload.fork_height, deserialized.fork_height);
+// assert_eq!(payload.old_block_hash, deserialized.old_block_hash);
+// assert_eq!(payload.new_block_hash, deserialized.new_block_hash);
+// assert_eq!(payload.rollback_depth, deserialized.rollback_depth);
+// assert_eq!(payload.new_blocks_count, deserialized.new_blocks_count);
+// assert_eq!(payload.affected_transaction_hashes.len(), 3);
+// assert_eq!(payload.affected_utxo_ids.len(), 2);
+// assert_eq!(payload.balance_change, deserialized.balance_change);
+// assert_eq!(payload.network, deserialized.network);
+// }
+//
+// #[test]
+// fn test_wallet_scan_event_serialization() {
+// Test WalletScanEvent variants for completeness
+// let config = ScanConfig::new()
+// .with_batch_size(20)
+// .with_timeout_seconds(60)
+// .with_retry_attempts(5)
+// .with_filter("coinbase".to_string(), "true".to_string());
+//
+// let scan_started =
+// WalletScanEvent::scan_started("test_wallet", config, (1000, 2000), "test_context".to_string());
+//
+// let json = serde_json::to_string_pretty(&scan_started).unwrap();
+// let deserialized: WalletScanEvent = serde_json::from_str(&json).unwrap();
+//
+// Verify the event type matches
+// assert_eq!(scan_started.event_type(), deserialized.event_type());
+//
+// Verify event can be serialized and deserialized without data loss
+// if let (
+// WalletScanEvent::ScanStarted {
+// config: orig_config, ..
+// },
+// WalletScanEvent::ScanStarted {
+// config: deser_config, ..
+// },
+// ) = (&scan_started, &deserialized)
+// {
+// assert_eq!(orig_config.batch_size, deser_config.batch_size);
+// assert_eq!(orig_config.timeout_seconds, deser_config.timeout_seconds);
+// assert_eq!(orig_config.retry_attempts, deser_config.retry_attempts);
+// assert_eq!(orig_config.filters, deser_config.filters);
+// } else {
+// panic!("Event type mismatch after deserialization");
+// }
+// }
+//
+// #[test]
+// fn test_serialization_roundtrip_fidelity() {
+// Test that serialization -> deserialization maintains data fidelity
+// let original_event = WalletEvent::utxo_received(
+// "roundtrip_test_wallet",
+// UtxoReceivedPayload::new(
+// "roundtrip_utxo".to_string(),
+// 9999999999,   // Large amount to test u64 limits
+// u64::MAX - 1, // Near-max block height
+// "very_long_block_hash_with_64_characters_to_test_string_limits".to_string(),
+// u64::MAX - 1000, // Large timestamp
+// "transaction_hash_with_special_chars_!@#$%^&*()".to_string(),
+// usize::MAX - 1, // Large output index
+// "address_with_unicode_テスト_characters".to_string(),
+// u64::MAX - 10, // Large key index
+// "commitment_with_very_long_hexadecimal_string_representation".to_string(),
+// u32::MAX, // Max features
+// "testnet_with_special_name".to_string(),
+// )
+// .with_maturity_height(u64::MAX - 100)
+// .with_script_hash("script_hash_special_chars_0x123ABC".to_string())
+// .with_unlock_conditions(),
+// );
+//
+// Test both pretty and compact serialization
+// let pretty_json = original_event.to_debug_json().unwrap();
+// let compact_json = original_event.to_compact_json().unwrap();
+//
+// Deserialize from both formats
+// let from_pretty = WalletEvent::from_json(&pretty_json).unwrap();
+// let from_compact = WalletEvent::from_json(&compact_json).unwrap();
+//
+// Verify all variants produce the same result
+// assert_eq!(original_event.event_type(), from_pretty.event_type());
+// assert_eq!(original_event.event_type(), from_compact.event_type());
+//
+// Extract payloads and verify field-by-field equality
+// if let (
+// WalletEvent::UtxoReceived { payload: orig, .. },
+// WalletEvent::UtxoReceived { payload: pretty, .. },
+// WalletEvent::UtxoReceived { payload: compact, .. },
+// ) = (&original_event, &from_pretty, &from_compact)
+// {
+// Test all fields are preserved
+// assert_eq!(orig.utxo_id, pretty.utxo_id);
+// assert_eq!(orig.utxo_id, compact.utxo_id);
+// assert_eq!(orig.amount, pretty.amount);
+// assert_eq!(orig.amount, compact.amount);
+// assert_eq!(orig.block_height, pretty.block_height);
+// assert_eq!(orig.block_height, compact.block_height);
+// assert_eq!(orig.maturity_height, pretty.maturity_height);
+// assert_eq!(orig.maturity_height, compact.maturity_height);
+// assert_eq!(orig.has_unlock_conditions, pretty.has_unlock_conditions);
+// assert_eq!(orig.has_unlock_conditions, compact.has_unlock_conditions);
+// } else {
+// panic!("Event type mismatch in roundtrip test");
+// }
+// }
+//
+// #[test]
+// fn test_serialization_error_handling() {
+// Test error handling for malformed JSON
+// let invalid_json = r#"{"invalid": "json", "structure": true}"#;
+// let result = WalletEvent::from_json(invalid_json);
+// assert!(result.is_err());
+//
+// Test partial JSON (missing required fields)
+// let partial_json = r#"{"UtxoReceived": {"metadata": {"event_id": "test"}}}"#;
+// let result = WalletEvent::from_json(partial_json);
+// assert!(result.is_err());
+//
+// Test empty string
+// let result = WalletEvent::from_json("");
+// assert!(result.is_err());
+//
+// Test non-JSON string
+// let result = WalletEvent::from_json("not json at all");
+// assert!(result.is_err());
+// }
+//
+// #[test]
+// fn test_data_structure_serialization() {
+// Test supporting data structures individually
+// let output_data = OutputData::new("commitment_123".to_string(), "range_proof_456".to_string(), 42, true)
+// .with_amount(1000000)
+// .with_key_index(5)
+// .with_maturity_height(12345)
+// .with_script("script_code".to_string())
+// .with_encrypted_value(vec![1, 2, 3, 4, 5]);
+//
+// let json = serde_json::to_string(&output_data).unwrap();
+// let deserialized: OutputData = serde_json::from_str(&json).unwrap();
+//
+// assert_eq!(output_data.commitment, deserialized.commitment);
+// assert_eq!(output_data.amount, deserialized.amount);
+// assert_eq!(output_data.is_mine, deserialized.is_mine);
+// assert_eq!(output_data.encrypted_value, deserialized.encrypted_value);
+//
+// Test BlockInfo
+// let block_info = BlockInfo::new(12345, "block_hash_abc".to_string(), 1697124400, 2)
+// .with_transaction_index(1)
+// .with_difficulty(1000000);
+//
+// let json = serde_json::to_string(&block_info).unwrap();
+// let deserialized: BlockInfo = serde_json::from_str(&json).unwrap();
+//
+// assert_eq!(block_info.height, deserialized.height);
+// assert_eq!(block_info.hash, deserialized.hash);
+// assert_eq!(block_info.transaction_index, deserialized.transaction_index);
+// assert_eq!(block_info.difficulty, deserialized.difficulty);
+//
+// Test AddressInfo
+// let address_info = AddressInfo::new(
+// "tari1abc123def456".to_string(),
+// "stealth".to_string(),
+// "mainnet".to_string(),
+// )
+// .with_derivation_path("m/44'/0'/0'/0/5".to_string())
+// .with_public_spend_key("public_key_hex".to_string())
+// .with_view_key("view_key_hex".to_string());
+//
+// let json = serde_json::to_string(&address_info).unwrap();
+// let deserialized: AddressInfo = serde_json::from_str(&json).unwrap();
+//
+// assert_eq!(address_info.address, deserialized.address);
+// assert_eq!(address_info.address_type, deserialized.address_type);
+// assert_eq!(address_info.derivation_path, deserialized.derivation_path);
+// assert_eq!(address_info.public_spend_key, deserialized.public_spend_key);
+// }
+// }

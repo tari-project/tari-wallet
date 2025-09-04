@@ -98,20 +98,9 @@ impl DatabaseDataProcessor {
     }
 
     /// Handle wallet operations (compatibility method)
-    pub async fn handle_wallet_operations(
-        &mut self,
-        config: &crate::scanning::BinaryScanConfig,
-        scan_context: Option<&crate::scanning::ScanContext>,
-    ) -> WalletResult<Option<crate::scanning::ScanContext>> {
-        self.storage.handle_wallet_operations(config, scan_context).await
-    }
-
-    /// Load scan context from wallet
-    pub async fn load_scan_context_from_wallet(
-        &mut self,
-        quiet: bool,
-    ) -> WalletResult<Option<crate::scanning::ScanContext>> {
-        self.storage.load_scan_context_from_wallet(quiet).await
+    pub async fn handle_wallet_operations(&mut self, config: &crate::scanning::BinaryScanConfig) -> WalletResult<()> {
+        self.storage.handle_wallet_operations(config).await?;
+        Ok(())
     }
 
     /// Get wallet birthday
