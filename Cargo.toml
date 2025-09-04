@@ -164,9 +164,9 @@ required-features = ["grpc"]
 name = "wallet"
 required-features = ["storage", "grpc"]
 
-[[bin]]
-name = "signing"
-required-features = ["http"]
+# [[bin]]
+# name = "signing"
+# required-features = ["http"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

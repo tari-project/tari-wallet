@@ -15,7 +15,6 @@ pub mod scanning;
 
 #[allow(dead_code)]
 #[cfg(feature = "storage")]
-pub mod signing;
 pub mod storage;
 pub mod utils;
 // pub mod validation;
@@ -35,7 +34,6 @@ pub use hex_utils::*;
 // pub use key_management::*;
 pub use scanning::*;
 #[cfg(feature = "storage")]
-pub use signing::*;
 pub use storage::*;
 // pub use validation::*;
 pub use wallet::*;
