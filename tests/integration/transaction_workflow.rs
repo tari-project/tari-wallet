@@ -564,7 +564,7 @@ async fn test_fee_calculation_workflow() {
 
         // Calculate fee rate (µT per byte, simulated)
         let estimated_tx_size = 500; // bytes
-        let fee_rate = fee_amount as f64 / estimated_tx_size as f64;
+        let fee_rate = fee_amount as f64 / f64::from(estimated_tx_size);
 
         println!("  {priority} priority: {fee_amount} µT fee ({fee_rate:.2} µT/byte)");
     }

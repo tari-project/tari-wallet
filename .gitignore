@@ -13,3 +13,6 @@ cobertura.xml
 lcov.info
 node_modules/
 data/
+
+# Ignore OS files
+.DS_Store

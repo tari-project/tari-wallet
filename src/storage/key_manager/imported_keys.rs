@@ -97,7 +97,7 @@ impl ImportedKeySql {
     pub async fn index(conn: &Connection, wallet_id: u32) -> Result<Vec<Self>, KeyManagerStorageError> {
         conn.call(move |conn| {
             let mut stmt = conn.prepare("SELECT * FROM imported_keys WHERE wallet_id = ? ORDER BY timestamp DESC")?;
-            let rows = stmt.query_map(params![wallet_id as i64], Self::row_to_state)?;
+            let rows = stmt.query_map(params![i64::from(wallet_id)], Self::row_to_state)?;
 
             let mut keys = Vec::new();
             for row in rows {
@@ -134,7 +134,7 @@ impl ImportedKeySql {
         let key_owned = key.to_hex();
         conn.call(move |conn| {
             let mut stmt = conn.prepare("SELECT * FROM imported_keys WHERE public_key = ? AND wallet_id = ?")?;
-            let mut rows = stmt.query_map(params![key_owned, wallet_id as i64], Self::row_to_state)?;
+            let mut rows = stmt.query_map(params![key_owned, i64::from(wallet_id)], Self::row_to_state)?;
 
             if let Some(row) = rows.next() {
                 Ok(Some(row?))
@@ -152,7 +152,7 @@ impl Encryptable<XChaCha20Poly1305> for ImportedKeySql {
     fn domain(&self, field_name: &'static str) -> Vec<u8> {
         [
             DOMAIN,
-            (self.wallet_id as u64).to_le_bytes().as_bytes(),
+            u64::from(self.wallet_id).to_le_bytes().as_bytes(),
             field_name.as_bytes(),
         ]
         .concat()
@@ -180,7 +180,7 @@ impl Encryptable<XChaCha20Poly1305> for NewImportedKeySql {
     fn domain(&self, field_name: &'static str) -> Vec<u8> {
         [
             DOMAIN,
-            (self.wallet_id as u64).to_le_bytes().as_bytes(),
+            u64::from(self.wallet_id).to_le_bytes().as_bytes(),
             field_name.as_bytes(),
         ]
         .concat()

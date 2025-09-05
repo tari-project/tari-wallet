@@ -37,7 +37,7 @@ pub struct ProgressInfo {
 impl ProgressInfo {
     /// Check if this progress update should be displayed based on frequency
     pub fn should_display(&self, frequency: usize) -> bool {
-        frequency > 0 && self.blocks_processed % frequency == 0
+        frequency > 0 && self.blocks_processed.is_multiple_of(frequency)
     }
 }
 

@@ -355,7 +355,10 @@ async fn handle_interactive_wallet_selection(storage_backend: &ScannerStorage, a
     }
 
     // Display wallet options
-    if !args.quiet {
+    if args.quiet {
+        // In quiet mode, default to the first wallet
+        Ok(wallets[0].id.expect("Wallet should have an ID"))
+    } else {
         println!();
         for (index, wallet) in wallets.iter().enumerate() {
             let wallet_type = if wallet.seed_phrase.is_some() {
@@ -405,9 +408,6 @@ async fn handle_interactive_wallet_selection(storage_backend: &ScannerStorage, a
         }
 
         Ok(selected_wallet.id.expect("Wallet should have an ID"))
-    } else {
-        // In quiet mode, default to the first wallet
-        Ok(wallets[0].id.expect("Wallet should have an ID"))
     }
 }
 

@@ -351,14 +351,14 @@ impl GrpcBlockchainScanner {
             excess: CompressedPublicKey::new(excess),
             excess_sig,
             hash_type: 0, // hash_type field not available in GRPC kernel data
-            burn_commitment: if !grpc_kernel.burn_commitment.is_empty() {
+            burn_commitment: if grpc_kernel.burn_commitment.is_empty() {
+                None
+            } else {
                 let mut commitment = [0u8; 32];
                 if grpc_kernel.burn_commitment.len() >= 32 {
                     commitment.copy_from_slice(&grpc_kernel.burn_commitment[..32]);
                 }
                 Some(CompressedCommitment::new(commitment))
-            } else {
-                None
             },
         }
     }

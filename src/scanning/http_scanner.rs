@@ -552,10 +552,10 @@ impl HttpBlockchainScanner {
 
         // Create minimal TransactionInput with the output hash
         Ok(TransactionInput::new(
-            1,                                                                // version
-            0,                                                                // features (default)
-            [0u8; 32],                                                        /* commitment (not available from HTTP
-                                                                               * API) */
+            1, // version
+            0, // features (default)
+            [0u8; 32], /* commitment (not available from HTTP
+                * API) */
             [0u8; 64],                      // script_signature (not available)
             CompressedPublicKey::default(), // sender_offset_public_key (not available)
             Vec::new(),                     // covenant (not available)
@@ -1389,7 +1389,7 @@ mod tests {
         let mut total_wallet_outputs_found = 0;
         let mut wallet_output_hashes = std::collections::HashSet::new();
 
-        for sync_response in all_blocks.iter() {
+        for sync_response in &all_blocks {
             for http_block in &sync_response.blocks {
                 // Convert HTTP block to BlockInfo
                 let block_info = HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
@@ -1424,7 +1424,7 @@ mod tests {
         // Now scan all blocks for spent inputs that match our wallet outputs
         let mut total_spent_wallet_inputs = 0;
 
-        for sync_response in all_blocks.iter() {
+        for sync_response in &all_blocks {
             let http_block = &sync_response.blocks[0];
 
             // Convert HTTP block to BlockInfo
@@ -1500,7 +1500,7 @@ mod tests {
         // Second pass: check for spent wallet outputs by matching input hashes
         let mut spent_outputs_detected = 0;
 
-        for sync_response in all_blocks.iter() {
+        for sync_response in &all_blocks {
             let http_block = &sync_response.blocks[0];
             let block_info = HttpBlockchainScanner::convert_http_block_to_block_info(http_block)
                 .expect("Block conversion should work");
@@ -1530,12 +1530,12 @@ mod tests {
 
         // Additional analysis: check if any inputs reference the actual output hashes from HTTP data
         let mut cross_referenced_inputs = 0;
-        for sync_response in all_blocks.iter() {
+        for sync_response in &all_blocks {
             let http_block = &sync_response.blocks[0];
 
             for input_hash in &http_block.inputs {
                 // Check if this input hash matches any output hash from the same or other blocks
-                for other_sync_response in all_blocks.iter() {
+                for other_sync_response in &all_blocks {
                     let other_http_block = &other_sync_response.blocks[0];
                     for output in &other_http_block.outputs {
                         if input_hash.as_slice() == output.output_hash.as_slice() {
@@ -1635,7 +1635,7 @@ mod tests {
 
             let mut wallet_outputs = Vec::new();
 
-            for output in block_info.outputs.iter() {
+            for output in &block_info.outputs {
                 let mut found_output = false;
 
                 // Strategy 1: Regular recoverable outputs

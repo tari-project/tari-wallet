@@ -32,8 +32,6 @@ use lightweight_wallet_libs::{
 use tari_common::configuration::Network;
 #[cfg(feature = "storage")]
 use tari_transaction_components::{tari_amount::MicroMinotari, transaction_components::memo_field::MemoField};
-#[cfg(feature = "storage")]
-#[cfg(feature = "storage")]
 
 /// Tari Wallet CLI
 #[cfg(feature = "storage")]
@@ -845,7 +843,7 @@ async fn select_wallet(
         Err("No wallets found in database. Use 'wallet add-wallet' to create one.".into())
     } else if wallets.len() == 1 {
         println!("📂 Using wallet: {}", wallets[0].name);
-        return Ok(wallets[0].clone());
+        Ok(wallets[0].clone())
     } else {
         // Multiple wallets - prompt for selection
         println!("\n📂 Available wallets in database:");
@@ -1190,15 +1188,15 @@ async fn handle_clear_database(database_path: String, no_prompt: bool) -> Result
 
     // Confirm action
     println!("⚠️  WARNING: This will permanently delete ALL data from: {database_path}");
-    let confirmation = if !no_prompt {
+    let confirmation = if no_prompt {
+        "yes".to_string()
+    } else {
         print!("Are you sure you want to continue? (yes/no): ");
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         input.trim().to_lowercase()
-    } else {
-        "yes".to_string()
     };
 
     if confirmation != "yes" && confirmation != "y" {

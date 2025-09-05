@@ -579,7 +579,7 @@ impl ConsoleLoggingListener {
             // Only log progress if it's a significant change (>= 1%) or every 1000 blocks for debug
             let percent_diff = (percentage - stats.last_progress_percent).abs();
             let should_log = match self.config.log_level {
-                LogLevel::Debug => percent_diff >= 0.1 || current_block % 100 == 0,
+                LogLevel::Debug => percent_diff >= 0.1 || current_block.is_multiple_of(100),
                 LogLevel::Verbose => percent_diff >= 0.5,
                 _ => percent_diff >= 1.0,
             };

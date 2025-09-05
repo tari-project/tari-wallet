@@ -326,7 +326,7 @@ impl Zeroize for WalletMetadata {
         }
         self.network.zeroize();
         self.current_key_index = 0;
-        for (_key, _value) in self.properties.iter_mut() {
+        for _value in self.properties.values_mut() {
             // Note: We can't zeroize String keys/values directly in HashMap iteration
             // This is a limitation, but the metadata is not as sensitive as the master key
         }

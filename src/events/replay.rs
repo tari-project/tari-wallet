@@ -896,7 +896,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 }
 
                 // Report progress periodically
-                if progress.events_processed % self.config.progress_frequency == 0 {
+                if progress.events_processed.is_multiple_of(self.config.progress_frequency) {
                     self.update_progress_estimates(&mut progress, start_time);
                     self.report_progress(&progress);
                 }
@@ -2209,7 +2209,10 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
             report.replayed_state_summary.transaction_count
         ));
 
-        if !report.inconsistencies.is_empty() {
+        if report.inconsistencies.is_empty() {
+            output.push_str("## ✅ No Issues Found\n\n");
+            output.push_str("The replayed wallet state appears to be consistent and reliable.\n\n");
+        } else {
             output.push_str("## Detailed Issues\n\n");
 
             // Group issues by type
@@ -2263,9 +2266,6 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     output.push_str("\n---\n\n");
                 }
             }
-        } else {
-            output.push_str("## ✅ No Issues Found\n\n");
-            output.push_str("The replayed wallet state appears to be consistent and reliable.\n\n");
         }
 
         output.push_str("## Recommendations\n\n");

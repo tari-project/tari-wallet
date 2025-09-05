@@ -53,7 +53,7 @@ pub struct ScanProgressInfo {
 impl ScanProgressInfo {
     /// Check if this progress update should be displayed based on frequency
     pub fn should_display(&self, frequency: usize) -> bool {
-        frequency > 0 && (self.blocks_processed % frequency == 0 || self.is_completed || self.is_cancelled)
+        frequency > 0 && (self.blocks_processed.is_multiple_of(frequency) || self.is_completed || self.is_cancelled)
     }
 
     /// Get a human-readable summary of the progress
@@ -596,14 +596,14 @@ impl ProgressTrackingListener {
         }
 
         // Check frequency
-        if self.config.frequency > 0 && state.blocks_processed % self.config.frequency != 0 {
+        if self.config.frequency > 0 && !state.blocks_processed.is_multiple_of(self.config.frequency) {
             return false;
         }
 
         // Check minimum time interval
         if let Some(last_update) = state.last_update_time {
             let time_since_last = last_update.elapsed();
-            if time_since_last.as_millis() < self.config.min_update_interval_ms as u128 {
+            if time_since_last.as_millis() < u128::from(self.config.min_update_interval_ms) {
                 return false;
             }
         }
