@@ -1473,8 +1473,10 @@ impl WalletStorage for SqliteStorage {
                             // Conflict occurred, get existing ID
                             let mut stmt =
                                 tx.prepare("SELECT id FROM outputs WHERE wallet_id = ? AND commitment = ?")?;
-                            let existing_id: i64 =
-                                stmt.query_row(params![i64::from(output.wallet_id), output.commitment], |row| row.get(0))?;
+                            let existing_id: i64 = stmt
+                                .query_row(params![i64::from(output.wallet_id), output.commitment], |row| {
+                                    row.get(0)
+                                })?;
                             existing_id as u32
                         };
                         output_ids.push(row_id);
