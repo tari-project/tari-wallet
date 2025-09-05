@@ -46,7 +46,7 @@ jobs:
           bash "${GITHUB_WORKSPACE}/scripts/get-protos.sh"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy, rustfmt
 
