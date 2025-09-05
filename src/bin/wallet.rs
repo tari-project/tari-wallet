@@ -32,8 +32,6 @@ use lightweight_wallet_libs::{
 use tari_common::configuration::Network;
 #[cfg(feature = "storage")]
 use tari_transaction_components::{tari_amount::MicroMinotari, transaction_components::memo_field::MemoField};
-#[cfg(feature = "storage")]
-#[cfg(feature = "storage")]
 
 /// Tari Wallet CLI
 #[cfg(feature = "storage")]
