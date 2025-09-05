@@ -27,11 +27,6 @@ use crate::{
     extraction::ExtractionConfig,
 };
 
-#[cfg(feature = "grpc")]
-pub mod convert_output_features;
-#[cfg(feature = "grpc")]
-pub mod convert_transaction;
-
 // Include GRPC scanner when the feature is enabled
 #[cfg(feature = "grpc")]
 pub mod grpc_scanner;

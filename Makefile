@@ -4,7 +4,6 @@
 # Default target
 help:
 	@echo "Available targets:"
-	@echo "  setup-proto    - Download and setup protobuf files"
 	@echo "  format         - Check code formatting"
 	@echo "  lint           - Run clippy linting"
 	@echo "  check          - Run format and lint checks"
@@ -15,32 +14,10 @@ help:
 	@echo "  unused-deps    - Check for unused dependencies"
 	@echo "  clean          - Clean build artifacts"
 
-# Setup protobuf files (required for tests)
-setup-proto:
-	@echo "Checking for existing protobuf files..."
-	@if [ -f "../tari/applications/minotari_app_grpc/proto/types.proto" ] && \
-	     [ -f "../tari/applications/minotari_app_grpc/proto/transaction.proto" ] && \
-	     [ -f "../tari/applications/minotari_app_grpc/proto/block.proto" ] && \
-	     [ -f "../tari/applications/minotari_app_grpc/proto/network.proto" ] && \
-	     [ -f "../tari/applications/minotari_app_grpc/proto/sidechain_types.proto" ] && \
-	     [ -f "../tari/applications/minotari_app_grpc/proto/base_node.proto" ]; then \
-		echo "Protobuf files already exist, skipping download..."; \
-	else \
-		echo "Setting up protobuf files..."; \
-		mkdir -p ../tari/applications/minotari_app_grpc/proto; \
-		cd ../tari/applications/minotari_app_grpc/proto && \
-		curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto && \
-		curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto && \
-		curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto && \
-		curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto && \
-		curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto && \
-		curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto; \
-	fi
-
 # Check code formatting
 format:
 	@echo "Checking code formatting..."
-	cargo fmt --all -- --check
+	cargo +nightly fmt --all -- --check
 
 # Run clippy linting
 lint:

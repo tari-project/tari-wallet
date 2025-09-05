@@ -8,37 +8,32 @@
 //! The GRPC scanner supports wallet key integration for identifying outputs that belong
 //! to a specific wallet.
 
-#[cfg(feature = "grpc")]
 use std::time::Duration;
 
-#[cfg(feature = "grpc")]
 use async_trait::async_trait;
-#[cfg(feature = "grpc")]
-use tari_transaction_components::transaction_components::Transaction;
-#[cfg(feature = "grpc")]
+use minotari_app_grpc::{tari_rpc, tari_rpc::HistoricalBlock};
+use tari_transaction_components::{
+    key_manager::TransactionKeyManagerInterface,
+    transaction_components::{
+        one_sided::shared_secret_to_output_encryption_key,
+        Transaction,
+        TransactionError,
+        TransactionInput,
+        TransactionKernel,
+        TransactionOutput,
+        WalletOutput,
+    },
+};
 use tari_utilities::ByteArray;
-#[cfg(feature = "grpc")]
 use tonic::{transport::Channel, Request};
 
-#[cfg(feature = "grpc")]
-use crate::tari_rpc;
-#[cfg(feature = "grpc")]
 use crate::{
-    data_structures::{
-        encrypted_data::EncryptedData,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
-        wallet_output::{Covenant, OutputFeatures, RangeProof, Script, Signature, WalletOutput},
-        OutputType,
-        RangeProofType,
-    },
+    data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct},
     errors::{DataStructureError, WalletError, WalletResult},
-    extraction::{extract_wallet_output, ExtractionConfig},
     scanning::{
         BlockInfo,
         BlockScanResult,
         BlockchainScanner,
-        DefaultScanningLogic,
         LegacyProgressCallback,
         ScanConfig,
         TipInfo,
@@ -48,23 +43,27 @@ use crate::{
         WalletScanner,
     },
     wallet::Wallet,
+    ExtractionConfig,
 };
 
 /// GRPC client for connecting to Tari base node
-#[cfg(feature = "grpc")]
-pub struct GrpcBlockchainScanner {
+
+pub struct GrpcBlockchainScanner<KM> {
     /// GRPC channel to the base node
     client: tari_rpc::base_node_client::BaseNodeClient<Channel>,
     /// Connection timeout
     timeout: Duration,
     /// Base URL for the GRPC connection
     base_url: String,
+    /// key manager used for the keys
+    pub key_manager: KM,
 }
 
-#[cfg(feature = "grpc")]
-impl GrpcBlockchainScanner {
+impl<KM> GrpcBlockchainScanner<KM>
+where KM: TransactionKeyManagerInterface
+{
     /// Create a new GRPC scanner with the given base URL
-    pub async fn new(base_url: String) -> WalletResult<Self> {
+    pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
         let timeout = Duration::from_secs(30);
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
@@ -90,11 +89,12 @@ impl GrpcBlockchainScanner {
             client,
             timeout,
             base_url,
+            key_manager,
         })
     }
 
     /// Create a new GRPC scanner with custom timeout
-    pub async fn with_timeout(base_url: String, timeout: Duration) -> WalletResult<Self> {
+    pub async fn with_timeout(base_url: String, timeout: Duration, key_manager: KM) -> WalletResult<Self> {
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -119,289 +119,17 @@ impl GrpcBlockchainScanner {
             client,
             timeout,
             base_url,
+            key_manager,
         })
-    }
-
-    /// Convert GRPC transaction output to lightweight transaction output
-    fn convert_transaction_output(grpc_output: &tari_rpc::TransactionOutput) -> WalletResult<TransactionOutput> {
-        // Convert OutputFeatures
-
-        use crate::convert_output_features::convert_output_features;
-        let features = grpc_output
-            .features
-            .as_ref()
-            .map(|f| OutputFeatures {
-                output_type: match f.output_type {
-                    0 => OutputType::Payment,
-                    1 => OutputType::Coinbase,
-                    2 => OutputType::Burn,
-                    3 => OutputType::ValidatorNodeRegistration,
-                    4 => OutputType::CodeTemplateRegistration,
-                    _ => OutputType::Payment,
-                },
-                maturity: f.maturity,
-                range_proof_type: match f.range_proof_type {
-                    0 => RangeProofType::BulletProofPlus,
-                    1 => RangeProofType::RevealedValue,
-                    _ => RangeProofType::BulletProofPlus,
-                },
-            })
-            .unwrap_or_default();
-
-        // Convert Commitment - Tari GRPC returns 32-byte commitments, need to add compression prefix
-        let commitment_bytes = if grpc_output.commitment.len() == 32 {
-            match grpc_output.commitment.as_bytes()[..32].try_into() {
-                Ok(bytes) => CompressedCommitment::new(bytes),
-                Err(_) => {
-                    // Invalid commitment bytes format - return error instead of fallback
-                    return Err(WalletError::DataStructureError(DataStructureError::InvalidCommitment(
-                        "Invalid commitment bytes format in GRPC output".to_string(),
-                    )));
-                },
-            }
-        } else {
-            // Unexpected commitment size - return error instead of fallback
-            return Err(WalletError::DataStructureError(DataStructureError::InvalidCommitment(
-                format!(
-                    "Invalid commitment size in GRPC output: expected 32, got {}",
-                    grpc_output.commitment.len()
-                ),
-            )));
-        };
-
-        // Convert RangeProof
-        let proof = grpc_output.range_proof.as_ref().map(|rp| RangeProof {
-            bytes: rp.proof_bytes.clone(),
-        });
-
-        // Convert Script
-        let script = Script {
-            bytes: grpc_output.script.clone(),
-        };
-
-        // Convert Sender Offset Public Key - need to handle the 32-byte array properly
-        let sender_offset_public_key = if grpc_output.sender_offset_public_key.len() == 32 {
-            let mut bytes = [0u8; 32];
-            bytes.copy_from_slice(&grpc_output.sender_offset_public_key);
-            CompressedPublicKey::new(bytes)
-        } else {
-            // Invalid sender offset public key size - return error instead of fallback
-            return Err(WalletError::DataStructureError(DataStructureError::InvalidPublicKey(
-                format!(
-                    "Invalid sender offset public key size in GRPC output: expected 32, got {}",
-                    grpc_output.sender_offset_public_key.len()
-                ),
-            )));
-        };
-
-        // Convert Metadata Signature
-        let metadata_signature = grpc_output
-            .metadata_signature
-            .as_ref()
-            .map(|sig| Signature {
-                ephemeral_commitment: sig.ephemeral_commitment.clone(),
-                ephemeral_pubkey: sig.ephemeral_pubkey.clone(),
-                u_a: sig.u_a.clone(),
-                u_x: sig.u_x.clone(),
-                u_y: sig.u_y.clone(),
-            })
-            .unwrap_or_default();
-
-        // Convert Covenant
-        let covenant = Covenant {
-            bytes: grpc_output.covenant.clone(),
-        };
-
-        // Convert Encrypted Data
-        let encrypted_data = EncryptedData::from_bytes(&grpc_output.encrypted_data).unwrap_or_default();
-
-        // Convert Minimum Value Promise
-        let minimum_value_promise = MicroMinotari::new(grpc_output.minimum_value_promise);
-
-        let output_features = grpc_output
-            .features
-            .clone()
-            .map(convert_output_features)
-            .unwrap_or_default();
-
-        let output = TransactionOutput {
-            version: grpc_output.version as u8,
-            features,
-            commitment: commitment_bytes,
-            proof,
-            script,
-            sender_offset_public_key,
-            metadata_signature,
-            covenant,
-            encrypted_data,
-            minimum_value_promise,
-            output_features,
-        };
-
-        Ok(output)
-    }
-
-    /// Convert GRPC block to lightweight block info
-    fn convert_block(grpc_block: &tari_rpc::HistoricalBlock) -> WalletResult<Option<BlockInfo>> {
-        let block = match grpc_block.block.as_ref() {
-            Some(block) => block,
-            None => return Ok(None),
-        };
-        let header = match block.header.as_ref() {
-            Some(header) => header,
-            None => return Ok(None),
-        };
-        let body = match block.body.as_ref() {
-            Some(body) => body,
-            None => return Ok(None),
-        };
-        let outputs: WalletResult<Vec<_>> = body.outputs.iter().map(Self::convert_transaction_output).collect();
-        let outputs = outputs?;
-
-        // Extract inputs and kernels too
-        let inputs = body.inputs.iter().map(Self::convert_transaction_input).collect();
-        let kernels = body.kernels.iter().map(Self::convert_transaction_kernel).collect();
-
-        Ok(Some(BlockInfo {
-            height: header.height,
-            hash: header.hash.clone(),
-            timestamp: header.timestamp,
-            outputs,
-            inputs,
-            kernels,
-        }))
-    }
-
-    /// Convert GRPC transaction input to lightweight transaction input
-    fn convert_transaction_input(
-        grpc_input: &tari_rpc::TransactionInput,
-    ) -> crate::data_structures::transaction_input::TransactionInput {
-        // Convert commitment
-        let mut commitment = [0u8; 32];
-        if grpc_input.commitment.len() >= 32 {
-            commitment.copy_from_slice(&grpc_input.commitment[..32]);
-        }
-
-        // Convert script (not script_signature for inputs)
-        let mut script_signature = [0u8; 64];
-        if !grpc_input.script.is_empty() && grpc_input.script.len() >= 64 {
-            script_signature.copy_from_slice(&grpc_input.script[..64]);
-        }
-
-        // Note: Sender offset public key not available in GRPC input data structure
-        let sender_offset_public_key = CompressedPublicKey::new([0u8; 32]);
-
-        // Convert input data to execution stack
-        let input_data = crate::data_structures::transaction_input::ExecutionStack {
-            items: vec![grpc_input.input_data.clone()],
-        };
-
-        // Convert output hash (use hash field)
-        let mut output_hash = [0u8; 32];
-        if grpc_input.hash.len() >= 32 {
-            output_hash.copy_from_slice(&grpc_input.hash[..32]);
-        }
-
-        // Convert metadata signature if available
-        let output_metadata_signature = [0u8; 64];
-        // Note: metadata_signature might not be available for inputs
-
-        crate::data_structures::transaction_input::TransactionInput::new(
-            grpc_input.version as u8,
-            grpc_input.features.as_ref().map(|f| f.output_type as u8).unwrap_or(0),
-            commitment,
-            script_signature,
-            sender_offset_public_key,
-            grpc_input.covenant.clone(),
-            input_data,
-            output_hash,
-            0, // output_features not available in GRPC input data
-            output_metadata_signature,
-            0,                     // maturity not available in GRPC input data
-            MicroMinotari::new(0), // value not available in GRPC input data
-        )
-    }
-
-    /// Convert GRPC transaction kernel to lightweight transaction kernel
-    fn convert_transaction_kernel(
-        grpc_kernel: &tari_rpc::TransactionKernel,
-    ) -> crate::data_structures::TransactionKernel {
-        // Convert excess
-        let mut excess = [0u8; 32];
-        if grpc_kernel.excess.len() >= 32 {
-            excess.copy_from_slice(&grpc_kernel.excess[..32]);
-        }
-
-        // Convert excess signature
-        let mut excess_sig = [0u8; 64];
-        if let Some(sig) = &grpc_kernel.excess_sig {
-            if sig.public_nonce.len() >= 32 {
-                excess_sig[..32].copy_from_slice(&sig.public_nonce[..32]);
-            }
-            if sig.signature.len() >= 32 {
-                excess_sig[32..].copy_from_slice(&sig.signature[..32]);
-            }
-        }
-
-        crate::data_structures::TransactionKernel {
-            version: grpc_kernel.version as u8,
-            features: grpc_kernel.features as u8,
-            fee: MicroMinotari::new(grpc_kernel.fee),
-            lock_height: grpc_kernel.lock_height,
-            excess: CompressedPublicKey::new(excess),
-            excess_sig,
-            hash_type: 0, // hash_type field not available in GRPC kernel data
-            burn_commitment: if !grpc_kernel.burn_commitment.is_empty() {
-                let mut commitment = [0u8; 32];
-                if grpc_kernel.burn_commitment.len() >= 32 {
-                    commitment.copy_from_slice(&grpc_kernel.burn_commitment[..32]);
-                }
-                Some(CompressedCommitment::new(commitment))
-            } else {
-                None
-            },
-        }
-    }
-
-    /// Convert GRPC tip info to lightweight tip info
-    fn convert_tip_info(grpc_tip: &tari_rpc::TipInfoResponse) -> TipInfo {
-        let metadata = grpc_tip.metadata.as_ref();
-        TipInfo {
-            best_block_height: metadata.map(|m| m.best_block_height).unwrap_or(0),
-            best_block_hash: metadata.map(|m| m.best_block_hash.clone()).unwrap_or_default(),
-            accumulated_difficulty: metadata.map(|m| m.accumulated_difficulty.clone()).unwrap_or_default(),
-            pruned_height: metadata.map(|m| m.pruned_height).unwrap_or(0),
-            timestamp: metadata.map(|m| m.timestamp).unwrap_or(0),
-        }
     }
 
     /// Create a scan config with wallet keys for block scanning
     pub fn create_scan_config_with_wallet_keys(
         &self,
-        wallet: &Wallet,
         start_height: u64,
         end_height: Option<u64>,
     ) -> WalletResult<ScanConfig> {
-        // Get the master key from the wallet for scanning
-        let master_key_bytes = wallet.master_key_bytes();
-
-        // Use the first 16 bytes of the master key as entropy (following Tari CipherSeed pattern)
-        let mut entropy = [0u8; 16];
-        entropy.copy_from_slice(&master_key_bytes[..16]);
-
-        // Derive the proper view key using Tari's key derivation specification
-        // This uses the "data encryption" branch seed which is the correct key for decrypting encrypted data
-        let (view_key, _spend_key) =
-            crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
-                .map_err(WalletError::KeyManagementError)?;
-
-        // Convert RistrettoSecretKey to PrivateKey
-        let view_key_bytes = view_key.as_bytes();
-        let mut view_key_array = [0u8; 32];
-        view_key_array.copy_from_slice(view_key_bytes);
-        let view_private_key = PrivateKey::new(view_key_array);
-
-        let extraction_config = ExtractionConfig::with_private_key(view_private_key);
+        let extraction_config = ExtractionConfig::default();
 
         Ok(ScanConfig {
             start_height,
@@ -412,99 +140,56 @@ impl GrpcBlockchainScanner {
         })
     }
 
-    /// Create a scan config with just private keys for basic wallet scanning
-    pub fn create_scan_config_with_keys(
-        &self,
-        view_key: PrivateKey,
-        start_height: u64,
-        end_height: Option<u64>,
-    ) -> ScanConfig {
-        let extraction_config = ExtractionConfig::with_private_key(view_key);
-
-        ScanConfig {
-            start_height,
-            end_height,
-            batch_size: 100,
-            request_timeout: self.timeout,
-            extraction_config,
-        }
+    /// Scan for regular recoverable outputs using encrypted data decryption
+    pub async fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
+        let (commitment_mask, value, memo) = match self
+            .key_manager
+            .try_output_key_recovery(&output.commitment, &output.encrypted_data, None)
+            .await
+        {
+            Ok(value) => value,
+            // Key manager errors here are actual errors and should not be suppressed.
+            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
+            Err(_) => return Ok(None),
+        };
+        Ok(WalletOutput::new_imported(
+            value,
+            commitment_mask,
+            memo,
+            output.clone(),
+            &self.key_manager,
+        ))
     }
 
-    /// Scan for regular recoverable outputs using encrypted data decryption (GRPC version)
-    fn scan_for_recoverable_output_grpc(
-        output: &TransactionOutput,
-        extraction_config: &ExtractionConfig,
-    ) -> WalletResult<Option<WalletOutput>> {
-        // Skip non-payment outputs for this scan type
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Payment
-        ) {
-            return Ok(None);
-        }
+    /// Scan for one-sided payments
+    pub async fn scan_for_one_sided_payment(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
+        let view_key = self.key_manager.get_view_key().await?;
 
-        // Use the standard extraction logic - the view key should be correctly derived already
-        match extract_wallet_output(output, extraction_config) {
-            Ok(wallet_output) => Ok(Some(wallet_output)),
-            Err(_) => Ok(None), // Not a wallet output or decryption failed
-        }
-    }
+        let shared_secret = self
+            .key_manager
+            .get_diffie_hellman_shared_secret(&view_key.key_id, &output.sender_offset_public_key)
+            .await?;
+        let recovery_key = shared_secret_to_output_encryption_key(&shared_secret)
+            .map_err(|e| WalletError::ConversionError(e.to_string()))?;
 
-    /// Scan for one-sided payments (GRPC version)
-    fn scan_for_one_sided_payment_grpc(
-        output: &TransactionOutput,
-        extraction_config: &ExtractionConfig,
-    ) -> WalletResult<Option<WalletOutput>> {
-        // Skip non-payment outputs for this scan type
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Payment
-        ) {
-            return Ok(None);
-        }
+        let (commitment_mask, value, memo) = match self
+            .key_manager
+            .try_output_key_recovery(&output.commitment, &output.encrypted_data, Some(recovery_key))
+            .await
+        {
+            Ok(value) => value,
+            // Key manager errors here are actual errors and should not be suppressed.
+            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
+            Err(_) => return Ok(None),
+        };
 
-        // For one-sided payments, use the same extraction logic
-        // The difference is in how the outputs are created, not how they're decrypted
-        match extract_wallet_output(output, extraction_config) {
-            Ok(wallet_output) => Ok(Some(wallet_output)),
-            Err(_) => Ok(None), // Not a wallet output or decryption failed
-        }
-    }
-
-    /// Scan for coinbase outputs (GRPC version)
-    fn scan_for_coinbase_output_grpc(output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        // Only handle coinbase outputs
-        if !matches!(
-            output.features().output_type,
-            crate::data_structures::wallet_output::OutputType::Coinbase
-        ) {
-            return Ok(None);
-        }
-
-        // For coinbase outputs, the value is typically revealed in the minimum value promise
-        if output.minimum_value_promise().as_u64() > 0 {
-            let wallet_output = WalletOutput::new(
-                output.version(),
-                output.minimum_value_promise(),
-                crate::data_structures::wallet_output::KeyId::Zero,
-                output.features().clone(),
-                output.script().clone(),
-                crate::data_structures::wallet_output::ExecutionStack::default(),
-                crate::data_structures::wallet_output::KeyId::Zero,
-                output.sender_offset_public_key().clone(),
-                output.metadata_signature().clone(),
-                0,
-                output.covenant().clone(),
-                output.encrypted_data().clone(),
-                output.minimum_value_promise(),
-                output.proof().cloned(),
-                crate::data_structures::payment_id::MemoField::Empty,
-            );
-
-            return Ok(Some(wallet_output));
-        }
-
-        Ok(None)
+        Ok(WalletOutput::new_imported(
+            value,
+            commitment_mask,
+            memo,
+            output.clone(),
+            &self.key_manager,
+        ))
     }
 
     /// Get all outputs from a specific block
@@ -531,8 +216,8 @@ impl GrpcBlockchainScanner {
                 "Stream error: {e}"
             )))
         })? {
-            if let Some(block_info) = Self::convert_block(&grpc_block)? {
-                return Ok(block_info.outputs);
+            if let Some(historic_block) = &grpc_block? {
+                return Ok(historic_block.outputs);
             }
         }
 
@@ -540,10 +225,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Get all inputs from a specific block
-    pub async fn get_inputs_from_block(
-        &mut self,
-        block_height: u64,
-    ) -> WalletResult<Vec<crate::data_structures::transaction_input::TransactionInput>> {
+    pub async fn get_inputs_from_block(&mut self, block_height: u64) -> WalletResult<Vec<TransactionInput>> {
         // Get the block at the specified height
         let request = tari_rpc::GetBlocksRequest {
             heights: vec![block_height],
@@ -566,8 +248,8 @@ impl GrpcBlockchainScanner {
                 "Stream error: {e}"
             )))
         })? {
-            if let Some(block_info) = Self::convert_block(&grpc_block)? {
-                return Ok(block_info.inputs);
+            if let Some(historic_block) = &grpc_block? {
+                return Ok(historic_block.inputs);
             }
         }
 
@@ -575,10 +257,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Get all kernels from a specific block
-    pub async fn get_kernels_from_block(
-        &mut self,
-        block_height: u64,
-    ) -> WalletResult<Vec<crate::data_structures::TransactionKernel>> {
+    pub async fn get_kernels_from_block(&mut self, block_height: u64) -> WalletResult<Vec<TransactionKernel>> {
         // Get the block at the specified height
         let request = tari_rpc::GetBlocksRequest {
             heights: vec![block_height],
@@ -601,8 +280,8 @@ impl GrpcBlockchainScanner {
                 "Stream error: {e}"
             )))
         })? {
-            if let Some(block_info) = Self::convert_block(&grpc_block)? {
-                return Ok(block_info.kernels);
+            if let Some(historic_block) = &grpc_block? {
+                return Ok(historic_block.kernels);
             }
         }
 
@@ -610,10 +289,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Get complete block data including outputs, inputs, and kernels
-    pub async fn get_complete_block_data(
-        &mut self,
-        block_height: u64,
-    ) -> WalletResult<Option<crate::scanning::BlockInfo>> {
+    pub async fn get_complete_block_data(&mut self, block_height: u64) -> WalletResult<Option<HistoricalBlock>> {
         // Get the block at the specified height
         let request = tari_rpc::GetBlocksRequest {
             heights: vec![block_height],
@@ -636,7 +312,7 @@ impl GrpcBlockchainScanner {
                 "Stream error: {e}"
             )))
         })? {
-            return Self::convert_block(&grpc_block);
+            return Some(grpc_block);
         }
 
         Ok(None)
@@ -668,7 +344,7 @@ impl GrpcBlockchainScanner {
     }
 
     /// Get blocks by their heights in a batch
-    pub async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<BlockInfo>> {
+    pub async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<HistoricalBlock>> {
         if heights.is_empty() {
             return Ok(Vec::new());
         }
@@ -693,16 +369,13 @@ impl GrpcBlockchainScanner {
                 "GRPC stream error: {e}"
             )))
         })? {
-            if let Some(block_info) = Self::convert_block(&grpc_block)? {
-                blocks.push(block_info);
-            }
+            blocks.push(grpc_block);
         }
 
         Ok(blocks)
     }
 }
 
-#[cfg(feature = "grpc")]
 #[async_trait(?Send)]
 impl BlockchainScanner for GrpcBlockchainScanner {
     async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
@@ -923,12 +596,9 @@ impl BlockchainScanner for GrpcBlockchainScanner {
     }
 }
 
-#[cfg(feature = "grpc")]
 #[async_trait(?Send)]
 impl TransactionBroadcaster for GrpcBlockchainScanner {
     async fn submit_transaction(&mut self, transaction: Transaction) -> WalletResult<i32> {
-        use crate::convert_transaction::convert_transaction;
-
         let request: tari_rpc::SubmitTransactionRequest = tari_rpc::SubmitTransactionRequest {
             transaction: Some(convert_transaction(transaction)),
         };
@@ -944,7 +614,6 @@ impl TransactionBroadcaster for GrpcBlockchainScanner {
     }
 }
 
-#[cfg(feature = "grpc")]
 impl std::fmt::Debug for GrpcBlockchainScanner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GrpcBlockchainScanner")
@@ -954,7 +623,6 @@ impl std::fmt::Debug for GrpcBlockchainScanner {
     }
 }
 
-#[cfg(feature = "grpc")]
 impl Clone for GrpcBlockchainScanner {
     fn clone(&self) -> Self {
         // Note: This creates a new connection, which is expensive
@@ -964,13 +632,12 @@ impl Clone for GrpcBlockchainScanner {
 }
 
 /// Builder for creating GRPC blockchain scanners
-#[cfg(feature = "grpc")]
+
 pub struct GrpcScannerBuilder {
     base_url: Option<String>,
     timeout: Option<Duration>,
 }
 
-#[cfg(feature = "grpc")]
 impl GrpcScannerBuilder {
     /// Create a new builder
     pub fn new() -> Self {
@@ -1005,7 +672,6 @@ impl GrpcScannerBuilder {
     }
 }
 
-#[cfg(feature = "grpc")]
 impl Default for GrpcScannerBuilder {
     fn default() -> Self {
         Self::new()
@@ -1041,7 +707,6 @@ impl GrpcScannerBuilder {
     }
 }
 
-#[cfg(feature = "grpc")]
 #[async_trait(?Send)]
 impl WalletScanner for GrpcBlockchainScanner {
     async fn scan_wallet(&mut self, config: WalletScanConfig) -> WalletResult<WalletScanResult> {

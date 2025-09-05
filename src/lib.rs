@@ -14,7 +14,6 @@ pub mod hex_utils;
 pub mod scanning;
 
 #[allow(dead_code)]
-#[cfg(feature = "storage")]
 pub mod storage;
 pub mod utils;
 // pub mod validation;
@@ -22,18 +21,11 @@ pub mod wallet;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-// Include generated GRPC code when the feature is enabled
-#[cfg(feature = "grpc")]
-pub mod tari_rpc {
-    tonic::include_proto!("tari.rpc");
-}
-
 pub use errors::*;
 pub use extraction::*;
 pub use hex_utils::*;
 // pub use key_management::*;
 pub use scanning::*;
-#[cfg(feature = "storage")]
 pub use storage::*;
 // pub use validation::*;
 pub use wallet::*;

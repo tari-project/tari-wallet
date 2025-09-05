@@ -43,7 +43,8 @@ use std::{
 
 #[cfg(target_arch = "wasm32")]
 use js_sys;
-use tari_transaction_components::transaction_components::TransactionOutput;
+use tari_node_components::blocks::HistoricalBlock;
+use tari_transaction_components::transaction_components::{TransactionOutput, WalletOutput};
 use tokio::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures;
@@ -187,7 +188,7 @@ impl ScanEventEmitter {
     /// This should be called when a wallet output is discovered during scanning.
     pub async fn emit_output_found(
         &mut self,
-        _output: &TransactionOutput,
+        _output: &WalletOutput,
         _block_info: &BlockInfo,
         _address_info: &AddressInfo,
         _transaction: &WalletTransaction,
@@ -245,7 +246,7 @@ impl ScanEventEmitter {
     /// This should be called when a previously found output is detected as spent (input found).
     pub async fn emit_spent_output_found(
         &mut self,
-        _spent_output: &WalletTransaction,
+        _spent_output: &WalletOutput,
         _spending_block: &Block,
         _input_index: usize,
         _match_method: &str,
@@ -532,11 +533,11 @@ pub fn create_address_info_from_transaction(_transaction: &WalletTransaction) ->
 }
 
 /// Helper function to create BlockInfo from Block
-pub fn create_block_info_from_block(block: &Block) -> BlockInfo {
+pub fn create_block_info_from_block(block: &HistoricalBlock) -> BlockInfo {
     BlockInfo::new(
-        block.height,
-        hex::encode(&block.hash),
-        block.timestamp,
+        block.header().height,
+        hex::encode(&block.hash()),
+        block.header().timestamp.as_u64(),
         0, // output index - would need to be provided by caller
     )
 }

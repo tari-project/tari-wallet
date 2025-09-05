@@ -88,24 +88,14 @@ impl IncompleteScannedOutput {
             Some((input_data, script_key)) => (input_data, script_key),
             None => return Ok(None),
         };
-        let wallet = Some(WalletOutput::new_with_rangeproof(
-            output.version,
+        Ok(WalletOutput::new_imported(
             self.value,
             self.commitment_mask_key_id.clone(),
-            output.features,
-            output.script,
-            input_data,
-            script_key,
-            output.sender_offset_public_key,
-            output.metadata_signature,
-            0,
-            output.covenant,
-            output.encrypted_data,
-            output.minimum_value_promise,
-            output.proof,
             self.memo.clone(),
-        ));
-        Ok(wallet)
+            output,
+            key_manager,
+        )
+        .await)
     }
 }
 

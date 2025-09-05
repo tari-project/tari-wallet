@@ -13,7 +13,11 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
-use tari_common_types::transaction::TransactionDirection;
+use tari_common_types::{
+    transaction::{TransactionDirection, TransactionStatus},
+    types::CompressedCommitment,
+};
+use tari_transaction_components::{key_manager::TransactionKeyManagerInterface, transaction_components::MemoField};
 use tokio::time::Instant;
 
 use super::BinaryScanConfig;
@@ -26,24 +30,24 @@ use crate::scanning::{
     data_processor::{BlockData, CompletionData, DataProcessor, ProgressData},
     progress::ProgressTracker,
 };
-use crate::{common::format_number, errors::WalletError, WalletState};
+use crate::{common::format_number, errors::WalletError, WalletResult, WalletState, WalletTransaction};
 
 // =============================================================================
 // Transaction extraction helper functions
 // =============================================================================
 
-/// Filter transactions from a specific block
-fn filter_block_transactions(
-    wallet_state: &WalletState,
-    block_height: u64,
-    direction: TransactionDirection,
-) -> Vec<&crate::WalletTransaction> {
-    wallet_state
-        .transactions
-        .iter()
-        .filter(|tx| tx.block_height == block_height && tx.transaction_direction == direction)
-        .collect()
-}
+// /// Filter transactions from a specific block
+// fn filter_block_transactions(
+//     wallet_state: &WalletState,
+//     block_height: u64,
+//     direction: TransactionDirection,
+// ) -> Vec<&crate::WalletTransaction> {
+//     wallet_state
+//         .transactions
+//         .iter()
+//         .filter(|tx| tx.block_height == block_height && tx.transaction_direction == direction)
+//         .collect()
+// }
 
 // /// Create stored output from blockchain output and transaction data
 // fn create_stored_output_from_blockchain_data(
@@ -1289,10 +1293,9 @@ impl WalletScanner {
     /// - Data processing operations fail
     /// - Scanning is cancelled by external signal
     #[cfg(feature = "grpc")]
-    pub async fn scan_with_processor<T: DataProcessor>(
+    pub async fn scan_with_processor<T: DataProcessor, KM: TransactionKeyManagerInterface>(
         &mut self,
-        scanner: &mut GrpcBlockchainScanner,
-        scan_context: &ScanContext,
+        scanner: &mut GrpcBlockchainScanner<KM>,
         from_block: u64,
         to_block: u64,
         data_processor: &mut T,
@@ -1309,7 +1312,7 @@ impl WalletScanner {
             // Create a minimal config for the event
             let event_config = BinaryScanConfig::new(from_block, to_block);
             event_emitter
-                .emit_scan_started(&event_config, scan_context, (from_block, to_block), wallet_context)
+                .emit_scan_started(&event_config, (from_block, to_block), wallet_context)
                 .await?;
         }
 
@@ -1318,7 +1321,7 @@ impl WalletScanner {
 
         // Execute the scan with enhanced error handling
         let scan_result = self
-            .execute_scan_with_processor_retry(scanner, scan_context, from_block, to_block, data_processor, cancel_rx)
+            .execute_scan_with_processor_retry(scanner, from_block, to_block, data_processor, cancel_rx)
             .await;
 
         // Finalize the data processor
@@ -1486,7 +1489,6 @@ impl WalletScanner {
     async fn execute_scan_with_processor_retry<T: DataProcessor>(
         &mut self,
         scanner: &mut GrpcBlockchainScanner,
-        scan_context: &ScanContext,
         from_block: u64,
         to_block: u64,
         data_processor: &mut T,
@@ -1498,7 +1500,6 @@ impl WalletScanner {
         loop {
             match scan_wallet_across_blocks_with_processor(
                 scanner,
-                scan_context,
                 from_block,
                 to_block,
                 data_processor,
@@ -1700,9 +1701,8 @@ fn initialize_scan_state() -> (WalletState, Instant) {
 /// Core scanning logic using data processor - simplified and focused with batch processing
 #[cfg(feature = "grpc")]
 #[allow(clippy::too_many_arguments)] // TODO: Refactor this to remove the need for so many arguments
-async fn scan_wallet_across_blocks_with_processor<T: DataProcessor>(
-    scanner: &mut GrpcBlockchainScanner,
-    scan_context: &ScanContext,
+async fn scan_wallet_across_blocks_with_processor<T: DataProcessor, KM: TransactionKeyManagerInterface>(
+    scanner: &mut GrpcBlockchainScanner<KM>,
     from_block: u64,
     to_block: u64,
     data_processor: &mut T,
@@ -1728,8 +1728,6 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor>(
         validate_signatures: true,
         handle_special_outputs: true,
         detect_corruption: true,
-        private_key: Some(scan_context.view_key.clone()),
-        public_key: None,
     };
 
     // Perform the actual blockchain scan
@@ -1756,102 +1754,109 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor>(
         let block_heights: Vec<u64> = (current_block..=batch_end).collect();
         match scanner.get_blocks_by_heights(block_heights.clone()).await {
             Ok(blocks) => {
-                for block_info in blocks {
-                    // Convert BlockInfo to Block for processing
-                    let block = crate::data_structures::block::Block::new(
-                        block_info.height,
-                        block_info.hash.clone(),
-                        block_info.timestamp,
-                        block_info.outputs.clone(),
-                        block_info.inputs.clone(),
-                    );
-
-                    // Scan for wallet outputs and spent outputs (with detailed information for events)
-                    let (found_outputs, spent_output_details) = block.scan_for_wallet_activity_with_details(
-                        &scan_context.view_key,
-                        &scan_context.entropy,
-                        &mut wallet_state,
-                    )?;
-
-                    // Emit output found events for each output found
-                    if found_outputs > 0 {
-                        // Get the transactions that were just added to wallet_state for this block
-                        let block_transactions: Vec<_> = wallet_state
-                            .transactions
-                            .iter()
-                            .filter(|tx| tx.block_height == block.height)
-                            .collect();
-
-                        for transaction in block_transactions {
-                            if let Some(ref mut emitter) = event_emitter {
-                                // Create address info and block info for the event
-                                let address_info = super::event_emitter::create_address_info_from_transaction(
-                                    scan_context,
-                                    transaction,
-                                );
-                                let block_info_event = super::event_emitter::create_block_info_from_block(&block);
-
-                                // Find the corresponding output from the block
-                                if let Some(output) = block.outputs.iter().find(|o| {
-                                    // Match by commitment or other identifying field
-                                    o.commitment == transaction.commitment
-                                }) {
-                                    emitter
-                                        .emit_output_found(output, &block_info_event, &address_info, transaction)
-                                        .await?;
-                                }
-                            }
+                for block in blocks {
+                    // scan blocks
+                    let mut found_outputs = Vec::new();
+                    for output in block.outputs.iter() {
+                        if let Some(found_output) = scanner.scan_for_one_sided_payment(output).await? {
+                            found_outputs.push(found_output);
+                            continue;
+                        }
+                        if let Some(found_output) = scanner.scan_for_recoverable_output(output).await? {
+                            found_outputs.push(found_output);
+                            continue;
                         }
                     }
 
-                    // Store spent output count before consuming the vector
-                    let spent_outputs_count = spent_output_details.len();
+                    // Scan for wallet outputs and spent outputs (with detailed information for events)
+                    // let (found_outputs, spent_output_details) = block.scan_for_wallet_activity_with_details(
+                    //     &scan_context.view_key,
+                    //     &scan_context.entropy,
+                    //     &mut wallet_state,
+                    // )?;
 
-                    // Emit spent output events for each spent output found
-                    for spent_info in spent_output_details {
-                        let original_block_info = crate::events::types::BlockInfo::new(
-                            spent_info.original_block_height,
-                            String::new(), // We don't have the original block hash
-                            0,             // We don't have the original block timestamp
-                            0,             // Default output index for spent output reference
+                    // Emit output found events for each output found
+                    for output in found_outputs {
+                        // Get the transactions that were just added to wallet_state for this block
+                        // let block_transactions: Vec<_> = wallet_state
+                        //     .transactions
+                        //     .iter()
+                        //     .filter(|tx| tx.block_height == block.height)
+                        //     .collect();
+                        // let create transactions here
+                        let tx = WalletTransaction::new(
+                            block.header.height,
+                            Some(0),
+                            None,
+                            Default::default(),
+                            output.hash(&scanner.key_manager),
+                            output.value.as_u64(),
+                            output.payment_id,
+                            TransactionStatus::MinedUnconfirmed,
+                            TransactionDirection::Inbound,
+                            false,
+                            output.features.is_coinbase(),
                         );
 
                         if let Some(ref mut emitter) = event_emitter {
+                            // Create address info and block info for the event
+                            let address_info = super::event_emitter::create_address_info_from_transaction(&tx);
+                            let block_info_event = super::event_emitter::create_block_info_from_block(&block);
+
                             emitter
-                                .emit_spent_output_found(
-                                    &spent_info.spent_transaction,
-                                    &block,
-                                    spent_info.input_index,
-                                    &spent_info.match_method,
-                                    &original_block_info,
-                                )
+                                .emit_output_found(&output, &block_info_event, &address_info, &tx)
                                 .await?;
                         }
                     }
 
+                    // Store spent output count before consuming the vector
+                    // let spent_outputs_count = spent_output_details.len();
+
+                    // Emit spent output events for each spent output found
+                    // for spent_info in spent_output_details {
+                    //     let original_block_info = crate::events::types::BlockInfo::new(
+                    //         spent_info.original_block_height,
+                    //         String::new(), // We don't have the original block hash
+                    //         0,             // We don't have the original block timestamp
+                    //         0,             // Default output index for spent output reference
+                    //     );
+                    //
+                    //     if let Some(ref mut emitter) = event_emitter {
+                    //         emitter
+                    //             .emit_spent_output_found(
+                    //                 &spent_info.spent_transaction,
+                    //                 &block,
+                    //                 spent_info.input_index,
+                    //                 &spent_info.match_method,
+                    //                 &original_block_info,
+                    //             )
+                    //             .await?;
+                    //     }
+                    // }
+
                     // Create block data for the processor
-                    let block_transactions: Vec<_> = wallet_state
-                        .transactions
-                        .iter()
-                        .filter(|tx| tx.block_height == block.height)
-                        .cloned()
-                        .collect();
-
-                    let block_data = BlockData::new(
-                        block.height,
-                        hex::encode(&block_info.hash),
-                        block.timestamp,
-                        block_transactions,
-                        true, // completed
-                    );
-
-                    // Send block data to processor
-                    data_processor.process_block(block_data).await?;
-
-                    // Update progress with actual wallet activity found
-                    if let Some(tracker) = progress_tracker.as_mut() {
-                        tracker.update(block.height, found_outputs, spent_outputs_count);
-                    }
+                    // let block_transactions: Vec<_> = wallet_state
+                    //     .transactions
+                    //     .iter()
+                    //     .filter(|tx| tx.block_height == block.height)
+                    //     .cloned()
+                    //     .collect();
+                    //
+                    // let block_data = BlockData::new(
+                    //     block.height,
+                    //     hex::encode(&block_info.hash),
+                    //     block.timestamp,
+                    //     block_transactions,
+                    //     true, // completed
+                    // );
+                    //
+                    // // Send block data to processor
+                    // data_processor.process_block(block_data).await?;
+                    //
+                    // // Update progress with actual wallet activity found
+                    // if let Some(tracker) = progress_tracker.as_mut() {
+                    //     tracker.update(block.height, found_outputs, spent_outputs_count);
+                    // }
 
                     // Send progress updates to processor
                     if let Some(tracker) = progress_tracker.as_ref() {
