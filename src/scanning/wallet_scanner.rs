@@ -1721,7 +1721,7 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor>(
 
                 // Update progress display
                 // TODO: Is this needed? We should be updating progress via the event emitter
-                if blocks_processed % 10 == 0 || last_progress_update.elapsed().as_secs() >= 1 {
+                if blocks_processed.is_multiple_of(10) || last_progress_update.elapsed().as_secs() >= 1 {
                     if let Some(tracker) = progress_tracker.as_ref() {
                         let _progress_info = tracker.get_progress_info();
                         // Progress callbacks are handled internally by ProgressTracker
@@ -2011,7 +2011,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     false
                 } else {
                     // For range scanning, use the configured frequency
-                    blocks_processed % config.progress_frequency as u64 == 0 ||
+                    blocks_processed.is_multiple_of(config.progress_frequency as u64) ||
                         last_progress_update.elapsed().as_secs() >= 1
                 };
 

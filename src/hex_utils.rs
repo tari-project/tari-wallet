@@ -110,7 +110,7 @@ impl HexUtils {
             return Err(HexError::EmptyString);
         }
 
-        if hex.len() % 2 != 0 {
+        if !hex.len().is_multiple_of(2) {
             return Err(HexError::OddLength(hex.len()));
         }
 
@@ -151,7 +151,7 @@ impl HexUtils {
             return false;
         }
 
-        if hex.len() % 2 != 0 {
+        if !hex.len().is_multiple_of(2) {
             return false;
         }
 

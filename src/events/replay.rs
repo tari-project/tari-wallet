@@ -896,7 +896,7 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                 }
 
                 // Report progress periodically
-                if progress.events_processed % self.config.progress_frequency == 0 {
+                if progress.events_processed.is_multiple_of(self.config.progress_frequency) {
                     self.update_progress_estimates(&mut progress, start_time);
                     self.report_progress(&progress);
                 }
