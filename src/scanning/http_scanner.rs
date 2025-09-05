@@ -552,10 +552,10 @@ impl HttpBlockchainScanner {
 
         // Create minimal TransactionInput with the output hash
         Ok(TransactionInput::new(
-            1,                                                                // version
-            0,                                                                // features (default)
-            [0u8; 32],                                                        /* commitment (not available from HTTP
-                                                                               * API) */
+            1, // version
+            0, // features (default)
+            [0u8; 32], /* commitment (not available from HTTP
+                * API) */
             [0u8; 64],                      // script_signature (not available)
             CompressedPublicKey::default(), // sender_offset_public_key (not available)
             Vec::new(),                     // covenant (not available)
