@@ -1,4 +1,15 @@
 use serde::{Deserialize, Serialize};
+use tari_common_types::{
+    seeds::cipher_seed::CipherSeed,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
+};
+use tari_script::{ExecutionStack, TariScript};
+use tari_transaction_components::{
+    rpc::models::{BlockUtxoInfo, MinimalUtxoSyncInfo, Signature},
+    transaction_components::{covenants::Covenant, EncryptedData, OutputFeatures, TransactionInput, TransactionOutput},
+    MicroMinotari,
+};
 use tari_utilities::ByteArray;
 use wasm_bindgen::prelude::*;
 
@@ -7,27 +18,11 @@ use crate::extraction::ExtractionConfig;
 // Only import HTTP scanner types when available
 #[cfg(feature = "http")]
 use crate::scanning::{
-    http_scanner::{BlockUtxoInfo, HttpBlockResponse, HttpBlockchainScanner, MinimalUtxoSyncInfo},
+    http_scanner::{HttpBlockResponse, HttpBlockchainScanner},
     BlockchainScanner,
     ScanConfig,
 };
-use crate::{
-    data_structures::{
-        block::Block,
-        encrypted_data::EncryptedData,
-        payment_id::MemoField,
-        transaction::TransactionDirection,
-        transaction_input::TransactionInput,
-        transaction_output::TransactionOutput,
-        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
-        wallet_output::{Covenant, OutputFeatures, Script, Signature},
-        wallet_transaction::WalletState,
-    },
-    key_management::{
-        key_derivation,
-        seed_phrase::{mnemonic_to_bytes, CipherSeed},
-    },
-};
+use crate::{data_structures::block::Block, WalletState};
 
 /// Simplified block info for WASM serialization
 #[derive(Debug, Clone, serde::Serialize)]
@@ -456,7 +451,7 @@ impl WasmScanner {
             http_block.outputs.iter().zip(outputs.iter()).enumerate()
         {
             // Try to decrypt and extract wallet output
-            if let Ok((value, _mask, payment_id)) = crate::data_structures::encrypted_data::EncryptedData::decrypt_data(
+            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(
                 &self.view_key,
                 &lightweight_output.commitment,
                 &lightweight_output.encrypted_data,
@@ -469,8 +464,8 @@ impl WasmScanner {
                     Some(http_output.output_hash.clone()), // CRITICAL: Preserve exact output_hash from HTTP
                     value.as_u64(),
                     payment_id,
-                    crate::data_structures::transaction::TransactionStatus::MinedConfirmed,
-                    crate::data_structures::transaction::TransactionDirection::Inbound,
+                    TransactionStatus::MinedConfirmed,
+                    TransactionDirection::Inbound,
                     true,
                 );
                 found_outputs += 1;
@@ -484,14 +479,12 @@ impl WasmScanner {
                 .iter()
                 .all(|&b| b == 0)
             {
-                if let Ok((value, _mask, payment_id)) =
-                    crate::data_structures::encrypted_data::EncryptedData::decrypt_one_sided_data(
-                        &self.view_key,
-                        &lightweight_output.commitment,
-                        &lightweight_output.sender_offset_public_key,
-                        &lightweight_output.encrypted_data,
-                    )
-                {
+                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
+                    &self.view_key,
+                    &lightweight_output.commitment,
+                    &lightweight_output.sender_offset_public_key,
+                    &lightweight_output.encrypted_data,
+                ) {
                     // Add to wallet state with the original output_hash from HTTP response
                     self.wallet_state.add_received_output(
                         http_block.height,
@@ -500,8 +493,8 @@ impl WasmScanner {
                         Some(http_output.output_hash.clone()), // CRITICAL: Preserve exact output_hash from HTTP
                         value.as_u64(),
                         payment_id,
-                        crate::data_structures::transaction::TransactionStatus::OneSidedConfirmed,
-                        crate::data_structures::transaction::TransactionDirection::Inbound,
+                        TransactionStatus::OneSidedConfirmed,
+                        TransactionDirection::Inbound,
                         true,
                     );
                     found_outputs += 1;
@@ -571,8 +564,8 @@ impl WasmScanner {
             let output = TransactionOutput::new_current_version(
                 OutputFeatures::default(), // Default features (will be 0/Standard)
                 commitment,
-                None,              // Range proof not provided in HTTP API
-                Script::default(), // Script not provided, use empty/default
+                None,                  // Range proof not provided in HTTP API
+                TariScript::default(), // Script not provided, use empty/default
                 sender_offset_public_key,
                 Signature::default(), // Metadata signature not provided, use default
                 Covenant::default(),  // Covenant not provided, use default
@@ -863,8 +856,8 @@ impl WasmScanner {
         Ok(TransactionOutput::new_current_version(
             OutputFeatures::default(), // Use default features
             commitment,
-            None,              // Range proof not provided in UTXO sync
-            Script::default(), // Script not provided or use default
+            None,                  // Range proof not provided in UTXO sync
+            TariScript::default(), // Script not provided or use default
             sender_offset_public_key,
             Signature::default(), // Metadata signature not provided or use default
             Covenant::default(),  // Covenant not provided or use default
@@ -875,8 +868,6 @@ impl WasmScanner {
 
     /// Convert InputData to TransactionInput (LEGACY)
     fn convert_legacy_input_data(&self, input_data: &InputData) -> Result<TransactionInput, String> {
-        use crate::data_structures::transaction_input::ExecutionStack;
-
         // Parse commitment
         let commitment_bytes =
             hex::decode(&input_data.commitment).map_err(|e| format!("Invalid input commitment hex: {}", e))?;
@@ -921,11 +912,6 @@ impl WasmScanner {
         &self,
         inputs: &Option<Vec<Vec<u8>>>,
     ) -> Result<Vec<TransactionInput>, String> {
-        use crate::data_structures::{
-            transaction_input::{ExecutionStack, TransactionInput},
-            types::{CompressedPublicKey, MicroMinotari},
-        };
-
         let mut transaction_inputs = Vec::new();
 
         if let Some(input_hashes) = inputs {
