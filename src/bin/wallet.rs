@@ -1188,15 +1188,15 @@ async fn handle_clear_database(database_path: String, no_prompt: bool) -> Result
 
     // Confirm action
     println!("⚠️  WARNING: This will permanently delete ALL data from: {database_path}");
-    let confirmation = if !no_prompt {
+    let confirmation = if no_prompt {
+        "yes".to_string()
+    } else {
         print!("Are you sure you want to continue? (yes/no): ");
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         input.trim().to_lowercase()
-    } else {
-        "yes".to_string()
     };
 
     if confirmation != "yes" && confirmation != "y" {

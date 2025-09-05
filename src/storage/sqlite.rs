@@ -414,7 +414,7 @@ impl SqliteStorage {
 
         if let Some(wallet_id) = filter.wallet_id {
             conditions.push("wallet_id = ?".to_string());
-            params.push(Box::new(wallet_id as i64));
+            params.push(Box::new(i64::from(wallet_id)));
         }
 
         if let Some((from, to)) = filter.block_height_range {
@@ -459,12 +459,12 @@ impl SqliteStorage {
 
         if let Some(wallet_id) = filter.wallet_id {
             conditions.push("wallet_id = ?".to_string());
-            params.push(Box::new(wallet_id as i64));
+            params.push(Box::new(i64::from(wallet_id)));
         }
 
         if let Some(status) = filter.status {
             conditions.push("status = ?".to_string());
-            params.push(Box::new(status as u32 as i64));
+            params.push(Box::new(i64::from(status as u32)));
         }
 
         if let Some(min_value) = filter.min_value {
@@ -545,7 +545,7 @@ impl WalletStorage for SqliteStorage {
                         wallet_clone.spend_key_hex,
                         wallet_clone.birthday_block as i64,
                         wallet_clone.latest_scanned_block.map(|b| b as i64),
-                        wallet_id as i64,
+                        i64::from(wallet_id),
                     ],
                 )?;
 
@@ -580,7 +580,7 @@ impl WalletStorage for SqliteStorage {
         self.connection
             .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallets WHERE id = ?")?;
-                let mut rows = stmt.query_map(params![wallet_id as i64], Self::row_to_wallet)?;
+                let mut rows = stmt.query_map(params![i64::from(wallet_id)], Self::row_to_wallet)?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -633,11 +633,11 @@ impl WalletStorage for SqliteStorage {
 
                 // Delete all transactions for this wallet (CASCADE should handle this, but explicit is safer)
                 tx.execute("DELETE FROM wallet_transactions WHERE wallet_id = ?", params![
-                    wallet_id as i64
+                    i64::from(wallet_id)
                 ])?;
 
                 // Delete the wallet
-                let rows_affected = tx.execute("DELETE FROM wallets WHERE id = ?", params![wallet_id as i64])?;
+                let rows_affected = tx.execute("DELETE FROM wallets WHERE id = ?", params![i64::from(wallet_id)])?;
 
                 tx.commit()?;
                 Ok(rows_affected > 0)
@@ -664,7 +664,7 @@ impl WalletStorage for SqliteStorage {
                 let rows_affected =
                     conn.execute("UPDATE wallets SET latest_scanned_block = ? WHERE id = ?", params![
                         block_height as i64,
-                        wallet_id as i64
+                        i64::from(wallet_id)
                     ])?;
 
                 if rows_affected == 0 {
@@ -695,7 +695,7 @@ impl WalletStorage for SqliteStorage {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
                     params![
-                        wallet_id as i64,
+                        i64::from(wallet_id),
                         tx.block_height as i64,
                         tx.output_index.map(|i| i as i64),
                         tx.input_index.map(|i| i as i64),
@@ -738,7 +738,7 @@ impl WalletStorage for SqliteStorage {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                         params![
-                            wallet_id as i64,
+                            i64::from(wallet_id),
                             transaction.block_height as i64,
                             transaction.output_index.map(|i| i as i64),
                             transaction.input_index.map(|i| i as i64),
@@ -1019,7 +1019,7 @@ impl WalletStorage for SqliteStorage {
                     FROM wallet_transactions
                     LEFT JOIN wallets ON wallet_transactions.wallet_id = wallets.id
                     WHERE wallet_id = ?
-                "#, vec![wallet_id as i64])
+                "#, vec![i64::from(wallet_id)])
             } else {
                 (r#"
                     SELECT
@@ -1273,7 +1273,7 @@ impl WalletStorage for SqliteStorage {
                     WHERE id = ?
                     "#,
                         params![
-                            output_clone.wallet_id as i64,
+                            i64::from(output_clone.wallet_id),
                             output_clone.commitment,
                             output_clone.hash,
                             output_clone.value as i64,
@@ -1282,7 +1282,7 @@ impl WalletStorage for SqliteStorage {
                             output_clone.script,
                             output_clone.input_data,
                             output_clone.covenant,
-                            output_clone.output_type as i64,
+                            i64::from(output_clone.output_type),
                             output_clone.features_json,
                             output_clone.maturity as i64,
                             output_clone.script_lock_height as i64,
@@ -1296,11 +1296,11 @@ impl WalletStorage for SqliteStorage {
                             output_clone.minimum_value_promise as i64,
                             output_clone.payment_id,
                             output_clone.rangeproof,
-                            output_clone.status as i64,
+                            i64::from(output_clone.status),
                             output_clone.mined_height.map(|h| h as i64),
                             output_clone.block_hash,
                             output_clone.spent_in_tx_id.map(|id| id as i64),
-                            output_id as i64,
+                            i64::from(output_id),
                         ],
                     )?;
 
@@ -1322,7 +1322,7 @@ impl WalletStorage for SqliteStorage {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                         params![
-                            output_clone.wallet_id as i64,
+                            i64::from(output_clone.wallet_id),
                             output_clone.commitment,
                             output_clone.hash,
                             output_clone.value as i64,
@@ -1331,7 +1331,7 @@ impl WalletStorage for SqliteStorage {
                             output_clone.script,
                             output_clone.input_data,
                             output_clone.covenant,
-                            output_clone.output_type as i64,
+                            i64::from(output_clone.output_type),
                             output_clone.features_json,
                             output_clone.maturity as i64,
                             output_clone.script_lock_height as i64,
@@ -1345,7 +1345,7 @@ impl WalletStorage for SqliteStorage {
                             output_clone.minimum_value_promise as i64,
                             output_clone.payment_id,
                             output_clone.rangeproof,
-                            output_clone.status as i64,
+                            i64::from(output_clone.status),
                             output_clone.mined_height.map(|h| h as i64),
                             output_clone.block_hash,
                             output_clone.spent_in_tx_id.map(|id| id as i64),
@@ -1383,7 +1383,7 @@ impl WalletStorage for SqliteStorage {
                         WHERE id = ?
                         "#,
                             params![
-                                output.wallet_id as i64,
+                                i64::from(output.wallet_id),
                                 output.commitment,
                                 output.hash,
                                 output.value as i64,
@@ -1392,7 +1392,7 @@ impl WalletStorage for SqliteStorage {
                                 output.script,
                                 output.input_data,
                                 output.covenant,
-                                output.output_type as i64,
+                                i64::from(output.output_type),
                                 output.features_json,
                                 output.maturity as i64,
                                 output.script_lock_height as i64,
@@ -1406,10 +1406,10 @@ impl WalletStorage for SqliteStorage {
                                 output.minimum_value_promise as i64,
                                 output.payment_id,
                                 output.rangeproof,
-                                output.status as i64,
+                                i64::from(output.status),
                                 output.mined_height.map(|h| h as i64),
                                 output.spent_in_tx_id.map(|id| id as i64),
-                                output_id as i64,
+                                i64::from(output_id),
                             ],
                         )?;
 
@@ -1435,7 +1435,7 @@ impl WalletStorage for SqliteStorage {
                             updated_at = CURRENT_TIMESTAMP
                         "#,
                             params![
-                                output.wallet_id as i64,
+                                i64::from(output.wallet_id),
                                 output.commitment,
                                 output.hash,
                                 output.value as i64,
@@ -1444,7 +1444,7 @@ impl WalletStorage for SqliteStorage {
                                 output.script,
                                 output.input_data,
                                 output.covenant,
-                                output.output_type as i64,
+                                i64::from(output.output_type),
                                 output.features_json,
                                 output.maturity as i64,
                                 output.script_lock_height as i64,
@@ -1458,7 +1458,7 @@ impl WalletStorage for SqliteStorage {
                                 output.minimum_value_promise as i64,
                                 output.payment_id,
                                 output.rangeproof,
-                                output.status as i64,
+                                i64::from(output.status),
                                 output.mined_height.map(|h| h as i64),
                                 output.block_hash,
                                 output.spent_in_tx_id.map(|id| id as i64),
@@ -1474,7 +1474,7 @@ impl WalletStorage for SqliteStorage {
                             let mut stmt =
                                 tx.prepare("SELECT id FROM outputs WHERE wallet_id = ? AND commitment = ?")?;
                             let existing_id: i64 =
-                                stmt.query_row(params![output.wallet_id as i64, output.commitment], |row| row.get(0))?;
+                                stmt.query_row(params![i64::from(output.wallet_id), output.commitment], |row| row.get(0))?;
                             existing_id as u32
                         };
                         output_ids.push(row_id);
@@ -1510,7 +1510,7 @@ impl WalletStorage for SqliteStorage {
                 WHERE id = ?
                 "#,
                     params![
-                        output_clone.wallet_id as i64,
+                        i64::from(output_clone.wallet_id),
                         output_clone.commitment,
                         output_clone.hash,
                         output_clone.value as i64,
@@ -1519,7 +1519,7 @@ impl WalletStorage for SqliteStorage {
                         output_clone.script,
                         output_clone.input_data,
                         output_clone.covenant,
-                        output_clone.output_type as i64,
+                        i64::from(output_clone.output_type),
                         output_clone.features_json,
                         output_clone.maturity as i64,
                         output_clone.script_lock_height as i64,
@@ -1533,10 +1533,10 @@ impl WalletStorage for SqliteStorage {
                         output_clone.minimum_value_promise as i64,
                         output_clone.payment_id,
                         output_clone.rangeproof,
-                        output_clone.status as i64,
+                        i64::from(output_clone.status),
                         output_clone.mined_height.map(|h| h as i64),
                         output_clone.spent_in_tx_id.map(|id| id as i64),
-                        output_id as i64,
+                        i64::from(output_id),
                     ],
                 )?;
 
@@ -1555,7 +1555,7 @@ impl WalletStorage for SqliteStorage {
             .call(move |conn| {
                 let rows_affected = conn.execute(
                     "UPDATE outputs SET status = 1, spent_in_tx_id = ? WHERE id = ?",
-                    params![spent_in_tx_id as i64, output_id as i64],
+                    params![spent_in_tx_id as i64, i64::from(output_id)],
                 )?;
 
                 if rows_affected == 0 {
@@ -1572,7 +1572,7 @@ impl WalletStorage for SqliteStorage {
         self.connection
             .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM outputs WHERE id = ?")?;
-                let mut rows = stmt.query_map(params![output_id as i64], Self::row_to_output)?;
+                let mut rows = stmt.query_map(params![i64::from(output_id)], Self::row_to_output)?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -1671,7 +1671,7 @@ impl WalletStorage for SqliteStorage {
                   AND ? >= maturity
                   AND ? >= script_lock_height
                 "#,
-                    params![wallet_id as i64, block_height as i64, block_height as i64],
+                    params![i64::from(wallet_id), block_height as i64, block_height as i64],
                     |row| row.get(0),
                 )?;
                 Ok(balance as u64)
@@ -1683,7 +1683,7 @@ impl WalletStorage for SqliteStorage {
     async fn delete_output(&self, output_id: u32) -> WalletResult<bool> {
         self.connection
             .call(move |conn| {
-                let rows_affected = conn.execute("DELETE FROM outputs WHERE id = ?", params![output_id as i64])?;
+                let rows_affected = conn.execute("DELETE FROM outputs WHERE id = ?", params![i64::from(output_id)])?;
                 Ok(rows_affected > 0)
             })
             .await
@@ -1693,7 +1693,7 @@ impl WalletStorage for SqliteStorage {
     async fn clear_outputs(&self, wallet_id: u32) -> WalletResult<()> {
         self.connection
             .call(move |conn| {
-                conn.execute("DELETE FROM outputs WHERE wallet_id = ?", params![wallet_id as i64])?;
+                conn.execute("DELETE FROM outputs WHERE wallet_id = ?", params![i64::from(wallet_id)])?;
                 Ok(())
             })
             .await
@@ -1705,7 +1705,7 @@ impl WalletStorage for SqliteStorage {
             .call(move |conn| {
                 let count: i64 = conn.query_row(
                     "SELECT COUNT(*) FROM outputs WHERE wallet_id = ?",
-                    params![wallet_id as i64],
+                    params![i64::from(wallet_id)],
                     |row| row.get(0),
                 )?;
                 Ok(count as usize)
@@ -1719,7 +1719,7 @@ impl WalletStorage for SqliteStorage {
             return Ok(0);
         }
 
-        let ids_to_lock: Vec<i64> = output_ids.iter().map(|&id| id as i64).collect();
+        let ids_to_lock: Vec<i64> = output_ids.iter().map(|&id| i64::from(id)).collect();
 
         self.connection
             .call(move |conn| {
@@ -1768,7 +1768,7 @@ impl WalletStorage for SqliteStorage {
                     "#,
                     params![
                         OutputStatus::Unspent as i64,
-                        wallet_id as i64,
+                        i64::from(wallet_id),
                         OutputStatus::Locked as i64
                     ],
                 )?;

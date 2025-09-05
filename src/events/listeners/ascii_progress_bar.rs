@@ -290,10 +290,10 @@ impl AsciiProgressBarListener {
             if self.config.show_spent {
                 parts.push(format!("{} spent", format_number(state.spent_found)));
             }
-            if !parts.is_empty() {
-                format!(" | Found: {}", parts.join(", "))
-            } else {
+            if parts.is_empty() {
                 String::new()
+            } else {
+                format!(" | Found: {}", parts.join(", "))
             }
         } else {
             String::new()
@@ -345,7 +345,7 @@ impl AsciiProgressBarListener {
             let time_since_update = now.duration_since(state.last_update);
 
             // Only update if enough time has passed (rate limiting)
-            if time_since_update.as_millis() < self.config.update_interval_ms as u128 {
+            if time_since_update.as_millis() < u128::from(self.config.update_interval_ms) {
                 return;
             }
 

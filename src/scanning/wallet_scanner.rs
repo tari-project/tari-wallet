@@ -226,7 +226,7 @@ pub fn extract_script_data(script_bytes: &[u8]) -> WalletResult<(Vec<u8>, u64)> 
             // Look for other relevant opcodes that might contain lock heights
             0x51..=0x60 => {
                 // OP_1 through OP_16 - small numbers
-                let value = (script_bytes[i] - 0x50) as u64;
+                let value = u64::from(script_bytes[i] - 0x50);
                 potential_heights.push(value);
                 i += 1;
             },

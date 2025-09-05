@@ -524,10 +524,10 @@ impl ScanEventEmitter {
             match SqliteStorage::new(database_path).await {
                 Ok(storage) => match storage.load_wallet_state(wallet_id).await {
                     Ok(wallet_state) => {
-                        if !wallet_state.transactions.is_empty() {
-                            Ok(Some(wallet_state))
-                        } else {
+                        if wallet_state.transactions.is_empty() {
                             Ok(None)
+                        } else {
+                            Ok(Some(wallet_state))
                         }
                     },
                     Err(_) => Ok(None),

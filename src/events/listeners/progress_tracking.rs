@@ -603,7 +603,7 @@ impl ProgressTrackingListener {
         // Check minimum time interval
         if let Some(last_update) = state.last_update_time {
             let time_since_last = last_update.elapsed();
-            if time_since_last.as_millis() < self.config.min_update_interval_ms as u128 {
+            if time_since_last.as_millis() < u128::from(self.config.min_update_interval_ms) {
                 return false;
             }
         }

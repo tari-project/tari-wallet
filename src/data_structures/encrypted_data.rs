@@ -1348,7 +1348,7 @@ mod test {
         println!("✅ Successful decryptions: {successful_decryptions}/{total_attempts}");
         println!(
             "📊 Success rate: {:.1}%",
-            (successful_decryptions as f64 / total_attempts as f64) * 100.0
+            (f64::from(successful_decryptions) / f64::from(total_attempts)) * 100.0
         );
 
         // Summary table

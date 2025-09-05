@@ -652,7 +652,7 @@ async fn test_configuration_edge_cases() {
     }
 
     // Test extreme key indices
-    let extreme_indices = vec![0, 1, u32::MAX as u64, u64::MAX];
+    let extreme_indices = vec![0, 1, u64::from(u32::MAX), u64::MAX];
 
     for key_index in &extreme_indices {
         wallet.set_current_key_index(*key_index);

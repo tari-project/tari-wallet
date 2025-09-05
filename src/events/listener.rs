@@ -319,7 +319,7 @@ impl EventRegistry {
         self.listeners.remove(index);
 
         // Update indices in the name map for listeners that came after the removed one
-        for (_, idx) in self.listener_names.iter_mut() {
+        for idx in self.listener_names.values_mut() {
             if *idx > index {
                 *idx -= 1;
             }
@@ -443,10 +443,10 @@ impl EventRegistry {
             .listener_names
             .iter()
             .filter_map(|(name, &index)| {
-                if !self.listeners[index].is_healthy() {
-                    Some(name.clone())
-                } else {
+                if self.listeners[index].is_healthy() {
                     None
+                } else {
+                    Some(name.clone())
                 }
             })
             .collect();

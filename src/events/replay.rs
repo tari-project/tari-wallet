@@ -2209,7 +2209,10 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
             report.replayed_state_summary.transaction_count
         ));
 
-        if !report.inconsistencies.is_empty() {
+        if report.inconsistencies.is_empty() {
+            output.push_str("## ✅ No Issues Found\n\n");
+            output.push_str("The replayed wallet state appears to be consistent and reliable.\n\n");
+        } else {
             output.push_str("## Detailed Issues\n\n");
 
             // Group issues by type
@@ -2263,9 +2266,6 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
                     output.push_str("\n---\n\n");
                 }
             }
-        } else {
-            output.push_str("## ✅ No Issues Found\n\n");
-            output.push_str("The replayed wallet state appears to be consistent and reliable.\n\n");
         }
 
         output.push_str("## Recommendations\n\n");

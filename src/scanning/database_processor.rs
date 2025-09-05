@@ -80,20 +80,20 @@ impl DatabaseDataProcessor {
     /// Start background writer (for non-memory storage)
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn start_background_writer(&mut self, database_path: &str) -> WalletResult<()> {
-        if !self.storage.is_memory_only {
-            self.storage.start_background_writer(database_path).await
-        } else {
+        if self.storage.is_memory_only {
             Ok(())
+        } else {
+            self.storage.start_background_writer(database_path).await
         }
     }
 
     /// Stop background writer (for non-memory storage)
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn stop_background_writer(&mut self) -> WalletResult<()> {
-        if !self.storage.is_memory_only {
-            self.storage.stop_background_writer().await
-        } else {
+        if self.storage.is_memory_only {
             Ok(())
+        } else {
+            self.storage.stop_background_writer().await
         }
     }
 

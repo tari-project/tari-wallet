@@ -92,7 +92,7 @@ impl KeyManagerStateSql {
         conn.call(move |conn| {
             let mut stmt =
                 conn.prepare("SELECT * FROM key_manager_states WHERE wallet_id = ? ORDER BY timestamp DESC")?;
-            let rows = stmt.query_map(params![wallet_id as i64], Self::row_to_state)?;
+            let rows = stmt.query_map(params![i64::from(wallet_id)], Self::row_to_state)?;
 
             let mut statuses = Vec::new();
             for row in rows {
@@ -111,7 +111,7 @@ impl KeyManagerStateSql {
         let branch_owned = branch.to_string();
         conn.call(move |conn| {
             let mut stmt = conn.prepare("SELECT * FROM key_manager_states WHERE branch_seed = ? AND wallet_id = ?")?;
-            let mut rows = stmt.query_map(params![branch_owned, wallet_id as i64], Self::row_to_state)?;
+            let mut rows = stmt.query_map(params![branch_owned, i64::from(wallet_id)], Self::row_to_state)?;
 
             if let Some(row) = rows.next() {
                 Ok(Some(row?))
@@ -140,7 +140,7 @@ impl KeyManagerStateSql {
                             params![
                                 record.branch_seed.clone(),
                                 record.primary_key_index.clone(),
-                                km.id as i64,
+                                i64::from(km.id),
                             ],
                         )?;
 
@@ -178,7 +178,7 @@ impl KeyManagerStateSql {
                         SET primary_key_index = ?
                         WHERE id = ?
                         "#,
-                    params![index, id as i64,],
+                    params![index, i64::from(id),],
                 )?;
                 Ok(rows_affected)
             })
@@ -196,7 +196,7 @@ impl Encryptable<XChaCha20Poly1305> for KeyManagerStateSql {
         // Because there are two variable-length inputs in the concatenation, we prepend the length of the first
         [
             DOMAIN,
-            (self.wallet_id as u64).to_le_bytes().as_bytes(),
+            u64::from(self.wallet_id).to_le_bytes().as_bytes(),
             (self.branch_seed.len() as u64).to_le_bytes().as_bytes(),
             self.branch_seed.as_bytes(),
             field_name.as_bytes(),
@@ -228,7 +228,7 @@ impl Encryptable<XChaCha20Poly1305> for NewKeyManagerStateSql {
         // Because there are two variable-length inputs in the concatenation, we prepend the length of the first
         [
             DOMAIN,
-            (self.wallet_id as u64).to_le_bytes().as_bytes(),
+            u64::from(self.wallet_id).to_le_bytes().as_bytes(),
             (self.branch_seed.len() as u64).to_le_bytes().as_bytes(),
             self.branch_seed.as_bytes(),
             field_name.as_bytes(),

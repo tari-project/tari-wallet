@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_extract_payment_id_success() {
-        let u256_bytes = [0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>();
+        let u256_bytes = [0u8; 31].iter().copied().chain([1u8]).collect::<Vec<u8>>();
         let (encrypted_data, commitment, key) =
             create_test_encrypted_data(PaymentId::U256(U256::from_big_endian(&u256_bytes)));
         let result = PaymentIdExtractor::extract(&encrypted_data, &key, &commitment);
@@ -428,7 +428,7 @@ mod tests {
         assert!(matches!(result_empty.payment_id, Some(PaymentId::Empty)));
 
         // Test U256
-        let u256_bytes = [0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>();
+        let u256_bytes = [0u8; 31].iter().copied().chain([1u8]).collect::<Vec<u8>>();
         let u256_payment_id = PaymentId::U256(U256::from_big_endian(&u256_bytes));
         let encrypted_u256 =
             EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, u256_payment_id).unwrap();
@@ -498,7 +498,7 @@ mod tests {
     fn test_payment_id_validation() {
         // Test valid payment IDs
         assert!(PaymentIdExtractor::validate_payment_id(&PaymentId::Empty).is_ok());
-        let u256_bytes = [0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>();
+        let u256_bytes = [0u8; 31].iter().copied().chain([1u8]).collect::<Vec<u8>>();
         assert!(PaymentIdExtractor::validate_payment_id(&PaymentId::U256(U256::from_big_endian(&u256_bytes))).is_ok());
         assert!(PaymentIdExtractor::validate_payment_id(&PaymentId::Open {
             user_data: b"test".to_vec(),
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(PaymentIdExtractor::payment_id_to_string(&PaymentId::Empty), "Empty");
         assert_eq!(
             PaymentIdExtractor::payment_id_to_string(&PaymentId::U256(U256::from_big_endian(
-                &[0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>()[..]
+                &[0u8; 31].iter().copied().chain([1u8]).collect::<Vec<u8>>()[..]
             ))),
             "U256: 0000000000000000000000000000000000000000000000000000000000000001"
         );
@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn test_extract_as_hex() {
-        let u256_bytes = [0u8; 31].iter().cloned().chain([1u8]).collect::<Vec<u8>>();
+        let u256_bytes = [0u8; 31].iter().copied().chain([1u8]).collect::<Vec<u8>>();
         let (encrypted_data, commitment, key) =
             create_test_encrypted_data(PaymentId::U256(U256::from_big_endian(&u256_bytes)));
         let result = PaymentIdExtractor::extract_as_hex(&encrypted_data, &key, &commitment);
