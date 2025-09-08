@@ -75,7 +75,7 @@ pub struct HttpTipInfoResponse {
 pub struct HttpChainMetadata {
     pub best_block_height: u64,
     pub best_block_hash: Vec<u8>,
-    pub accumulated_difficulty: Vec<u8>,
+    pub accumulated_difficulty: String,
     pub pruned_height: u64,
     pub timestamp: u64,
 }

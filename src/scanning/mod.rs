@@ -268,7 +268,7 @@ pub struct TipInfo {
     /// Current best block hash
     pub best_block_hash: Vec<u8>,
     /// Accumulated difficulty
-    pub accumulated_difficulty: Vec<u8>,
+    pub accumulated_difficulty: String,
     /// Pruned height (minimum height this node can provide complete blocks for)
     pub pruned_height: u64,
     /// Timestamp
@@ -709,7 +709,7 @@ impl MockBlockchainScanner {
             tip_info: TipInfo {
                 best_block_height: 1000,
                 best_block_hash: vec![1, 2, 3, 4],
-                accumulated_difficulty: vec![5, 6, 7, 8],
+                accumulated_difficulty: "0x19ede5dc5f735cc64e1223f35840".to_owned(),
                 pruned_height: 500,
                 timestamp: 1234567890,
             },
