@@ -24,7 +24,7 @@ pub struct WasmScanner {
 
 #[wasm_bindgen(js_class = WasmScanner)]
 impl WasmScanner {
-    #[wasm_bindgen]
+    #[wasm_bindgen(js_name = "fromSeedWords")]
     pub async fn from_seed_words(base_url: &str, seed_phrase: &str) -> Result<Self, String> {
         let seed_words = SeedWords::from_str(&seed_phrase).map_err(|e| e.to_string())?;
         let master_key = CipherSeed::from_mnemonic(&seed_words, None).map_err(|e| e.to_string())?;
@@ -48,6 +48,7 @@ impl WasmScanner {
             .map_err(|e| format!("Failed to initialize HTTP scanner: {}", e))
     }
 
+    #[wasm_bindgen(js_name = "getTipInfo")]
     pub async fn get_tip_info(&mut self) -> Result<JsTipInfo, String> {
         self.http_scanner
             .get_tip_info()
@@ -57,7 +58,7 @@ impl WasmScanner {
     }
 
     #[cfg(feature = "http")]
-    #[wasm_bindgen]
+    #[wasm_bindgen(js_name = "scanBlocks")]
     pub async fn scan_blocks(&mut self, start_height: u64, end_height: u64) -> Result<Vec<JsBlockScanResult>, String> {
         let scan_config = self
             .http_scanner

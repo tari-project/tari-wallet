@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="../wasm/icon.png">
+    <title>Tari Wallet Scanner (New WASM)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        .main-content {
+            padding: 30px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+        .left-panel, .right-panel {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 25px;
+        }
+        .section { margin-bottom: 25px; }
+        .section h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        .form-group { margin-bottom: 15px; }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #34495e;
+        }
+        input, select,
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            box-sizing: border-box;
+            resize: vertical;
+            min-height: 48px;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 5px 0;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .result-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+            max-width: 100%;
+        }
+        .result-card h4 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: clamp(0.7rem, 2.5vw, 1rem);
+            line-height: 1.3;
+            flex-shrink: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .result-value {
+            font-size: clamp(0.5rem, 12cqw, 1.4rem);
+            font-weight: bold;
+            color: #3498db;
+            line-height: 1.1;
+            width: 100%;
+            overflow: hidden;
+            display: block;
+            word-break: break-all;
+            overflow-wrap: break-word;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        @media (max-width: 768px) {
+            .main-content { grid-template-columns: 1fr; padding: 10px; }
+            .header h1 { font-size: 2em; }
+            .container { padding: 0; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🌟 Tari Wallet Scanner (New WASM)</h1>
+        <p>Browser-based blockchain scanner for Tari wallets (new WASM version)</p>
+    </div>
+    <div class="main-content">
+        <div class="left-panel">
+            <div class="section">
+                <h3>Connection & Seed</h3>
+                <div class="form-group">
+                    <label for="baseUrl">Node Base URL</label>
+                    <input id="baseUrl" type="text" value="http://127.0.0.1:9005" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="seedPhrase">Seed Phrase</label>
+                    <textarea id="seedPhrase" rows="2" placeholder="Enter your seed phrase here"></textarea>
+                </div>
+                <div class="form-group">
+                    <button class="btn" id="connectBtn">Connect</button>
+                </div>
+                <div id="statusArea"></div>
+            </div>
+            <div class="section">
+                <h3>Scan Settings</h3>
+                <div class="form-group">
+                    <label for="startHeight">Start Height</label>
+                    <input id="startHeight" type="number" min="0" value="0">
+                </div>
+                <div class="form-group">
+                    <label for="endHeight">End Height (optional)</label>
+                    <input id="endHeight" type="number" min="0" placeholder="Leave empty for tip">
+                </div>
+                <div class="form-group">
+                    <label for="batchSize">Batch Size</label>
+                    <input id="batchSize" type="number" min="1" value="32">
+                </div>
+                <div class="form-group">
+                    <button class="btn" id="scanBtn" disabled>Start Scan</button>
+                    <button class="btn" id="stopBtn" style="display:none;background:linear-gradient(135deg,#f093fb 0%,#f5576c 100%)">Stop Scan</button>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                <div id="progressText"></div>
+            </div>
+        </div>
+        <div class="right-panel">
+            <div class="section">
+                <h3>Results</h3>
+                <div class="results-grid">
+                    <div class="result-card">
+                        <h4>Chain Tip Height</h4>
+                        <span class="result-value" id="tipHeight">-</span>
+                    </div>
+                    <div class="result-card">
+                        <h4>Current Block Height</h4>
+                        <span class="result-value" id="currentBlockHeight">-</span>
+                    </div>
+                    <div class="result-card">
+                        <h4>Blocks Scanned</h4>
+                        <span class="result-value" id="blocksScanned">-</span>
+                    </div>
+                    <div class="result-card">
+                        <h4>Available Outputs</h4>
+                        <span class="result-value" id="availableOutputs">-</span>
+                    </div>
+                    <div class="result-card">
+                        <h4>Total Value Received (T)</h4>
+                        <span class="result-value" id="totalValueReceived">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script type="module">
+
+let wasm = null;
+let scanner = null;
+let tipInfo = null;
+let scanInProgress = false;
+let stopRequested = false;
+let lastScannedBlock = null;
+
+async function showStatus(message, type = 'info') {
+    const statusArea = document.getElementById('statusArea');
+    const status = document.createElement('div');
+    status.className = `status ${type}`;
+    status.textContent = message;
+    statusArea.appendChild(status);
+    setTimeout(() => status.remove(), 4000);
+}
+
+function updateResults({
+    tipHeight = '-',
+    currentBlockHeight = '-',
+    blocksScanned = '-',
+    availableOutputs = '-',
+    totalValueReceived = '-'
+}) {
+    document.getElementById('tipHeight').textContent = tipHeight;
+    document.getElementById('currentBlockHeight').textContent = currentBlockHeight;
+    document.getElementById('blocksScanned').textContent = blocksScanned;
+    document.getElementById('availableOutputs').textContent = availableOutputs;
+    document.getElementById('totalValueReceived').textContent = totalValueReceived;
+}
+
+function updateProgress(percent, text) {
+    document.getElementById('progressFill').style.width = percent + '%';
+    document.getElementById('progressText').textContent = text || '';
+}
+
+async function connect() {
+    const baseUrl = document.getElementById('baseUrl').value.trim();
+    const seedPhrase = document.getElementById('seedPhrase').value.trim();
+    if (!baseUrl || !seedPhrase) {
+        showStatus('Please enter both base URL and seed phrase', 'error');
+        return;
+    }
+    document.getElementById('connectBtn').disabled = true;
+    showStatus('Connecting...', 'info');
+    try {
+        if (!wasm) {
+            wasm = await import('./pkg-web/lightweight_wallet_libs.js');
+            await wasm.default();
+        }
+        scanner = await wasm.WasmScanner.fromSeedWords(baseUrl, seedPhrase);
+        tipInfo = await scanner.getTipInfo();
+        updateResults({ tipHeight: tipInfo.bestBlockHeight.toString() });
+        showStatus('Connected! Tip height: ' + tipInfo.bestBlockHeight, 'success');
+        document.getElementById('scanBtn').disabled = false;
+    } catch (e) {
+        showStatus('Connection failed: ' + e, 'error');
+        document.getElementById('scanBtn').disabled = true;
+    } finally {
+        document.getElementById('connectBtn').disabled = false;
+    }
+}
+
+async function scan() {
+    if (!scanner) {
+        showStatus('Not connected', 'error');
+        return;
+    }
+    let startHeight = parseInt(document.getElementById('startHeight').value, 10);
+    let endHeightRaw = document.getElementById('endHeight').value.trim();
+    const batchSize = parseInt(document.getElementById('batchSize').value, 10);
+    if (isNaN(startHeight) || startHeight < 0) {
+        showStatus('Invalid start height', 'error');
+        return;
+    }
+    if (!batchSize || batchSize < 1) {
+        showStatus('Invalid batch size', 'error');
+        return;
+    }
+    // Warn if user tries to scan blocks already scanned in this session
+    if (lastScannedBlock !== null && startHeight <= lastScannedBlock) {
+        showStatus(`Warning: Start Height (${startHeight}) overlaps with last scanned block (${lastScannedBlock}). This may cause duplicate scan errors.`, 'error');
+        return;
+    }
+    let endHeight;
+    if (!endHeightRaw) {
+        // tipInfo.bestBlockHeight may be BigInt, so convert to number
+        endHeight = Number(tipInfo.bestBlockHeight);
+    } else {
+        endHeight = parseInt(endHeightRaw, 10);
+        if (isNaN(endHeight) || endHeight < startHeight) {
+            showStatus('Invalid end height', 'error');
+            return;
+        }
+    }
+    document.getElementById('scanBtn').disabled = true;
+    document.getElementById('stopBtn').style.display = '';
+    document.getElementById('stopBtn').disabled = false;
+    scanInProgress = true;
+    stopRequested = false;
+    updateProgress(0, 'Starting scan...');
+    if (!scanInProgress) {
+        updateResults({
+            tipHeight: tipInfo.bestBlockHeight.toString(),
+            currentBlockHeight: '-',
+            blocksScanned: '-',
+            availableOutputs: '-',
+            totalValueReceived: '-'
+        });
+    }
+    let totalBlocks = endHeight - startHeight + 1;
+    let scannedBlocks = 0;
+    let availableOutputs = 0;
+    let totalValueReceived = 0n;
+    lastScannedBlock = null;
+    try {
+        for (let batchStart = startHeight; batchStart <= endHeight; batchStart += batchSize) {
+            if (stopRequested) {
+                showStatus('Scan stopped by user', 'info');
+                break;
+            }
+            const batchEnd = Math.min(batchStart + batchSize - 1, endHeight);
+            updateProgress(Math.floor((scannedBlocks / totalBlocks) * 100), `Scanning blocks ${batchStart} - ${batchEnd}`);
+            const blocks = await scanner.scanBlocks(BigInt(batchStart), BigInt(batchEnd));
+            for (const block of blocks) {
+                scannedBlocks++;
+                document.getElementById('currentBlockHeight').textContent = block.height.toString();
+                lastScannedBlock = Number(block.height);
+                if (block.walletOutputs && block.walletOutputs.length) {
+                    availableOutputs += block.walletOutputs.length;
+                    for (const output of block.walletOutputs) {
+                        totalValueReceived += output.value;
+                    }
+                }
+                document.getElementById('blocksScanned').textContent = scannedBlocks.toString();
+                document.getElementById('availableOutputs').textContent = availableOutputs.toString();
+                document.getElementById('totalValueReceived').textContent = totalValueReceived.toString();
+            }
+        }
+        if (!stopRequested) {
+            updateProgress(100, 'Scan complete!');
+            showStatus('Scan complete!', 'success');
+        }
+    } catch (e) {
+        showStatus('Scan failed: ' + e, 'error');
+        if (lastScannedBlock !== null) {
+            document.getElementById('startHeight').value = (lastScannedBlock + 1).toString();
+            showStatus(`Start Height updated to ${lastScannedBlock + 1} to avoid duplicate scan.`, 'info');
+        }
+    } finally {
+        scanInProgress = false;
+        document.getElementById('scanBtn').disabled = false;
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('stopBtn').disabled = false;
+        // If stopped, set start height to last scanned block + 1
+        if (stopRequested && lastScannedBlock !== null) {
+            document.getElementById('startHeight').value = (lastScannedBlock + 1).toString();
+        }
+    }
+}
+
+document.getElementById('connectBtn').addEventListener('click', connect);
+document.getElementById('scanBtn').addEventListener('click', () => {
+    if (!scanInProgress) scan();
+});
+document.getElementById('stopBtn').addEventListener('click', () => {
+    if (scanInProgress) {
+        stopRequested = true;
+        document.getElementById('stopBtn').disabled = true;
+    }
+});
+</script>
+</body>
+</html>
