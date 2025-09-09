@@ -284,6 +284,8 @@ pub struct UtxoScanResult {
     pub block_hash: Vec<u8>,
     /// Wallet outputs extracted from transaction outputs
     pub wallet_outputs: Vec<IncompleteScannedOutput>,
+    /// Input hashes
+    pub inputs: Vec<Vec<u8>>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
 }
@@ -297,6 +299,8 @@ pub struct BlockScanResult {
     pub block_hash: Vec<u8>,
     /// Wallet outputs extracted from transaction outputs
     pub wallet_outputs: Vec<WalletOutput>,
+    /// Input hashes
+    pub inputs: Vec<Vec<u8>>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
 }

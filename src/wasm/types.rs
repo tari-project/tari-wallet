@@ -1,6 +1,6 @@
 use borsh::BorshSerialize;
-use tari_transaction_components::transaction_components::WalletOutput;
-use tari_utilities::ByteArray;
+use tari_transaction_components::{key_manager::MemoryKeyManager, transaction_components::WalletOutput};
+use tari_utilities::{hex::Hex, ByteArray};
 use wasm_bindgen::prelude::*;
 
 use crate::{BlockScanResult, TipInfo};
@@ -73,14 +73,21 @@ pub struct JsWalletOutput {
     pub range_proof: Option<Vec<u8>>,
     #[wasm_bindgen(js_name = "paymentId", getter_with_clone, readonly)]
     pub payment_id: Vec<u8>,
+    #[wasm_bindgen(getter_with_clone, readonly)]
+    pub hash: String,
 }
 
-impl From<&WalletOutput> for JsWalletOutput {
-    fn from(o: &WalletOutput) -> Self {
+impl JsWalletOutput {
+    async fn from_wallet_output(key_manager: &MemoryKeyManager, o: &WalletOutput) -> Result<Self, String> {
         let mut covenant = Vec::new();
         BorshSerialize::serialize(&o.covenant, &mut covenant).unwrap();
+        let hash = o
+            .hash(key_manager)
+            .await
+            .map(|h| h.to_hex())
+            .map_err(|e| e.to_string())?;
 
-        JsWalletOutput {
+        let output = JsWalletOutput {
             version: o.version.as_u8(),
             value: o.value.as_u64(),
             commitment_mask_key_id: o.commitment_mask_key_id.to_string(),
@@ -96,7 +103,9 @@ impl From<&WalletOutput> for JsWalletOutput {
             minimum_value_promise: o.minimum_value_promise.0,
             range_proof: o.range_proof.as_ref().map(|rp| rp.to_vec()),
             payment_id: o.payment_id.to_bytes(),
-        }
+            hash,
+        };
+        Ok(output)
     }
 }
 
@@ -113,19 +122,30 @@ pub struct JsBlockScanResult {
     /// Wallet outputs extracted from transaction outputs
     #[wasm_bindgen(js_name = "walletOutputs", getter_with_clone, readonly)]
     pub wallet_outputs: Vec<JsWalletOutput>,
+    /// Input hashes
+    #[wasm_bindgen(js_name = "inputHashes", getter_with_clone, readonly)]
+    pub input_hashes: Vec<String>,
     /// Timestamp when block was mined
     #[wasm_bindgen(js_name = "minedTimestamp", getter_with_clone, readonly)]
     pub mined_timestamp: js_sys::Date,
 }
 
-impl From<&BlockScanResult> for JsBlockScanResult {
-    fn from(r: &BlockScanResult) -> Self {
-        JsBlockScanResult {
+impl JsBlockScanResult {
+    pub async fn from_block_scan_result(key_manager: &MemoryKeyManager, r: &BlockScanResult) -> Result<Self, String> {
+        let mut wallet_outputs = vec![];
+        for output in &r.wallet_outputs {
+            let wallet_output = JsWalletOutput::from_wallet_output(key_manager, output).await?;
+            wallet_outputs.push(wallet_output);
+        }
+
+        let input_hashes: Vec<String> = r.inputs.iter().map(|i| i.to_hex()).collect();
+        Ok(JsBlockScanResult {
             height: r.height,
             block_hash: r.block_hash.clone(),
-            wallet_outputs: r.wallet_outputs.iter().map(|o| o.into()).collect(),
+            wallet_outputs,
+            input_hashes,
             mined_timestamp: timestamp_to_date(r.mined_timestamp),
-        }
+        })
     }
 }
 

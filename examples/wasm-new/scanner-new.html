@@ -14,7 +14,7 @@
             padding: 20px;
         }
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
             background: white;
             border-radius: 15px;
@@ -140,7 +140,7 @@
         }
         .results-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            grid-template-columns: 1fr 1fr;
             gap: 15px;
             margin-top: 20px;
         }
@@ -236,26 +236,14 @@
             <div class="section">
                 <h3>Results</h3>
                 <div class="results-grid">
-                    <div class="result-card">
-                        <h4>Chain Tip Height</h4>
-                        <span class="result-value" id="tipHeight">-</span>
-                    </div>
-                    <div class="result-card">
-                        <h4>Current Block Height</h4>
-                        <span class="result-value" id="currentBlockHeight">-</span>
-                    </div>
-                    <div class="result-card">
-                        <h4>Blocks Scanned</h4>
-                        <span class="result-value" id="blocksScanned">-</span>
-                    </div>
-                    <div class="result-card">
-                        <h4>Available Outputs</h4>
-                        <span class="result-value" id="availableOutputs">-</span>
-                    </div>
-                    <div class="result-card">
-                        <h4>Total Value Received (T)</h4>
-                        <span class="result-value" id="totalValueReceived">-</span>
-                    </div>
+                    <div class="result-card" style="grid-column: span 1;"><h4>Tip Height</h4><span class="result-value" id="tipHeight">-</span></div>
+                    <div class="result-card" style="grid-column: span 1;"><h4>Current Block Height</h4><span class="result-value" id="currentBlockHeight">-</span></div>
+                    <div class="result-card" style="grid-column: 1 / -1;"><h4>Blocks Scanned</h4><span class="result-value" id="blocksScanned">-</span></div>
+                    <div class="result-card" style="grid-column: span 1;"><h4>Available Outputs</h4><span class="result-value" id="availableOutputs">-</span></div>
+                    <div class="result-card" style="grid-column: span 1;"><h4>Used Outputs</h4><span class="result-value" id="usedOutputs">-</span></div>
+                    <div class="result-card" style="grid-column: span 1;"><h4>Total Value Received (T)</h4><span class="result-value" id="totalValueReceived">-</span></div>
+                    <div class="result-card" style="grid-column: span 1;"><h4>Total Value Spent (T)</h4><span class="result-value" id="totalValueSpent">-</span></div>
+                    <div class="result-card" style="grid-column: 1 / -1;"><h4>Current Balance (T)</h4><span class="result-value" id="currentBalance">-</span></div>
                 </div>
             </div>
         </div>
@@ -279,18 +267,29 @@ async function showStatus(message, type = 'info') {
     setTimeout(() => status.remove(), 4000);
 }
 
+// Track WalletOutputs by hash
+const walletOutputsMap = new Map(); // hash -> WalletOutput
+let usedOutputs = 0;
+let totalValueSpent = 0n;
+
 function updateResults({
     tipHeight = '-',
     currentBlockHeight = '-',
     blocksScanned = '-',
     availableOutputs = '-',
-    totalValueReceived = '-'
+    usedOutputs = '-',
+    totalValueReceived = '-',
+    totalValueSpent = '-',
+    currentBalance = '-'
 }) {
     document.getElementById('tipHeight').textContent = tipHeight;
     document.getElementById('currentBlockHeight').textContent = currentBlockHeight;
     document.getElementById('blocksScanned').textContent = blocksScanned;
     document.getElementById('availableOutputs').textContent = availableOutputs;
+    document.getElementById('usedOutputs').textContent = usedOutputs;
     document.getElementById('totalValueReceived').textContent = totalValueReceived;
+    document.getElementById('totalValueSpent').textContent = totalValueSpent;
+    document.getElementById('currentBalance').textContent = currentBalance;
 }
 
 function updateProgress(percent, text) {
@@ -373,9 +372,16 @@ async function scan() {
         });
     }
     let totalBlocks = endHeight - startHeight + 1;
-    let scannedBlocks = 0;
-    let availableOutputs = 0;
-    let totalValueReceived = 0n;
+    // Only reset state if this is a fresh scan (startHeight == 0 or lastScannedBlock == null or startHeight > lastScannedBlock)
+    let isFreshScan = (lastScannedBlock === null || startHeight === 0 || startHeight > lastScannedBlock);
+    let scannedBlocks = isFreshScan ? 0 : (typeof window._scannedBlocks === 'number' ? window._scannedBlocks : 0);
+    let availableOutputs = isFreshScan ? 0 : (typeof window._availableOutputs === 'number' ? window._availableOutputs : 0);
+    let totalValueReceived = isFreshScan ? 0n : (typeof window._totalValueReceived === 'bigint' ? window._totalValueReceived : 0n);
+    if (isFreshScan) {
+        usedOutputs = 0;
+        totalValueSpent = 0n;
+        walletOutputsMap.clear();
+    }
     lastScannedBlock = null;
     try {
         for (let batchStart = startHeight; batchStart <= endHeight; batchStart += batchSize) {
@@ -390,15 +396,39 @@ async function scan() {
                 scannedBlocks++;
                 document.getElementById('currentBlockHeight').textContent = block.height.toString();
                 lastScannedBlock = Number(block.height);
+                // Add new WalletOutputs to the map
                 if (block.walletOutputs && block.walletOutputs.length) {
-                    availableOutputs += block.walletOutputs.length;
-                    for (const output of block.walletOutputs) {
-                        totalValueReceived += output.value;
+                    for (const wo of block.walletOutputs) {
+                        if (wo.hash && !walletOutputsMap.has(wo.hash)) {
+                            walletOutputsMap.set(wo.hash, wo);
+                            availableOutputs++;
+                            totalValueReceived += BigInt(wo.value);
+                        }
                     }
                 }
-                document.getElementById('blocksScanned').textContent = scannedBlocks.toString();
-                document.getElementById('availableOutputs').textContent = availableOutputs.toString();
-                document.getElementById('totalValueReceived').textContent = totalValueReceived.toString();
+                // Check inputHashes for spent outputs
+                if (block.inputHashes && block.inputHashes.length) {
+                    for (const inputHash of block.inputHashes) {
+                        if (walletOutputsMap.has(inputHash)) {
+                            const spentOutput = walletOutputsMap.get(inputHash);
+                            usedOutputs++;
+                            totalValueSpent += BigInt(spentOutput.value);
+                            walletOutputsMap.delete(inputHash);
+                            availableOutputs--;
+                        }
+                    }
+                }
+                // Update results after each block
+                updateResults({
+                    tipHeight: tipInfo.bestBlockHeight.toString(),
+                    currentBlockHeight: block.height.toString(),
+                    blocksScanned: scannedBlocks.toString(),
+                    availableOutputs: availableOutputs.toString(),
+                    usedOutputs: usedOutputs.toString(),
+                    totalValueReceived: totalValueReceived.toString(),
+                    totalValueSpent: totalValueSpent.toString(),
+                    currentBalance: (totalValueReceived - totalValueSpent).toString()
+                });
             }
         }
         if (!stopRequested) {
@@ -407,6 +437,7 @@ async function scan() {
         }
     } catch (e) {
         showStatus('Scan failed: ' + e, 'error');
+        // Do NOT reset state on error, so user can resume
         if (lastScannedBlock !== null) {
             document.getElementById('startHeight').value = (lastScannedBlock + 1).toString();
             showStatus(`Start Height updated to ${lastScannedBlock + 1} to avoid duplicate scan.`, 'info');

@@ -728,6 +728,7 @@ where KM: TransactionKeyManagerInterface
                 height: http_block.height,
                 block_hash: http_block.header_hash,
                 wallet_outputs,
+                inputs: http_block.inputs,
                 mined_timestamp: http_block.mined_timestamp,
             });
         }
@@ -753,6 +754,7 @@ where KM: TransactionKeyManagerInterface
                 height: block.height,
                 block_hash: block.block_hash,
                 wallet_outputs,
+                inputs: block.inputs,
                 mined_timestamp: block.mined_timestamp,
             });
         }

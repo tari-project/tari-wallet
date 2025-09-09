@@ -71,7 +71,13 @@ impl WasmScanner {
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok(blocks.iter().map(|b| b.into()).collect())
+        let mut scan_results = vec![];
+        for block in &blocks {
+            let result = JsBlockScanResult::from_block_scan_result(&self.key_manager, &block).await?;
+            scan_results.push(result);
+        }
+
+        Ok(scan_results)
     }
 
     #[wasm_bindgen(js_name = "getKeyManager")]
