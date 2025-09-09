@@ -693,9 +693,13 @@ where KM: TransactionKeyManagerInterface
             config.start_height, config.end_height
         );
 
-        // Get tip info to determine end height
-        let tip_info = self.get_tip_info().await?;
-        let end_height = config.end_height.unwrap_or(tip_info.best_block_height);
+        let end_height = match config.end_height {
+            Some(h) => h,
+            None => {
+                let tip_info = self.get_tip_info().await?;
+                tip_info.best_block_height
+            },
+        };
 
         if config.start_height > end_height {
             return Ok(Vec::new());
