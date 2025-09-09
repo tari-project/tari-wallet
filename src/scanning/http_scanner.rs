@@ -622,6 +622,7 @@ where KM: TransactionKeyManagerInterface
         let mut all_blocks = Vec::new();
         let mut blocks_collected = 0;
         let max_blocks = (end_height - start_height + 1) as usize;
+        let mut is_first_batch = true;
 
         #[cfg(feature = "tracing")]
         debug!(
@@ -639,16 +640,29 @@ where KM: TransactionKeyManagerInterface
                 break;
             }
 
-            // Add all blocks from this response (we can't filter by height since it's not provided)
-            for block in sync_response.blocks {
-                all_blocks.push(block);
-                blocks_collected += 1;
+            let mut blocks_to_process = sync_response.blocks.into_iter();
+
+            // The API returns the `start_header_hash` block as the first block in the response.
+            // For subsequent batches, we skip this first block as it was already processed in the previous iteration.
+            if !is_first_batch {
+                blocks_to_process.next();
+            }
+
+            // Add all blocks from this response
+            for block in blocks_to_process {
+                // Only add blocks if their height is within the requested range
+                if block.height >= start_height && block.height <= end_height {
+                    all_blocks.push(block);
+                    blocks_collected += 1;
+                }
 
                 // Stop if we've collected enough blocks
                 if blocks_collected >= max_blocks {
                     break;
                 }
             }
+
+            is_first_batch = false;
 
             // Check if we have a next header to continue with and haven't reached our limit
             if blocks_collected < max_blocks {
@@ -657,7 +671,14 @@ where KM: TransactionKeyManagerInterface
                     debug!("No more headers to scan, reached end of available data");
                     break;
                 } else {
-                    current_header_hash = Self::bytes_to_hex(&sync_response.next_header_to_scan);
+                    let next_hash = Self::bytes_to_hex(&sync_response.next_header_to_scan);
+                    // Safeguard against infinite loops if the server returns the same hash
+                    if next_hash == current_header_hash {
+                        #[cfg(feature = "tracing")]
+                        debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
+                        break;
+                    }
+                    current_header_hash = next_hash;
                     #[cfg(feature = "tracing")]
                     debug!(
                         "Continuing with next header: {} (collected {}/{} blocks)",
@@ -694,7 +715,7 @@ where KM: TransactionKeyManagerInterface
         );
 
         let end_height = match config.end_height {
-            Some(h) => h,
+            Some(height) => height,
             None => {
                 let tip_info = self.get_tip_info().await?;
                 tip_info.best_block_height

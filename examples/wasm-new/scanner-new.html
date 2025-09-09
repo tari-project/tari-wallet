@@ -243,7 +243,7 @@
                 </div>
                 <div class="form-group">
                     <label for="batchSize">Batch Size</label>
-                    <input id="batchSize" type="number" min="1" value="32">
+                    <input id="batchSize" type="number" min="1" value="100">
                 </div>
                 <div class="form-group">
                     <button class="btn" id="scanBtn" disabled>Start Scan</button>
@@ -477,7 +477,6 @@ async function scan() {
             }
             const batchEnd = Math.min(batchStart + batchSize - 1, endHeight);
             updateProgress(Math.floor((scannedBlocks / totalBlocks) * 100), `Scanning blocks ${batchStart} - ${batchEnd}`);
-            console.log(`Scanning range from: ${BigInt(batchStart)} to ${BigInt(batchEnd)}`)
             const blocks = await scanner.scanBlocks(BigInt(batchStart), BigInt(batchEnd));
             for (const block of blocks) {
                 scannedBlocks++;
