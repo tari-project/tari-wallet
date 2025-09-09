@@ -616,28 +616,81 @@ where KM: TransactionKeyManagerInterface
     async fn fetch_block_range(&self, start_height: u64, end_height: u64) -> WalletResult<Vec<BlockUtxoInfo>> {
         // Get the starting header hash
         let start_header = self.get_header_by_height(start_height).await?;
-        let current_header_hash = Self::bytes_to_hex(&start_header.hash);
+        let mut current_header_hash = Self::bytes_to_hex(&start_header.hash);
 
-        let max_blocks = (end_height - start_height + 1) as u64;
-        // We cap the limit at 100 to respect the server-side limit.
-        let limit = std::cmp::min(max_blocks, 100);
+        let mut all_blocks = Vec::new();
+        let mut blocks_collected = 0;
+        let max_blocks = (end_height - start_height + 1) as usize;
+        let mut is_first_batch = true;
 
         #[cfg(feature = "tracing")]
         debug!(
-            "Starting fetch_block_range from height {} to {} (requesting {} blocks)",
-            start_height, end_height, limit
+            "Starting fetch_block_range from height {} to {} (max {} blocks)",
+            start_height, end_height, max_blocks
         );
 
-        // Use sync_utxos_by_block to get a batch of blocks.
-        // The server will return up to `limit` blocks starting from `start_header_hash`.
-        let sync_response = self.sync_utxos_by_block(&current_header_hash, limit).await?;
+        while blocks_collected < max_blocks {
+            let remaining_blocks = max_blocks - blocks_collected;
+            let limit = std::cmp::min(remaining_blocks as u64, 100);
 
-        // Filter the results to only include blocks within the requested range.
-        let all_blocks: Vec<BlockUtxoInfo> = sync_response
-            .blocks
-            .into_iter()
-            .filter(|b| b.height >= start_height && b.height <= end_height)
-            .collect();
+            // Use sync_utxos_by_block to get batch of blocks
+            let sync_response = self.sync_utxos_by_block(&current_header_hash, limit).await?;
+
+            if sync_response.blocks.is_empty() {
+                #[cfg(feature = "tracing")]
+                debug!("No more blocks available from base node");
+                break;
+            }
+
+            let mut blocks_to_process = sync_response.blocks.into_iter();
+
+            // The API returns the `start_header_hash` block as the first block in the response.
+            // For subsequent batches, we skip this first block as it was already processed in the previous iteration.
+            if !is_first_batch {
+                blocks_to_process.next();
+            }
+
+            // Add all blocks from this response
+            for block in blocks_to_process {
+                // Only add blocks if their height is within the requested range
+                if block.height >= start_height && block.height <= end_height {
+                    all_blocks.push(block);
+                    blocks_collected += 1;
+                }
+
+                // Stop if we've collected enough blocks
+                if blocks_collected >= max_blocks {
+                    break;
+                }
+            }
+
+            is_first_batch = false;
+
+            // Check if we have a next header to continue with and haven't reached our limit
+            if blocks_collected < max_blocks {
+                if sync_response.next_header_to_scan.is_empty() {
+                    #[cfg(feature = "tracing")]
+                    debug!("No more headers to scan, reached end of available data");
+                    break;
+                } else {
+                    let next_hash = Self::bytes_to_hex(&sync_response.next_header_to_scan);
+                    // Safeguard against infinite loops if the server returns the same hash
+                    if next_hash == current_header_hash {
+                        #[cfg(feature = "tracing")]
+                        debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
+                        break;
+                    }
+                    current_header_hash = next_hash;
+                    #[cfg(feature = "tracing")]
+                    debug!(
+                        "Continuing with next header: {} (collected {}/{} blocks)",
+                        &current_header_hash[..16],
+                        blocks_collected,
+                        max_blocks
+                    );
+                }
+            }
+        }
 
         #[cfg(feature = "tracing")]
         debug!(
