@@ -84,18 +84,18 @@ impl IncompleteScannedOutput {
         output: TransactionOutput,
         key_manager: &KM,
     ) -> Result<Option<WalletOutput>, WalletError> {
-        let (input_data, script_key) = match self.get_script_private_key_id(&output.script, key_manager).await? {
-            Some((input_data, script_key)) => (input_data, script_key),
-            None => return Ok(None),
-        };
-        Ok(WalletOutput::new_imported(
+
+        match WalletOutput::new_imported(
             self.value,
             self.commitment_mask_key_id.clone(),
             self.memo.clone(),
             output,
             key_manager,
         )
-        .await)
+        .await{
+            Ok(wo) => Ok(Some(wo)),
+            Err(_e) => Ok(None),
+        }
     }
 }
 
