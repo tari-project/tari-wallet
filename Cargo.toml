@@ -24,14 +24,14 @@ thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing
 
 # === Tari Ecosystem Dependencies ===
-tari_common  = { git = "https://github.com/SWvheerden/tari/", rev = "da5969980a59c5e882735c8d0de50b31e05aa5f9" }
-tari_common_types  = { git = "https://github.com/SWvheerden/tari/", rev = "da5969980a59c5e882735c8d0de50b31e05aa5f9" }
+tari_common  = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+tari_common_types  = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
 tari_crypto = { version = "0.22.1", features = ["borsh"] }
 tari_utilities = { version = "0.8", features = ["std"] }
-tari_script = { git = "https://github.com/SWvheerden/tari/", rev = "da5969980a59c5e882735c8d0de50b31e05aa5f9" }
-tari_transaction_components = { git = "https://github.com/SWvheerden/tari/", rev = "da5969980a59c5e882735c8d0de50b31e05aa5f9" }
-minotari_app_grpc = { git = "https://github.com/SWvheerden/tari/", rev = "da5969980a59c5e882735c8d0de50b31e05aa5f9", default-features = false, optional = true }
-tari_node_components = { git = "https://github.com/SWvheerden/tari/", rev = "da5969980a59c5e882735c8d0de50b31e05aa5f9" }
+tari_script = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+tari_transaction_components = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+minotari_app_grpc = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404", default-features = false, optional = true }
+tari_node_components = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
 
 # === Cryptographic Primitives ===
 chacha20poly1305 = "0.10" # AEAD encryption
