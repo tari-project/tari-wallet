@@ -892,14 +892,14 @@ mod tests {
         let tip_info = TipInfo {
             best_block_height: 1000,
             best_block_hash: vec![1, 2, 3, 4],
-            accumulated_difficulty: vec![5, 6, 7, 8],
+            accumulated_difficulty: "5678".to_string(),
             pruned_height: 500,
             timestamp: 1234567890,
         };
 
         assert_eq!(tip_info.best_block_height, 1000);
         assert_eq!(tip_info.best_block_hash, vec![1, 2, 3, 4]);
-        assert_eq!(tip_info.accumulated_difficulty, vec![5, 6, 7, 8]);
+        assert_eq!(tip_info.accumulated_difficulty, "5678");
         assert_eq!(tip_info.pruned_height, 500);
         assert_eq!(tip_info.timestamp, 1234567890);
     }
