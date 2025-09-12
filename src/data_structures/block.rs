@@ -8,33 +8,30 @@
 //! - **Parallel processing for performance optimization**
 
 // Add rayon for parallel processing
-#[cfg(feature = "grpc")]
-use rayon::prelude::*;
 use tari_common_types::{
     transaction::TransactionStatus,
     types::{CompressedPublicKey, PrivateKey},
 };
-use tari_transaction_components::transaction_components::{MemoField, TransactionInput, TransactionOutput};
-
-#[cfg(feature = "grpc")]
-use crate::scanning::BlockInfo;
+use tari_transaction_components::transaction_components::MemoField;
+// #[cfg(feature = "grpc")]
+// // use crate::scanning::BlockInfo;
 
 /// A block with wallet-focused processing capabilities
 ///
 /// This struct wraps a `BlockInfo` and provides methods to extract wallet outputs
 /// and detect spending using various decryption techniques.
-pub struct Block {
-    /// Block height
-    pub height: u64,
-    /// Block hash
-    pub hash: Vec<u8>,
-    /// Block timestamp
-    pub timestamp: u64,
-    /// Transaction outputs in this block
-    pub outputs: Vec<TransactionOutput>,
-    /// Transaction inputs in this block  
-    pub inputs: Vec<TransactionInput>,
-}
+// pub struct Block {
+//     /// Block height
+//     pub height: u64,
+//     /// Block hash
+//     pub hash: Vec<u8>,
+//     /// Block timestamp
+//     pub timestamp: u64,
+//     /// Transaction outputs in this block
+//     pub outputs: Vec<TransactionOutput>,
+//     /// Transaction inputs in this block
+//     pub inputs: Vec<TransactionInput>,
+// }
 
 /// Information about a spent output detected during input processing
 // #[derive(Debug, Clone)]
@@ -57,228 +54,228 @@ struct OutputProcessingResult {
     script_key: Option<CompressedPublicKey>,
 }
 
-impl Block {
-    /// Create a new Block from BlockInfo (only available with grpc feature)
-    #[cfg(feature = "grpc")]
-    pub fn from_block_info(block_info: BlockInfo) -> Self {
-        Self {
-            height: block_info.height,
-            hash: block_info.hash,
-            timestamp: block_info.timestamp,
-            outputs: block_info.outputs,
-            inputs: block_info.inputs,
-        }
-    }
-
-    /// Create a new Block with specified data
-    pub fn new(
-        height: u64,
-        hash: Vec<u8>,
-        timestamp: u64,
-        outputs: Vec<TransactionOutput>,
-        inputs: Vec<TransactionInput>,
-    ) -> Self {
-        Self {
-            height,
-            hash,
-            timestamp,
-            outputs,
-            inputs,
-        }
-    }
-
-    // /// Process all outputs in this block to discover wallet outputs - OPTIMIZED VERSION
-    // ///
-    // /// This method uses parallel processing and optimized decryption attempts to maximize performance
-    // pub fn process_outputs(
-    //     &self,
-    //     wallet_state: &mut WalletState,
-    // ) -> WalletResult<usize> {
-    //     if self.outputs.is_empty() {
-    //         return Ok(0);
-    //     }
-    //
-    //     // Process outputs in parallel when feature is enabled
-    //     #[cfg(feature = "grpc")]
-    //     let results: Vec<OutputProcessingResult> = self
-    //         .outputs
-    //         .par_iter()
-    //         .enumerate()
-    //         .filter_map(|(output_index, output)| self.process_single_output_parallel(output_index, output, view_key))
-    //         .collect();
-    //
-    //     // Fallback to sequential processing when parallel feature not enabled
-    //     #[cfg(not(feature = "grpc"))]
-    //     let results: Vec<OutputProcessingResult> = self
-    //         .outputs
-    //         .iter()
-    //         .enumerate()
-    //         .filter_map(|(output_index, output)| self.process_single_output_parallel(output_index, output, view_key))
-    //         .collect();
-    //
-    //     // Add all found outputs to wallet state
-    //     let found_count = results.len();
-    //     for result in results {
-    //         wallet_state.add_received_output(
-    //             self.height,
-    //             result.output_index,
-    //             self.outputs[result.output_index].commitment.clone(),
-    //             Some(self.outputs[result.output_index].hash().to_vec()), // Include calculated output hash
-    //             result.value,
-    //             result.payment_id,
-    //             result.transaction_status,
-    //             TransactionDirection::Inbound,
-    //             result.is_mature,
-    //         );
-    //     }
-    //
-    //     Ok(found_count)
-    // }
-
-    // /// Process all inputs in this block to detect spending of wallet outputs
-    // pub fn process_inputs(&self, wallet_state: &mut WalletState) -> WalletResult<usize> {
-    //     let mut spent_outputs = 0;
-    //
-    //     for (input_index, input) in self.inputs.iter().enumerate() {
-    //         let mut found_spent = false;
-    //
-    //         // Try to match by output hash first (for HTTP API)
-    //         // Only attempt if output_hash is not all zeros (HTTP API provides real output hashes)
-    //         if !input.output_hash.iter().all(|&b| b == 0) &&
-    //             wallet_state.mark_output_spent_by_hash(&input.output_hash, self.height, input_index)
-    //         {
-    //             spent_outputs += 1;
-    //             found_spent = true;
-    //         }
-    //
-    //         // If output hash matching failed or output_hash is all zeros, try commitment matching (for GRPC API)
-    //         if !found_spent && !input.commitment.iter().all(|&b| b == 0) {
-    //             if wallet_state.mark_output_spent(input.commitment(), self.height, input_index) {
-    //                 spent_outputs += 1;
-    //             }
-    //         }
-    //     }
-    //
-    //     Ok(spent_outputs)
-    // }
-
-    // /// Process inputs and return detailed information about spent outputs
-    // ///
-    // /// This method finds spent outputs and returns information about them.
-    // /// It works by checking the wallet state before modifications.
-    // pub fn process_inputs_with_details(&self, wallet_state: &WalletState) -> WalletResult<Vec<SpentOutputInfo>> {
-    //     let mut spent_outputs = Vec::new();
-    //
-    //     for (input_index, input) in self.inputs.iter().enumerate() {
-    //         let mut found_match = false;
-    //
-    //         // Try to match by output hash first (for HTTP API)
-    //         if !input.output_hash.iter().all(|&b| b == 0) {
-    //             // Look through all transactions to find matching output hash
-    //             for transaction in &wallet_state.transactions {
-    //                 if let Some(ref output_hash) = transaction.output_hash {
-    //                     if output_hash == &input.output_hash && !transaction.is_spent {
-    //                         // Additional verification: Only include transactions that were properly decrypted wallet
-    //                         // outputs This filters out any incorrectly added transactions
-    //                         if transaction.value > 0 &&
-    //                             transaction.transaction_direction == TransactionDirection::Inbound
-    //                         {
-    //                             spent_outputs.push(SpentOutputInfo {
-    //                                 spent_transaction: transaction.clone(),
-    //                                 input_index,
-    //                                 match_method: "output_hash".to_string(),
-    //                                 original_block_height: transaction.block_height,
-    //                             });
-    //                         }
-    //                         found_match = true;
-    //                         break; // Found match, no need to continue searching
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //
-    //         // If no output hash match found, try commitment matching (for GRPC API and fallback)
-    //         if !found_match && !input.commitment.iter().all(|&b| b == 0) {
-    //             let commitment = CompressedCommitment::new(input.commitment);
-    //             // Look through all transactions to find matching commitment
-    //             for transaction in &wallet_state.transactions {
-    //                 if transaction.commitment.as_bytes() == commitment.as_bytes() && !transaction.is_spent {
-    //                     // Additional verification: Only include transactions that were properly decrypted wallet
-    //                     // outputs This filters out any incorrectly added transactions
-    //                     if transaction.value > 0 && transaction.transaction_direction ==
-    // TransactionDirection::Inbound {                         spent_outputs.push(SpentOutputInfo {
-    //                             spent_transaction: transaction.clone(),
-    //                             input_index,
-    //                             match_method: "commitment".to_string(),
-    //                             original_block_height: transaction.block_height,
-    //                         });
-    //                     }
-    //                     break; // Found match, no need to continue searching
-    //                 }
-    //             }
-    //         }
-    //     }
-    //
-    //     Ok(spent_outputs)
-    // }
-
-    // /// Scan this block for all wallet activity (outputs and inputs)
-    // ///
-    // /// This is a convenience method that calls both `process_outputs` and `process_inputs`
-    // pub fn scan_for_wallet_activity(
-    //     &self,
-    //     view_key: &PrivateKey,
-    //     entropy: &[u8; 16],
-    //     wallet_state: &mut WalletState,
-    // ) -> WalletResult<(usize, usize)> {
-    //     let found_outputs = self.process_outputs(view_key, entropy, wallet_state)?;
-    //     let spent_outputs = self.process_inputs(wallet_state)?;
-    //     Ok((found_outputs, spent_outputs))
-    // }
-
-    // /// Scan this block for all wallet activity with detailed spent output information
-    // ///
-    // /// This method processes outputs first, then gets detailed spent output information
-    ///// before marking them as spent, allowing for event emission.
-    // pub fn scan_for_wallet_activity_with_details(
-    //     &self,
-    //     view_key: &PrivateKey,
-    //     entropy: &[u8; 16],
-    //     wallet_state: &mut WalletState,
-    // ) -> WalletResult<(usize, Vec<SpentOutputInfo>)> {
-    //     // First process outputs to find new wallet outputs
-    //     let found_outputs = self.process_outputs(view_key, entropy, wallet_state)?;
-    //
-    //     // Get detailed information about spent outputs BEFORE marking them as spent
-    //     let spent_output_details = self.process_inputs_with_details(wallet_state)?;
-    //
-    //     // Now mark the outputs as spent using the regular process_inputs method
-    //     let _spent_count = self.process_inputs(wallet_state)?;
-    //
-    //     Ok((found_outputs, spent_output_details))
-    // }
-    //
-    // /// Get the number of outputs in this block
-    // pub fn output_count(&self) -> usize {
-    //     self.outputs.len()
-    // }
-    //
-    // /// Get the number of inputs in this block
-    // pub fn input_count(&self) -> usize {
-    //     self.inputs.len()
-    // }
-    //
-    // /// Get block summary information
-    // pub fn summary(&self) -> BlockSummary {
-    //     BlockSummary {
-    //         height: self.height,
-    //         hash: self.hash.clone(),
-    //         timestamp: self.timestamp,
-    //         output_count: self.outputs.len(),
-    //         input_count: self.inputs.len(),
-    //     }
-    // }
-}
+// impl Block {
+//     /// Create a new Block from BlockInfo (only available with grpc feature)
+//     #[cfg(feature = "grpc")]
+//     pub fn from_block_info(block_info: BlockInfo) -> Self {
+//         Self {
+//             height: block_info.height,
+//             hash: block_info.hash,
+//             timestamp: block_info.timestamp,
+//             outputs: block_info.outputs,
+//             inputs: block_info.inputs,
+//         }
+//     }
+//
+//     /// Create a new Block with specified data
+//     pub fn new(
+//         height: u64,
+//         hash: Vec<u8>,
+//         timestamp: u64,
+//         outputs: Vec<TransactionOutput>,
+//         inputs: Vec<TransactionInput>,
+//     ) -> Self {
+//         Self {
+//             height,
+//             hash,
+//             timestamp,
+//             outputs,
+//             inputs,
+//         }
+//     }
+//
+//     // /// Process all outputs in this block to discover wallet outputs - OPTIMIZED VERSION
+//     // ///
+//     // /// This method uses parallel processing and optimized decryption attempts to maximize performance
+//     // pub fn process_outputs(
+//     //     &self,
+//     //     wallet_state: &mut WalletState,
+//     // ) -> WalletResult<usize> {
+//     //     if self.outputs.is_empty() {
+//     //         return Ok(0);
+//     //     }
+//     //
+//     //     // Process outputs in parallel when feature is enabled
+//     //     #[cfg(feature = "grpc")]
+//     //     let results: Vec<OutputProcessingResult> = self
+//     //         .outputs
+//     //         .par_iter()
+//     //         .enumerate()
+//     //         .filter_map(|(output_index, output)| self.process_single_output_parallel(output_index, output,
+// view_key))     //         .collect();
+//     //
+//     //     // Fallback to sequential processing when parallel feature not enabled
+//     //     #[cfg(not(feature = "grpc"))]
+//     //     let results: Vec<OutputProcessingResult> = self
+//     //         .outputs
+//     //         .iter()
+//     //         .enumerate()
+//     //         .filter_map(|(output_index, output)| self.process_single_output_parallel(output_index, output,
+// view_key))     //         .collect();
+//     //
+//     //     // Add all found outputs to wallet state
+//     //     let found_count = results.len();
+//     //     for result in results {
+//     //         wallet_state.add_received_output(
+//     //             self.height,
+//     //             result.output_index,
+//     //             self.outputs[result.output_index].commitment.clone(),
+//     //             Some(self.outputs[result.output_index].hash().to_vec()), // Include calculated output hash
+//     //             result.value,
+//     //             result.payment_id,
+//     //             result.transaction_status,
+//     //             TransactionDirection::Inbound,
+//     //             result.is_mature,
+//     //         );
+//     //     }
+//     //
+//     //     Ok(found_count)
+//     // }
+//
+//     // /// Process all inputs in this block to detect spending of wallet outputs
+//     // pub fn process_inputs(&self, wallet_state: &mut WalletState) -> WalletResult<usize> {
+//     //     let mut spent_outputs = 0;
+//     //
+//     //     for (input_index, input) in self.inputs.iter().enumerate() {
+//     //         let mut found_spent = false;
+//     //
+//     //         // Try to match by output hash first (for HTTP API)
+//     //         // Only attempt if output_hash is not all zeros (HTTP API provides real output hashes)
+//     //         if !input.output_hash.iter().all(|&b| b == 0) &&
+//     //             wallet_state.mark_output_spent_by_hash(&input.output_hash, self.height, input_index)
+//     //         {
+//     //             spent_outputs += 1;
+//     //             found_spent = true;
+//     //         }
+//     //
+//     //         // If output hash matching failed or output_hash is all zeros, try commitment matching (for GRPC API)
+//     //         if !found_spent && !input.commitment.iter().all(|&b| b == 0) {
+//     //             if wallet_state.mark_output_spent(input.commitment(), self.height, input_index) {
+//     //                 spent_outputs += 1;
+//     //             }
+//     //         }
+//     //     }
+//     //
+//     //     Ok(spent_outputs)
+//     // }
+//
+//     // /// Process inputs and return detailed information about spent outputs
+//     // ///
+//     // /// This method finds spent outputs and returns information about them.
+//     // /// It works by checking the wallet state before modifications.
+//     // pub fn process_inputs_with_details(&self, wallet_state: &WalletState) -> WalletResult<Vec<SpentOutputInfo>> {
+//     //     let mut spent_outputs = Vec::new();
+//     //
+//     //     for (input_index, input) in self.inputs.iter().enumerate() {
+//     //         let mut found_match = false;
+//     //
+//     //         // Try to match by output hash first (for HTTP API)
+//     //         if !input.output_hash.iter().all(|&b| b == 0) {
+//     //             // Look through all transactions to find matching output hash
+//     //             for transaction in &wallet_state.transactions {
+//     //                 if let Some(ref output_hash) = transaction.output_hash {
+//     //                     if output_hash == &input.output_hash && !transaction.is_spent {
+//     //                         // Additional verification: Only include transactions that were properly decrypted
+// wallet     //                         // outputs This filters out any incorrectly added transactions
+//     //                         if transaction.value > 0 &&
+//     //                             transaction.transaction_direction == TransactionDirection::Inbound
+//     //                         {
+//     //                             spent_outputs.push(SpentOutputInfo {
+//     //                                 spent_transaction: transaction.clone(),
+//     //                                 input_index,
+//     //                                 match_method: "output_hash".to_string(),
+//     //                                 original_block_height: transaction.block_height,
+//     //                             });
+//     //                         }
+//     //                         found_match = true;
+//     //                         break; // Found match, no need to continue searching
+//     //                     }
+//     //                 }
+//     //             }
+//     //         }
+//     //
+//     //         // If no output hash match found, try commitment matching (for GRPC API and fallback)
+//     //         if !found_match && !input.commitment.iter().all(|&b| b == 0) {
+//     //             let commitment = CompressedCommitment::new(input.commitment);
+//     //             // Look through all transactions to find matching commitment
+//     //             for transaction in &wallet_state.transactions {
+//     //                 if transaction.commitment.as_bytes() == commitment.as_bytes() && !transaction.is_spent {
+//     //                     // Additional verification: Only include transactions that were properly decrypted wallet
+//     //                     // outputs This filters out any incorrectly added transactions
+//     //                     if transaction.value > 0 && transaction.transaction_direction ==
+//     // TransactionDirection::Inbound {                         spent_outputs.push(SpentOutputInfo {
+//     //                             spent_transaction: transaction.clone(),
+//     //                             input_index,
+//     //                             match_method: "commitment".to_string(),
+//     //                             original_block_height: transaction.block_height,
+//     //                         });
+//     //                     }
+//     //                     break; // Found match, no need to continue searching
+//     //                 }
+//     //             }
+//     //         }
+//     //     }
+//     //
+//     //     Ok(spent_outputs)
+//     // }
+//
+//     // /// Scan this block for all wallet activity (outputs and inputs)
+//     // ///
+//     // /// This is a convenience method that calls both `process_outputs` and `process_inputs`
+//     // pub fn scan_for_wallet_activity(
+//     //     &self,
+//     //     view_key: &PrivateKey,
+//     //     entropy: &[u8; 16],
+//     //     wallet_state: &mut WalletState,
+//     // ) -> WalletResult<(usize, usize)> {
+//     //     let found_outputs = self.process_outputs(view_key, entropy, wallet_state)?;
+//     //     let spent_outputs = self.process_inputs(wallet_state)?;
+//     //     Ok((found_outputs, spent_outputs))
+//     // }
+//
+//     // /// Scan this block for all wallet activity with detailed spent output information
+//     // ///
+//     // /// This method processes outputs first, then gets detailed spent output information
+//     ///// before marking them as spent, allowing for event emission.
+//     // pub fn scan_for_wallet_activity_with_details(
+//     //     &self,
+//     //     view_key: &PrivateKey,
+//     //     entropy: &[u8; 16],
+//     //     wallet_state: &mut WalletState,
+//     // ) -> WalletResult<(usize, Vec<SpentOutputInfo>)> {
+//     //     // First process outputs to find new wallet outputs
+//     //     let found_outputs = self.process_outputs(view_key, entropy, wallet_state)?;
+//     //
+//     //     // Get detailed information about spent outputs BEFORE marking them as spent
+//     //     let spent_output_details = self.process_inputs_with_details(wallet_state)?;
+//     //
+//     //     // Now mark the outputs as spent using the regular process_inputs method
+//     //     let _spent_count = self.process_inputs(wallet_state)?;
+//     //
+//     //     Ok((found_outputs, spent_output_details))
+//     // }
+//     //
+//     // /// Get the number of outputs in this block
+//     // pub fn output_count(&self) -> usize {
+//     //     self.outputs.len()
+//     // }
+//     //
+//     // /// Get the number of inputs in this block
+//     // pub fn input_count(&self) -> usize {
+//     //     self.inputs.len()
+//     // }
+//     //
+//     // /// Get block summary information
+//     // pub fn summary(&self) -> BlockSummary {
+//     //     BlockSummary {
+//     //         height: self.height,
+//     //         hash: self.hash.clone(),
+//     //         timestamp: self.timestamp,
+//     //         output_count: self.outputs.len(),
+//     //         input_count: self.inputs.len(),
+//     //     }
+//     // }
+// }
 
 /// Summary information about a block
 #[derive(Debug, Clone)]

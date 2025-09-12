@@ -17,7 +17,7 @@ pub mod block;
 pub mod incompleted_scanned_output;
 
 // pub use address::*;
-pub use block::{Block, BlockSummary};
+pub use block::BlockSummary;
 // pub use encrypted_data::*;
 // pub use payment_id::*;
 // pub use transaction::*;

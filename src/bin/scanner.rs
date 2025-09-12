@@ -115,9 +115,7 @@ use lightweight_wallet_libs::{
     errors::WalletResult,
     // Scanning library components (main business logic)
     scanning::{
-        // Wallet creation functions
-        create_wallet_from_seed_phrase,
-        create_wallet_from_view_key,
+        // Wallet creation functions\
         // Configuration types
         BinaryScanConfig,
         // Scanner types
@@ -130,6 +128,7 @@ use lightweight_wallet_libs::{
     KeyManagementError,
     WalletError,
 };
+use tari_transaction_components::key_manager::{create_memory_key_manager, MemoryKeyManager};
 #[cfg(feature = "grpc")]
 use tokio::signal;
 
@@ -466,37 +465,41 @@ async fn main_unified() -> WalletResult<()> {
     }
 
     // Create scan context based on input method (or defer if resuming from database)
-    let (scan_context, default_from_block) = if keys_provided {
-        if let Some(seed_phrase) = &args.seed_phrase {
-            if !args.quiet {
-                println!("🔨 Creating wallet from seed phrase...");
-            }
-            let (scan_context, default_from_block) = create_wallet_from_seed_phrase(seed_phrase)?;
-            (Some(scan_context), default_from_block)
-        } else if let Some(view_key_hex) = &args.view_key {
-            if !args.quiet {
-                println!("🔑 Creating scan context from view key...");
-            }
-            let (scan_context, default_from_block) = create_wallet_from_view_key(view_key_hex)?;
-            (Some(scan_context), default_from_block)
-        } else {
-            unreachable!("Keys provided but neither seed phrase nor view key found");
-        }
-    } else {
-        // Keys will be loaded from database wallet
-        if !args.quiet {
-            println!("🔑 Will load wallet keys from database...");
-        }
-        (None, args.from_block.unwrap_or(0)) // Default from block will be set from wallet birthday
-    };
+    let default_from_block = args.from_block.unwrap_or(0);
+    // let (scan_context, default_from_block) = if keys_provided {
+    //     if let Some(seed_phrase) = &args.seed_phrase {
+    //         if !args.quiet {
+    //             println!("🔨 Creating wallet from seed phrase...");
+    //         }
+    //         let (scan_context, default_from_block) = create_wallet_from_seed_phrase(seed_phrase)?;
+    //         (Some(scan_context), default_from_block)
+    //     } else if let Some(view_key_hex) = &args.view_key {
+    //         if !args.quiet {
+    //             println!("🔑 Creating scan context from view key...");
+    //         }
+    //         let (scan_context, default_from_block) = create_wallet_from_view_key(view_key_hex)?;
+    //         (Some(scan_context), default_from_block)
+    //     } else {
+    //         unreachable!("Keys provided but neither seed phrase nor view key found");
+    //     }
+    // } else {
+    //     // Keys will be loaded from database wallet
+    //     if !args.quiet {
+    //         println!("🔑 Will load wallet keys from database...");
+    //     }
+    //     (None, ) // Default from block will be set from wallet birthday
+    // };
 
     // Connect to base node
     if !args.quiet {
         println!("🌐 Connecting to Tari base node...");
     }
+    // test impl
+    let key_manager = create_memory_key_manager().await.expect("Should not fail");
     let mut scanner = GrpcScannerBuilder::new()
         .with_base_url(args.base_url.clone())
         .with_timeout(std::time::Duration::from_secs(args.timeout))
+        .with_key_manager(key_manager)
         .build()
         .await
         .map_err(|e| {
@@ -576,23 +579,7 @@ async fn main_unified() -> WalletResult<()> {
     };
 
     #[cfg(not(feature = "storage"))]
-    let (loaded_scan_context, wallet_birthday): (
-        Option<lightweight_wallet_libs::scanning::ScanContext>,
-        Option<u64>,
-    ) = (None, None);
-
-    // Use loaded scan context if we didn't have one initially, or fall back to provided scan context
-    let final_scan_context = if let Some(loaded_context) = loaded_scan_context {
-        loaded_context
-    } else if let Some(context) = scan_context {
-        context
-    } else {
-        return Err(WalletError::InvalidArgument {
-            argument: "scan_context".to_string(),
-            value: "None".to_string(),
-            message: "No scan context available - provide keys or use existing wallet".to_string(),
-        });
-    };
+    let wallet_birthday = None;
 
     // Storage backend already has wallet_id set from wallet operations
 
@@ -731,7 +718,6 @@ async fn main_unified() -> WalletResult<()> {
                 // For non-storage builds, use scan_with_processor with memory processor
                 wallet_scanner.scan_with_processor(
                     &mut scanner,
-                    &final_scan_context,
                     from_block,
                     to_block,
                     &mut data_processor,

@@ -11,7 +11,10 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use minotari_app_grpc::{tari_rpc, tari_rpc::HistoricalBlock};
+use minotari_app_grpc::tari_rpc;
+use primitive_types::U512;
+use tari_common_types::types::FixedHash;
+use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
     transaction_components::{
@@ -24,25 +27,11 @@ use tari_transaction_components::{
         WalletOutput,
     },
 };
-use tari_utilities::ByteArray;
 use tonic::{transport::Channel, Request};
 
 use crate::{
-    data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct},
-    errors::{DataStructureError, WalletError, WalletResult},
-    scanning::{
-        BlockInfo,
-        BlockScanResult,
-        BlockchainScanner,
-        LegacyProgressCallback,
-        ScanConfig,
-        TipInfo,
-        TransactionBroadcaster,
-        WalletScanConfig,
-        WalletScanResult,
-        WalletScanner,
-    },
-    wallet::Wallet,
+    errors::{WalletError, WalletResult},
+    scanning::{BlockScanResult, BlockchainScanner, ScanConfig, TipInfo, TransactionBroadcaster},
     ExtractionConfig,
 };
 
@@ -152,13 +141,10 @@ where KM: TransactionKeyManagerInterface
             Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
             Err(_) => return Ok(None),
         };
-        Ok(WalletOutput::new_imported(
-            value,
-            commitment_mask,
-            memo,
-            output.clone(),
-            &self.key_manager,
-        ))
+        match WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await {
+            Ok(wallet_output) => Ok(Some(wallet_output)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Scan for one-sided payments
@@ -183,13 +169,10 @@ where KM: TransactionKeyManagerInterface
             Err(_) => return Ok(None),
         };
 
-        Ok(WalletOutput::new_imported(
-            value,
-            commitment_mask,
-            memo,
-            output.clone(),
-            &self.key_manager,
-        ))
+        match WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await {
+            Ok(wallet_output) => Ok(Some(wallet_output)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Get all outputs from a specific block
@@ -216,8 +199,9 @@ where KM: TransactionKeyManagerInterface
                 "Stream error: {e}"
             )))
         })? {
-            if let Some(historic_block) = &grpc_block? {
-                return Ok(historic_block.outputs);
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                return Ok(tari_block.dissolve().2);
             }
         }
 
@@ -248,8 +232,9 @@ where KM: TransactionKeyManagerInterface
                 "Stream error: {e}"
             )))
         })? {
-            if let Some(historic_block) = &grpc_block? {
-                return Ok(historic_block.inputs);
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                return Ok(tari_block.dissolve().1);
             }
         }
 
@@ -280,8 +265,9 @@ where KM: TransactionKeyManagerInterface
                 "Stream error: {e}"
             )))
         })? {
-            if let Some(historic_block) = &grpc_block? {
-                return Ok(historic_block.kernels);
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                return Ok(tari_block.dissolve().3);
             }
         }
 
@@ -289,7 +275,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Get complete block data including outputs, inputs, and kernels
-    pub async fn get_complete_block_data(&mut self, block_height: u64) -> WalletResult<Option<HistoricalBlock>> {
+    pub async fn get_complete_block_data(&mut self, block_height: u64) -> WalletResult<Option<Block>> {
         // Get the block at the specified height
         let request = tari_rpc::GetBlocksRequest {
             heights: vec![block_height],
@@ -312,14 +298,17 @@ where KM: TransactionKeyManagerInterface
                 "Stream error: {e}"
             )))
         })? {
-            return Some(grpc_block);
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                return Ok(Some(tari_block));
+            }
         }
 
         Ok(None)
     }
 
     /// Scan a single block for wallet outputs using the provided entropy
-    pub async fn scan_block(&mut self, block_height: u64, entropy: &[u8; 16]) -> WalletResult<Vec<WalletOutput>> {
+    pub async fn scan_block(&mut self, block_height: u64) -> WalletResult<Vec<WalletOutput>> {
         let mut wallet_outputs = Vec::new();
 
         // Get all outputs from the block
@@ -329,14 +318,15 @@ where KM: TransactionKeyManagerInterface
             return Ok(wallet_outputs);
         }
 
-        // Create scanning logic with entropy
-        let scanning_logic = DefaultScanningLogic::new(*entropy);
-
         // Process each output
-        for output in outputs {
-            // Try to extract wallet output using reference-compatible approach
-            if let Some(wallet_output) = scanning_logic.extract_wallet_output(&output)? {
+        for output in &outputs {
+            if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
                 wallet_outputs.push(wallet_output);
+                continue;
+            }
+            if let Some(wallet_output) = self.scan_for_one_sided_payment(output).await? {
+                wallet_outputs.push(wallet_output);
+                continue;
             }
         }
 
@@ -344,7 +334,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Get blocks by their heights in a batch
-    pub async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<HistoricalBlock>> {
+    pub async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>> {
         if heights.is_empty() {
             return Ok(Vec::new());
         }
@@ -369,15 +359,36 @@ where KM: TransactionKeyManagerInterface
                 "GRPC stream error: {e}"
             )))
         })? {
-            blocks.push(grpc_block);
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                blocks.push(tari_block);
+            }
         }
 
         Ok(blocks)
     }
+
+    /// Convert GRPC tip info to lightweight tip info
+    fn convert_tip_info(grpc_tip: &tari_rpc::TipInfoResponse) -> TipInfo {
+        let metadata = grpc_tip.metadata.as_ref();
+
+        TipInfo {
+            best_block_height: metadata.map(|m| m.best_block_height).unwrap_or(0),
+            best_block_hash: FixedHash::try_from(metadata.map(|m| m.best_block_hash.clone()).unwrap_or_default())
+                .unwrap_or_default(),
+            accumulated_difficulty: metadata
+                .map(|m| U512::from_big_endian(&m.accumulated_difficulty).to_string())
+                .unwrap_or_default(),
+            pruned_height: metadata.map(|m| m.pruned_height).unwrap_or(0),
+            timestamp: metadata.map(|m| m.timestamp).unwrap_or(0),
+        }
+    }
 }
 
 #[async_trait(?Send)]
-impl BlockchainScanner for GrpcBlockchainScanner {
+impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
+where KM: TransactionKeyManagerInterface
+{
     async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
@@ -414,49 +425,29 @@ impl BlockchainScanner for GrpcBlockchainScanner {
                     "Stream error: {e}"
                 )))
             })? {
-                if let Some(block_info) = Self::convert_block(&grpc_block)? {
+                if let Some(block) = grpc_block.block {
+                    let tari_block: Block = block.try_into()?;
                     let mut wallet_outputs = Vec::new();
 
                     // Process outputs without debug output - let caller decide what to log
-                    for output in &block_info.outputs {
-                        // Use enhanced multi-strategy scanning instead of basic extraction
-                        let mut found_output = false;
-
-                        // Strategy 1: Regular recoverable outputs (encrypted data decryption)
-                        if !found_output {
-                            if let Some(wallet_output) =
-                                Self::scan_for_recoverable_output_grpc(output, &config.extraction_config)?
-                            {
-                                wallet_outputs.push(wallet_output);
-                                found_output = true;
-                            }
+                    for output in tari_block.body.outputs() {
+                        if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
+                            wallet_outputs.push(wallet_output);
+                            continue;
                         }
-
-                        // Strategy 2: One-sided payments (different detection logic)
-                        if !found_output {
-                            if let Some(wallet_output) =
-                                Self::scan_for_one_sided_payment_grpc(output, &config.extraction_config)?
-                            {
-                                wallet_outputs.push(wallet_output);
-                                found_output = true;
-                            }
-                        }
-
-                        // Strategy 3: Coinbase outputs (special handling)
-                        if !found_output {
-                            if let Some(wallet_output) = Self::scan_for_coinbase_output_grpc(output)? {
-                                wallet_outputs.push(wallet_output);
-                                // found_output = true;
-                            }
+                        if let Some(wallet_output) = self.scan_for_one_sided_payment(output).await? {
+                            wallet_outputs.push(wallet_output);
+                            continue;
                         }
                     }
+                    let inputs = tari_block.body.inputs().iter().map(|i| i.output_hash()).collect();
 
                     batch_results.push(BlockScanResult {
-                        height: block_info.height,
-                        block_hash: block_info.hash,
-                        outputs: block_info.outputs,
+                        height: tari_block.header.height,
+                        block_hash: tari_block.hash(),
                         wallet_outputs,
-                        mined_timestamp: block_info.timestamp,
+                        inputs,
+                        mined_timestamp: tari_block.header.timestamp.as_u64(),
                     });
                 }
             }
@@ -482,82 +473,14 @@ impl BlockchainScanner for GrpcBlockchainScanner {
     }
 
     async fn search_utxos(&mut self, commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
-        let request = tari_rpc::SearchUtxosRequest { commitments };
-
-        let mut stream = self
-            .client
-            .clone()
-            .search_utxos(Request::new(request))
-            .await
-            .map_err(|e| {
-                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "GRPC error: {e}"
-                )))
-            })?
-            .into_inner();
-
-        let mut results = Vec::new();
-        while let Some(grpc_block) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                "Stream error: {e}"
-            )))
-        })? {
-            if let Some(block_info) = Self::convert_block(&grpc_block)? {
-                let mut wallet_outputs = Vec::new();
-                for output in &block_info.outputs {
-                    // Use default extraction config with no keys for commitment search
-                    // This method is typically used for searching specific commitments
-                    // where wallet ownership is already known
-                    match extract_wallet_output(output, &ExtractionConfig::default()) {
-                        Ok(wallet_output) => wallet_outputs.push(wallet_output),
-                        Err(e) => {
-                            println!("Failed to extract wallet output during commitment search: {e}");
-                        },
-                    }
-                }
-                results.push(BlockScanResult {
-                    height: block_info.height,
-                    block_hash: block_info.hash,
-                    outputs: block_info.outputs,
-                    wallet_outputs,
-                    mined_timestamp: block_info.timestamp,
-                });
-            }
-        }
-
-        Ok(results)
+        Ok(Vec::new())
     }
 
     async fn fetch_utxos(&mut self, hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>> {
-        let request = tari_rpc::FetchMatchingUtxosRequest { hashes };
-
-        let mut stream = self
-            .client
-            .clone()
-            .fetch_matching_utxos(Request::new(request))
-            .await
-            .map_err(|e| {
-                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "GRPC error: {e}"
-                )))
-            })?
-            .into_inner();
-
-        let mut results = Vec::new();
-        while let Some(response) = stream.message().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                "Stream error: {e}"
-            )))
-        })? {
-            if let Some(output) = response.output {
-                results.push(Self::convert_transaction_output(&output)?);
-            }
-        }
-
-        Ok(results)
+        Ok(Vec::new())
     }
 
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<BlockInfo>> {
+    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>> {
         if heights.is_empty() {
             return Ok(Vec::new());
         }
@@ -582,25 +505,31 @@ impl BlockchainScanner for GrpcBlockchainScanner {
                 "GRPC stream error: {e}"
             )))
         })? {
-            if let Some(block_info) = Self::convert_block(&grpc_block)? {
-                blocks.push(block_info);
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                blocks.push(tari_block);
             }
         }
 
         Ok(blocks)
     }
 
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
+    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
         let blocks = self.get_blocks_by_heights(vec![height]).await?;
         Ok(blocks.into_iter().next())
     }
 }
 
 #[async_trait(?Send)]
-impl TransactionBroadcaster for GrpcBlockchainScanner {
+impl<KM> TransactionBroadcaster for GrpcBlockchainScanner<KM>
+where KM: TransactionKeyManagerInterface
+{
     async fn submit_transaction(&mut self, transaction: Transaction) -> WalletResult<i32> {
         let request: tari_rpc::SubmitTransactionRequest = tari_rpc::SubmitTransactionRequest {
-            transaction: Some(convert_transaction(transaction)),
+            transaction: Some(
+                tari_rpc::Transaction::try_from(transaction.clone())
+                    .map_err(|e| WalletError::GrpcError(e.to_string()))?,
+            ),
         };
         let response = self
             .client
@@ -614,7 +543,7 @@ impl TransactionBroadcaster for GrpcBlockchainScanner {
     }
 }
 
-impl std::fmt::Debug for GrpcBlockchainScanner {
+impl<KM> std::fmt::Debug for GrpcBlockchainScanner<KM> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GrpcBlockchainScanner")
             .field("base_url", &self.base_url)
@@ -623,27 +552,31 @@ impl std::fmt::Debug for GrpcBlockchainScanner {
     }
 }
 
-impl Clone for GrpcBlockchainScanner {
-    fn clone(&self) -> Self {
-        // Note: This creates a new connection, which is expensive
-        // In practice, you might want to use connection pooling
-        panic!("GrpcBlockchainScanner cannot be cloned - create a new instance instead");
-    }
-}
+// impl<KM> Clone for GrpcBlockchainScanner<KM> {
+//     fn clone(&self) -> Self {
+//         // Note: This creates a new connection, which is expensive
+//         // In practice, you might want to use connection pooling
+//         panic!("GrpcBlockchainScanner cannot be cloned - create a new instance instead");
+//     }
+// }
 
 /// Builder for creating GRPC blockchain scanners
 
-pub struct GrpcScannerBuilder {
+pub struct GrpcScannerBuilder<KM> {
     base_url: Option<String>,
     timeout: Option<Duration>,
+    key_manager: Option<KM>,
 }
 
-impl GrpcScannerBuilder {
+impl<KM> GrpcScannerBuilder<KM>
+where KM: TransactionKeyManagerInterface
+{
     /// Create a new builder
     pub fn new() -> Self {
         Self {
             base_url: None,
             timeout: None,
+            key_manager: None,
         }
     }
 
@@ -659,24 +592,34 @@ impl GrpcScannerBuilder {
         self
     }
 
+    /// Set the key manager for wallet key integration
+    pub fn with_key_manager(mut self, key_manager: KM) -> Self {
+        self.key_manager = Some(key_manager);
+        self
+    }
+
     /// Build the GRPC scanner
-    pub async fn build(self) -> WalletResult<GrpcBlockchainScanner> {
+    pub async fn build(self) -> WalletResult<GrpcBlockchainScanner<KM>> {
         let base_url = self
             .base_url
             .ok_or_else(|| WalletError::ConfigurationError("Base URL not specified".to_string()))?;
 
+        let key_manager = self
+            .key_manager
+            .ok_or_else(|| WalletError::ConfigurationError("Key manager not specified".to_string()))?;
+
         match self.timeout {
-            Some(timeout) => GrpcBlockchainScanner::with_timeout(base_url, timeout).await,
-            None => GrpcBlockchainScanner::new(base_url).await,
+            Some(timeout) => GrpcBlockchainScanner::with_timeout(base_url, timeout, key_manager).await,
+            None => GrpcBlockchainScanner::new(base_url, key_manager).await,
         }
     }
 }
 
-impl Default for GrpcScannerBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// impl Default for GrpcScannerBuilder {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }
 
 // Empty module when GRPC feature is not enabled
 #[cfg(not(feature = "grpc"))]
@@ -707,32 +650,28 @@ impl GrpcScannerBuilder {
     }
 }
 
-#[async_trait(?Send)]
-impl WalletScanner for GrpcBlockchainScanner {
-    async fn scan_wallet(&mut self, config: WalletScanConfig) -> WalletResult<WalletScanResult> {
-        self.scan_wallet_with_progress(config, None).await
-    }
-
-    async fn scan_wallet_with_progress(
-        &mut self,
-        config: WalletScanConfig,
-        progress_callback: Option<&LegacyProgressCallback>,
-    ) -> WalletResult<WalletScanResult> {
-        // Validate that we have key management set up
-        if config.key_manager.is_none() && config.key_store.is_none() {
-            return Err(WalletError::ConfigurationError(
-                "No key manager or key store provided for wallet scanning".to_string(),
-            ));
-        }
-
-        // Use the default scanning logic with proper wallet key integration
-        DefaultScanningLogic::scan_wallet_with_progress(self, config, progress_callback).await
-    }
-
-    fn blockchain_scanner(&mut self) -> &mut dyn BlockchainScanner {
-        self
-    }
-}
+// #[async_trait(?Send)]
+// impl<KM> WalletScanner<KM> for GrpcBlockchainScanner<KM>
+// where KM: TransactionKeyManagerInterface
+// {
+//     async fn scan_wallet(&mut self, config: WalletScanConfig<KM>) -> WalletResult<WalletScanResult> {
+//         self.scan_wallet_with_progress(config, None).await
+//     }
+//
+//     async fn scan_wallet_with_progress(
+//         &mut self,
+//         config: WalletScanConfig<KM>,
+//         progress_callback: Option<&LegacyProgressCallback>,
+//     ) -> WalletResult<WalletScanResult> {
+//
+//         // Use the default scanning logic with proper wallet key integration
+//         DefaultScanningLogic::scan_wallet_with_progress(self, config, progress_callback).await
+//     }
+//
+//     fn blockchain_scanner(&mut self) -> &mut dyn BlockchainScanner {
+//         self
+//     }
+// }
 
 #[cfg(test)]
 #[cfg(not(feature = "grpc"))]

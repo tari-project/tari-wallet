@@ -13,11 +13,8 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
-use tari_common_types::{
-    transaction::{TransactionDirection, TransactionStatus},
-    types::CompressedCommitment,
-};
-use tari_transaction_components::{key_manager::TransactionKeyManagerInterface, transaction_components::MemoField};
+use tari_common_types::transaction::{TransactionDirection, TransactionStatus};
+use tari_transaction_components::key_manager::TransactionKeyManagerInterface;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::Instant;
 
@@ -1516,9 +1513,9 @@ impl WalletScanner {
 
     /// Execute the scan with retry logic for failed operations (data processor version)
     #[cfg(feature = "grpc")]
-    async fn execute_scan_with_processor_retry<T: DataProcessor>(
+    async fn execute_scan_with_processor_retry<T: DataProcessor, KM: TransactionKeyManagerInterface>(
         &mut self,
-        scanner: &mut GrpcBlockchainScanner,
+        scanner: &mut GrpcBlockchainScanner<KM>,
         from_block: u64,
         to_block: u64,
         data_processor: &mut T,
@@ -1743,7 +1740,7 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor, KM: Transact
     mut event_emitter: Option<&mut crate::scanning::event_emitter::ScanEventEmitter>,
 ) -> WalletResult<ScanResult> {
     // Initialize scanning state
-    let (mut wallet_state, _start_time) = initialize_scan_state();
+    let (wallet_state, _start_time) = initialize_scan_state();
 
     // Update progress tracker with total block count
     if let Some(tracker) = progress_tracker.as_mut() {
@@ -1787,7 +1784,7 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor, KM: Transact
                 for block in blocks {
                     // scan blocks
                     let mut found_outputs = Vec::new();
-                    for output in block.outputs.iter() {
+                    for output in block.body.outputs() {
                         if let Some(found_output) = scanner.scan_for_one_sided_payment(output).await? {
                             found_outputs.push(found_output);
                             continue;
@@ -1819,13 +1816,13 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor, KM: Transact
                             Some(0),
                             None,
                             Default::default(),
-                            output.hash(&scanner.key_manager),
-                            output.value.as_u64(),
-                            output.payment_id,
+                            output.output_hash(),
+                            output.value().as_u64(),
+                            output.payment_id().clone(),
                             TransactionStatus::MinedUnconfirmed,
                             TransactionDirection::Inbound,
                             false,
-                            output.features.is_coinbase(),
+                            output.is_coinbase(),
                         );
 
                         if let Some(ref mut emitter) = event_emitter {

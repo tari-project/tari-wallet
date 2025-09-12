@@ -39,15 +39,14 @@
 use std::sync::Mutex;
 use std::{
     collections::HashMap,
-    str::FromStr,
     sync::Arc,
     time::{Duration, SystemTime},
 };
 
 #[cfg(target_arch = "wasm32")]
 use js_sys;
-use tari_node_components::blocks::HistoricalBlock;
-use tari_transaction_components::transaction_components::{TransactionOutput, WalletOutput};
+use tari_node_components::blocks::Block;
+use tari_transaction_components::transaction_components::WalletOutput;
 #[cfg(feature = "storage")]
 use tari_utilities::SafePassword;
 #[cfg(not(target_arch = "wasm32"))]
@@ -56,7 +55,6 @@ use tokio::sync::Mutex;
 use wasm_bindgen_futures;
 
 use crate::{
-    data_structures::block::Block,
     errors::WalletError,
     events::{
         types::{AddressInfo, BlockInfo, EventMetadata, ScanConfig, WalletScanEvent},
@@ -177,9 +175,9 @@ impl ScanEventEmitter {
         let metadata = self.create_metadata();
         let event = WalletScanEvent::BlockProcessed {
             metadata,
-            height: block.height,
-            hash: hex::encode(&block.hash),
-            timestamp: block.timestamp,
+            height: block.header.height,
+            hash: hex::encode(&block.hash()),
+            timestamp: block.header.timestamp.as_u64(),
             processing_duration,
             outputs_count: outputs_found,
             spent_outputs_count,
@@ -548,11 +546,11 @@ pub fn create_address_info_from_transaction(_transaction: &WalletTransaction) ->
 }
 
 /// Helper function to create BlockInfo from Block
-pub fn create_block_info_from_block(block: &HistoricalBlock) -> BlockInfo {
+pub fn create_block_info_from_block(block: &Block) -> BlockInfo {
     BlockInfo::new(
-        block.header().height,
+        block.header.height,
         hex::encode(&block.hash()),
-        block.header().timestamp.as_u64(),
+        block.header.timestamp.as_u64(),
         0, // output index - would need to be provided by caller
     )
 }

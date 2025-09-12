@@ -1287,7 +1287,7 @@ impl EventType for WalletScanEvent {
                 output_data,
                 ..
             } => {
-                let amount_str = output_data.value.to_string();
+                let amount_str = output_data.value().to_string();
                 Some(format!(
                     "block: {}, amount: {amount_str}, mine: {}",
                     block_info.height, // output_data.is_mine
@@ -1379,7 +1379,7 @@ impl SerializableEvent for WalletScanEvent {
                 address_info,
                 ..
             } => {
-                let amount_str = output_data.value.to_string();
+                let amount_str = output_data.value().to_string();
                 // let mine_str = if output_data.is_mine { "mine" } else { "not mine" };
                 let mine_str = "MINE";
                 format!(

@@ -24,14 +24,14 @@ thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing
 
 # === Tari Ecosystem Dependencies ===
-tari_common  = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
-tari_common_types  = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+tari_common  = { git = "https://github.com/SWvheerden/tari/", rev = "38eb9e0b8d97cc1275ca38857be1a16f671aa0e2" }
+tari_common_types  = { git = "https://github.com/SWvheerden/tari/", rev = "38eb9e0b8d97cc1275ca38857be1a16f671aa0e2" }
 tari_crypto = { version = "0.22.1", features = ["borsh"] }
 tari_utilities = { version = "0.8", features = ["std"] }
-tari_script = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
-tari_transaction_components = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
-minotari_app_grpc = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404", default-features = false, optional = true }
-tari_node_components = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+tari_script = { git = "https://github.com/SWvheerden/tari/", rev = "38eb9e0b8d97cc1275ca38857be1a16f671aa0e2" }
+tari_transaction_components = { git = "https://github.com/SWvheerden/tari/", rev = "38eb9e0b8d97cc1275ca38857be1a16f671aa0e2" }
+minotari_app_grpc = { git = "https://github.com/SWvheerden/tari/", rev = "38eb9e0b8d97cc1275ca38857be1a16f671aa0e2", default-features = false, optional = true }
+tari_node_components = { git = "https://github.com/SWvheerden/tari/", rev = "38eb9e0b8d97cc1275ca38857be1a16f671aa0e2" }
 
 # === Cryptographic Primitives ===
 chacha20poly1305 = "0.10" # AEAD encryption
@@ -71,9 +71,8 @@ tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 
 # === GRPC Dependencies (blockchain scanning) ===
-tonic = { version = "0.10", features = [
-    "tls",
-    "tls-roots",
+tonic = { version = "0.13", features = [
+    "tls-ring",
     "prost",
 ], optional = true }
 prost = { version = "0.12", optional = true }
@@ -139,7 +138,7 @@ async-trait = "0.1"
 tokio = { version = "1.0", features = ["full", "test-util"] }
 
 [build-dependencies]
-tonic-build = "0.10" # GRPC code generation
+tonic-build = "0.13" # GRPC code generation
 
 [features]
 default = ["http"]
