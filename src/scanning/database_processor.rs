@@ -6,6 +6,8 @@
 
 #[cfg(feature = "storage")]
 use async_trait::async_trait;
+#[cfg(feature = "storage")]
+use tari_utilities::SafePassword;
 
 #[cfg(feature = "storage")]
 use crate::{
@@ -42,8 +44,8 @@ impl DatabaseDataProcessor {
     }
 
     /// Create a new database data processor with SQLite database
-    pub async fn new_with_database(database_path: &str) -> WalletResult<Self> {
-        let storage = ScannerStorage::new_with_database(database_path).await?;
+    pub async fn new_with_database(database_path: &str, passphrase: SafePassword) -> WalletResult<Self> {
+        let storage = ScannerStorage::new_with_database(database_path, passphrase).await?;
         Ok(Self { storage })
     }
 
@@ -79,9 +81,9 @@ impl DatabaseDataProcessor {
 
     /// Start background writer (for non-memory storage)
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn start_background_writer(&mut self, database_path: &str) -> WalletResult<()> {
+    pub async fn start_background_writer(&mut self, database_path: &str, passphrase: SafePassword) -> WalletResult<()> {
         if !self.storage.is_memory_only {
-            self.storage.start_background_writer(database_path).await
+            self.storage.start_background_writer(database_path, passphrase).await
         } else {
             Ok(())
         }

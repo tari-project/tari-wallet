@@ -9,6 +9,8 @@
 use std::collections::{hash_map::Entry, HashMap};
 use std::error::Error;
 #[cfg(feature = "storage")]
+use std::str::FromStr;
+#[cfg(feature = "storage")]
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -31,9 +33,9 @@ use tari_transaction_components::transaction_components::MemoField;
 #[cfg(feature = "storage")]
 use tari_transaction_components::transaction_components::WalletOutput;
 #[cfg(feature = "storage")]
-use tari_utilities::hex::Hex;
-#[cfg(feature = "storage")]
 use tari_utilities::ByteArray;
+#[cfg(feature = "storage")]
+use tari_utilities::{hex::Hex, SafePassword};
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 use tokio::sync::{mpsc, oneshot};
 
@@ -97,6 +99,8 @@ use crate::{
 pub struct DatabaseStorageListener {
     /// Database storage interface
     database: Arc<dyn WalletStorage>,
+    /// Passphrase
+    passphrase: SafePassword,
     /// Currently selected wallet ID for operations
     wallet_id: Option<u32>,
     /// Track how many transactions have been saved to avoid duplicates
@@ -131,17 +135,18 @@ impl DatabaseStorageListener {
     ///
     /// # Returns
     /// A configured DatabaseStorageListener ready for use
-    pub async fn new(database_path: &str) -> WalletResult<Self> {
+    pub async fn new(database_path: &str, passphrase: SafePassword) -> WalletResult<Self> {
         let storage = if database_path == ":memory:" {
             SqliteStorage::new_in_memory().await?
         } else {
-            SqliteStorage::new(database_path).await?
+            SqliteStorage::new(database_path, passphrase.clone()).await?
         };
 
         WalletStorage::initialize(&storage).await?;
 
         Ok(Self {
             database: Arc::new(storage),
+            passphrase,
             wallet_id: None,
             last_saved_transaction_count: 0,
             database_path: database_path.to_string(),
@@ -161,7 +166,7 @@ impl DatabaseStorageListener {
     /// # Returns
     /// A configured DatabaseStorageListener using in-memory SQLite database
     pub async fn new_in_memory() -> WalletResult<Self> {
-        Self::new(":memory:").await
+        Self::new(":memory:", SafePassword::from_str("").unwrap()).await
     }
 
     /// Create a builder for configuring the database storage listener
@@ -251,7 +256,8 @@ impl DatabaseStorageListener {
         let (command_tx, mut command_rx) = mpsc::unbounded_channel::<BackgroundWriterCommand>();
 
         // Create a new database connection for the background writer
-        let background_database: Box<dyn WalletStorage> = Box::new(SqliteStorage::new(&self.database_path).await?);
+        let background_database: Box<dyn WalletStorage> =
+            Box::new(SqliteStorage::new(&self.database_path, self.passphrase.clone()).await?);
 
         // Initialize the background database
         background_database.initialize().await?;
@@ -1085,7 +1091,7 @@ impl DatabaseStorageListener {
         // Note: This creates a separate connection to the same database file
         // TODO: Consider refactoring to avoid this duplicate connection
         if self.database_path != ":memory:" {
-            match SqliteStorage::new(&self.database_path).await {
+            match SqliteStorage::new(&self.database_path, self.passphrase.clone()).await {
                 Ok(sqlite_storage) => {
                     // Get next sequence number
                     let sequence_number = sqlite_storage
@@ -1261,6 +1267,7 @@ impl EventListener for DatabaseStorageListener {
 #[cfg(feature = "storage")]
 pub struct DatabaseStorageListenerBuilder {
     database_path: String,
+    passphrase: SafePassword,
     batch_size: usize,
     verbose: bool,
     enable_wal_mode: bool,
@@ -1274,6 +1281,7 @@ impl DatabaseStorageListenerBuilder {
     pub fn new() -> Self {
         Self {
             database_path: ":memory:".to_string(),
+            passphrase: SafePassword::from_str("").unwrap(),
             batch_size: 50,
             verbose: false,
             enable_wal_mode: false,
@@ -1285,6 +1293,12 @@ impl DatabaseStorageListenerBuilder {
     /// Set the database path
     pub fn database_path(mut self, path: &str) -> Self {
         self.database_path = path.to_string();
+        self
+    }
+
+    /// Passphrase
+    pub fn passphrase(mut self, passphrase: SafePassword) -> Self {
+        self.passphrase = passphrase;
         self
     }
 
@@ -1461,7 +1475,7 @@ impl DatabaseStorageListenerBuilder {
 
     /// Build the configured DatabaseStorageListener
     pub async fn build(self) -> WalletResult<DatabaseStorageListener> {
-        let mut listener = DatabaseStorageListener::new(&self.database_path).await?;
+        let mut listener = DatabaseStorageListener::new(&self.database_path, self.passphrase.clone()).await?;
 
         listener.set_batch_size(self.batch_size);
         listener.set_verbose(self.verbose);

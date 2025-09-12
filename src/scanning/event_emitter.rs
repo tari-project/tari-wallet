@@ -39,6 +39,7 @@
 use std::sync::Mutex;
 use std::{
     collections::HashMap,
+    str::FromStr,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -47,6 +48,8 @@ use std::{
 use js_sys;
 use tari_node_components::blocks::HistoricalBlock;
 use tari_transaction_components::transaction_components::{TransactionOutput, WalletOutput};
+#[cfg(feature = "storage")]
+use tari_utilities::SafePassword;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
@@ -506,13 +509,14 @@ impl ScanEventEmitter {
     pub async fn try_load_existing_wallet_state(
         &self,
         database_path: &str,
+        passphrase: SafePassword,
         wallet_id: Option<u32>,
     ) -> Result<Option<WalletState>, WalletError> {
         use crate::storage::{SqliteStorage, WalletStorage};
 
         if let Some(wallet_id) = wallet_id {
             // Try to connect to the database and load wallet state
-            match SqliteStorage::new(database_path).await {
+            match SqliteStorage::new(database_path, passphrase).await {
                 Ok(storage) => match storage.load_wallet_state(wallet_id).await {
                     Ok(wallet_state) => {
                         if !wallet_state.transactions.is_empty() {
@@ -595,6 +599,7 @@ pub async fn create_database_event_emitter(
     source: String,
     correlation_id: Option<String>,
     database_path: Option<String>,
+    passphrase: Option<SafePassword>,
 ) -> Result<ScanEventEmitter, WalletError> {
     use crate::events::listeners::{DatabaseStorageListener, ProgressTrackingListener};
 
@@ -602,7 +607,9 @@ pub async fn create_database_event_emitter(
 
     // Add database storage listener
     if let Some(path) = database_path {
-        let db_listener = DatabaseStorageListener::new(&path).await?;
+        let db_listener =
+            DatabaseStorageListener::new(&path, passphrase.unwrap_or_else(|| SafePassword::from_str("").unwrap()))
+                .await?;
         dispatcher
             .register(Box::new(db_listener))
             .map_err(|e| WalletError::from(format!("Failed to register database listener: {e}")))?;

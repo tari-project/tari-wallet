@@ -47,12 +47,14 @@ impl TransactionKeyManagerWalletStorage {
             .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?
             .ok_or(KeyManagerStorageError::StorageError("Wallet not found".to_string()))?;
 
-        let key_bytes =
-            Vec::from_hex(&wallet.view_key_hex).map_err(|e| KeyManagerStorageError::AeadError(e.to_string()))?;
-        let key = Key::from_slice(&key_bytes);
-        let cipher = XChaCha20Poly1305::new(key);
-
-        Ok(Self::new(database_connection, cipher, wallet_id))
+        // TODO: add implementation
+        unimplemented!()
+        // let key_bytes =
+        // Vec::from_hex(&wallet.view_key_hex).map_err(|e| KeyManagerStorageError::AeadError(e.to_string()))?;
+        // let key = Key::from_slice(&key_bytes);
+        // let cipher = XChaCha20Poly1305::new(key);
+        //
+        // Ok(Self::new(database_connection, cipher, wallet_id))
     }
 }
 
@@ -178,6 +180,7 @@ mod test {
     use tari_common_types::{
         seeds::cipher_seed::CipherSeed,
         types::{CompressedPublicKey, PrivateKey},
+        wallet_types::WalletType,
     };
     use tari_transaction_components::key_manager::KeyManagerState;
     use tari_utilities::hex::Hex;
@@ -191,10 +194,8 @@ mod test {
         let test_wallet = StoredWallet {
             id: None,
             name: format!("test_wallet_{}_{}", std::process::id(), timestamp),
+            wallet_type: WalletType::default(),
             master_key: CipherSeed::new(),
-            seed_phrase: None,
-            view_key_hex: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string(),
-            spend_key_hex: None,
             birthday_block: 0,
             latest_scanned_block: None,
             created_at: None,

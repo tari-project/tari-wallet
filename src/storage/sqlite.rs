@@ -6,6 +6,8 @@
 #[cfg(feature = "storage")]
 use std::path::Path;
 #[cfg(feature = "storage")]
+use std::str::FromStr;
+#[cfg(feature = "storage")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "storage")]
@@ -13,12 +15,13 @@ use async_trait::async_trait;
 #[cfg(feature = "storage")]
 use rusqlite::{params, Row};
 use tari_common_types::{
+    encryption::encrypt_bytes_integral_nonce,
     seeds::cipher_seed::CipherSeed,
     transaction::{TransactionDirection, TransactionStatus},
     types::{CompressedCommitment, CompressedPublicKey},
 };
 use tari_transaction_components::transaction_components::MemoField;
-use tari_utilities::{hex::Hex, ByteArray};
+use tari_utilities::{hex::Hex, ByteArray, Hidden, SafePassword};
 #[cfg(feature = "storage")]
 use tokio_rusqlite::Connection;
 
@@ -29,7 +32,7 @@ use crate::events::types::WalletEventResult;
 use crate::storage::event_storage::{EventFilter, EventStorage, EventStorageStats, StoredEvent};
 #[cfg(feature = "storage")]
 use crate::{
-    errors::{WalletError, WalletResult},
+    errors::{EncryptionError, SerializationError, WalletError, WalletResult},
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
     storage::{
         OutputFilter,
@@ -46,24 +49,33 @@ use crate::{
 #[cfg(feature = "storage")]
 use crate::{WalletState, WalletTransaction};
 
+const WALLET_MASTER_SEED_DOMAIN: &[u8; 26] = b"wallet_setting_master_seed";
+
 /// SQLite storage backend for wallet transactions
 #[cfg(feature = "storage")]
 #[derive(Clone)]
 pub struct SqliteStorage {
     connection: Connection,
+    passphrase: SafePassword,
     performance_config: SqlitePerformanceConfig,
 }
 
 #[cfg(feature = "storage")]
 impl SqliteStorage {
     /// Create a new SQLite storage instance
-    pub async fn new<P: AsRef<Path>>(database_path: P) -> WalletResult<Self> {
-        Self::new_with_config(database_path, SqlitePerformanceConfig::production_optimized()).await
+    pub async fn new<P: AsRef<Path>>(database_path: P, passphrase: SafePassword) -> WalletResult<Self> {
+        Self::new_with_config(
+            database_path,
+            passphrase,
+            SqlitePerformanceConfig::production_optimized(),
+        )
+        .await
     }
 
     /// Create a new SQLite storage instance with custom performance configuration
     pub async fn new_with_config<P: AsRef<Path>>(
         database_path: P,
+        passphrase: SafePassword,
         performance_config: SqlitePerformanceConfig,
     ) -> WalletResult<Self> {
         let connection = Connection::open(database_path)
@@ -72,6 +84,7 @@ impl SqliteStorage {
 
         let storage = Self {
             connection,
+            passphrase,
             performance_config,
         };
 
@@ -86,17 +99,25 @@ impl SqliteStorage {
 
     /// Create an in-memory SQLite storage instance (useful for testing)
     pub async fn new_in_memory() -> WalletResult<Self> {
-        Self::new_in_memory_with_config(SqlitePerformanceConfig::ultra_fast()).await
+        Self::new_in_memory_with_config(
+            SqlitePerformanceConfig::ultra_fast(),
+            SafePassword::from_str("").unwrap(),
+        )
+        .await
     }
 
     /// Create an in-memory SQLite storage instance with custom performance configuration
-    pub async fn new_in_memory_with_config(performance_config: SqlitePerformanceConfig) -> WalletResult<Self> {
+    pub async fn new_in_memory_with_config(
+        performance_config: SqlitePerformanceConfig,
+        passphrase: SafePassword,
+    ) -> WalletResult<Self> {
         let connection = Connection::open(":memory:")
             .await
             .map_err(|e| WalletError::StorageError(format!("Failed to create in-memory database: {e}")))?;
 
         let storage = Self {
             connection,
+            passphrase,
             performance_config,
         };
 
@@ -116,10 +137,9 @@ impl SqliteStorage {
             CREATE TABLE IF NOT EXISTS wallets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
+                wallet_type TEXT NOT NULL,
+                encryption_fields TEXT NOT NULL,
                 master_key TEXT NOT NULL,
-                seed_phrase TEXT,
-                view_key_hex TEXT NOT NULL,
-                spend_key_hex TEXT,
                 birthday_block INTEGER NOT NULL DEFAULT 0,
                 latest_scanned_block INTEGER,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -313,22 +333,55 @@ impl SqliteStorage {
     }
 
     /// Convert a database row to a StoredWallet
-    fn row_to_wallet(row: &Row) -> rusqlite::Result<StoredWallet> {
-        use crate::HexUtils;
+    fn row_to_wallet(&self, row: &Row) -> rusqlite::Result<StoredWallet> {
+        use tari_common_types::{encryption::decrypt_bytes_integral_nonce, wallet_types::WalletType};
+        use tari_utilities::hex::from_hex;
+
+        use crate::{DatabaseEncryptionFields, HexUtils};
+
+        let encryption_fields: String = row.get("encryption_fields")?;
+        let encryption_fields: DatabaseEncryptionFields = serde_json::from_str(&encryption_fields)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
+        let cipher = encryption_fields
+            .get_cipher(&self.passphrase)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
 
         let master_key_hex: String = row.get("master_key")?;
         let bytes = HexUtils::from_hex(&master_key_hex)
             .map_err(|err| rusqlite::Error::InvalidParameterName(err.to_string()))?;
-        let master_key = CipherSeed::from_enciphered_bytes(&bytes, None)
+        let decrypted_key_bytes = Hidden::hide(
+            decrypt_bytes_integral_nonce(
+                &cipher,
+                WALLET_MASTER_SEED_DOMAIN.to_vec(),
+                &from_hex(master_key_hex.as_str()).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(EncryptionError::DecryptionFailed(e.to_string())),
+                    )
+                })?,
+            )
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(EncryptionError::DecryptionFailed(e.to_string())),
+                )
+            })?,
+        );
+        let master_key = CipherSeed::from_enciphered_bytes(decrypted_key_bytes.reveal(), None)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
+
+        let wallet_type: String = row.get("wallet_type")?;
+        let wallet_type: WalletType = serde_json::from_str(&wallet_type)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
 
         Ok(StoredWallet {
             id: Some(row.get::<_, i64>("id")? as u32),
             name: row.get("name")?,
+            wallet_type,
+            encryption_fields,
             master_key,
-            seed_phrase: row.get("seed_phrase")?,
-            view_key_hex: row.get("view_key_hex")?,
-            spend_key_hex: row.get("spend_key_hex")?,
             birthday_block: row.get::<_, i64>("birthday_block")? as u64,
             latest_scanned_block: row.get::<_, Option<i64>>("latest_scanned_block")?.map(|b| b as u64),
             created_at: row.get("created_at")?,
@@ -529,68 +582,74 @@ impl WalletStorage for SqliteStorage {
     // === Wallet Management Methods ===
 
     async fn save_wallet(&self, wallet: &StoredWallet) -> WalletResult<u32> {
-        // Validate wallet before saving
-
-        use crate::HexUtils;
-        wallet
-            .validate()
-            .map_err(|e| WalletError::StorageError(format!("Invalid wallet: {e}")))?;
-
         let wallet_clone = wallet.clone();
-        let master_key_hex = HexUtils::to_hex(&wallet_clone.master_key.encipher(None)?);
-        self.connection.call(move |conn| {
-            if let Some(wallet_id) = wallet_clone.id {
-                // Update existing wallet
-                let rows_affected = conn.execute(
-                    r#"
+
+        let cipher = wallet.encryption_fields.get_cipher(&self.passphrase)?;
+        let seed_bytes = Hidden::hide(wallet.master_key.encipher(None)?);
+        let ciphertext_integral_nonce =
+            encrypt_bytes_integral_nonce(&cipher, WALLET_MASTER_SEED_DOMAIN.to_vec(), seed_bytes)
+                .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
+        let master_key_hex = ciphertext_integral_nonce.to_hex();
+
+        let wallet_type = serde_json::to_string(&wallet.wallet_type)
+            .map_err(|e| SerializationError::SerdeSerializationError(e.to_string()))?;
+        let encryption_fields = serde_json::to_string(&wallet.encryption_fields)
+            .map_err(|e| SerializationError::SerdeSerializationError(e.to_string()))?;
+        self.connection
+            .call(move |conn| {
+                if let Some(wallet_id) = wallet_clone.id {
+                    // Update existing wallet
+                    let rows_affected = conn.execute(
+                        r#"
                     UPDATE wallets
-                    SET name = ?, master_key = ?, seed_phrase = ?, view_key_hex = ?, spend_key_hex = ?, birthday_block = ?, latest_scanned_block = ?
+                    SET name = ?, wallet_type = ?, encryption_fields = ?, master_key = ?, birthday_block = ?, latest_scanned_block = ?
                     WHERE id = ?
                     "#,
-                    params![
-                        wallet_clone.name,
-                        master_key_hex,
-                        wallet_clone.seed_phrase,
-                        wallet_clone.view_key_hex,
-                        wallet_clone.spend_key_hex,
-                        wallet_clone.birthday_block as i64,
-                        wallet_clone.latest_scanned_block.map(|b| b as i64),
-                        wallet_id as i64,
-                    ],
-                )?;
+                        params![
+                            wallet_clone.name,
+                            wallet_type,
+                            encryption_fields,
+                            master_key_hex,
+                            wallet_clone.birthday_block as i64,
+                            wallet_clone.latest_scanned_block.map(|b| b as i64),
+                            wallet_id as i64,
+                        ],
+                    )?;
 
-                if rows_affected == 0 {
-                    return Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
-                }
-                Ok(wallet_id)
-            } else {
-                // Insert new wallet
-                conn.execute(
-                    r#"
-                    INSERT INTO wallets (name, master_key, seed_phrase, view_key_hex, spend_key_hex, birthday_block, latest_scanned_block)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    if rows_affected == 0 {
+                        return Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
+                    }
+                    Ok(wallet_id)
+                } else {
+                    // Insert new wallet
+                    conn.execute(
+                        r#"
+                    INSERT INTO wallets (name, wallet_type, encryption_fields, master_key, birthday_block, latest_scanned_block)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     "#,
-                    params![
-                        wallet_clone.name,
-                        master_key_hex,
-                        wallet_clone.seed_phrase,
-                        wallet_clone.view_key_hex,
-                        wallet_clone.spend_key_hex,
-                        wallet_clone.birthday_block as i64,
-                        wallet_clone.latest_scanned_block.map(|b| b as i64),
-                    ],
-                )?;
+                        params![
+                            wallet_clone.name,
+                            wallet_type,
+                            encryption_fields,
+                            master_key_hex,
+                            wallet_clone.birthday_block as i64,
+                            wallet_clone.latest_scanned_block.map(|b| b as i64),
+                        ],
+                    )?;
 
-                Ok(conn.last_insert_rowid() as u32)
-            }
-        }).await.map_err(|e| WalletError::StorageError(format!("Failed to save wallet: {e}")))
+                    Ok(conn.last_insert_rowid() as u32)
+                }
+            })
+            .await
+            .map_err(|e| WalletError::StorageError(format!("Failed to save wallet: {e}")))
     }
 
     async fn get_wallet_by_id(&self, wallet_id: u32) -> WalletResult<Option<StoredWallet>> {
+        let self_clone = self.clone();
         self.connection
             .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallets WHERE id = ?")?;
-                let mut rows = stmt.query_map(params![wallet_id as i64], Self::row_to_wallet)?;
+                let mut rows = stmt.query_map(params![wallet_id as i64], |row| self_clone.row_to_wallet(row))?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -604,10 +663,11 @@ impl WalletStorage for SqliteStorage {
 
     async fn get_wallet_by_name(&self, name: &str) -> WalletResult<Option<StoredWallet>> {
         let name_owned = name.to_string();
+        let self_clone = self.clone();
         self.connection
             .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallets WHERE name = ?")?;
-                let mut rows = stmt.query_map(params![name_owned], Self::row_to_wallet)?;
+                let mut rows = stmt.query_map(params![name_owned], |row| self_clone.row_to_wallet(row))?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -620,10 +680,11 @@ impl WalletStorage for SqliteStorage {
     }
 
     async fn list_wallets(&self) -> WalletResult<Vec<StoredWallet>> {
+        let self_clone = self.clone();
         self.connection
-            .call(|conn| {
+            .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallets ORDER BY created_at DESC")?;
-                let rows = stmt.query_map([], Self::row_to_wallet)?;
+                let rows = stmt.query_map([], |row| self_clone.row_to_wallet(row))?;
 
                 let mut wallets = Vec::new();
                 for row in rows {

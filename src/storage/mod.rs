@@ -8,6 +8,8 @@
 #[cfg(feature = "storage")]
 pub mod connection_pool;
 #[cfg(feature = "storage")]
+pub mod database_encryption;
+#[cfg(feature = "storage")]
 pub mod event_storage;
 #[cfg(feature = "storage")]
 pub mod key_manager;
@@ -23,6 +25,8 @@ pub mod wallet_transaction;
 
 #[cfg(feature = "storage")]
 pub use connection_pool::*;
+#[cfg(feature = "storage")]
+pub use database_encryption::*;
 #[cfg(feature = "storage")]
 pub use event_storage::*;
 pub use output_status::*;

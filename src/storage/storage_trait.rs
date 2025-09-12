@@ -8,13 +8,15 @@ use tari_common_types::{
     seeds::cipher_seed::CipherSeed,
     transaction::{TransactionDirection, TransactionStatus},
     types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
+    wallet_types::WalletType,
 };
-use tari_utilities::ByteArray;
+use tari_utilities::{ByteArray, SafePassword};
 
 use super::{output_status::OutputStatus, stored_output::StoredOutput};
 use crate::{
     errors::WalletResult,
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
+    DatabaseEncryptionFields,
     WalletState,
     WalletTransaction,
 };
@@ -119,14 +121,12 @@ pub struct StoredWallet {
     pub id: Option<u32>,
     /// User-friendly wallet name (must be unique)
     pub name: String,
+    /// Wallet type
+    pub wallet_type: WalletType,
+    /// Database encryption fields
+    pub encryption_fields: DatabaseEncryptionFields,
     /// Master key for the wallet (CipherSeed)
     pub master_key: CipherSeed,
-    /// Encrypted seed phrase (optional, if provided then view/spend keys are also stored)
-    pub seed_phrase: Option<String>,
-    /// Private view key in hex format (always present for functional wallets)
-    pub view_key_hex: String,
-    /// Private spend key in hex format (optional, only for spending wallets)
-    pub spend_key_hex: Option<String>,
     /// Wallet birthday block height
     pub birthday_block: u64,
     /// Latest block height scanned for this wallet
@@ -139,115 +139,23 @@ pub struct StoredWallet {
 
 impl StoredWallet {
     /// Create a new wallet from seed phrase (derives and stores all keys)
-    pub fn from_seed_phrase(
+    pub fn new(
         name: String,
+        wallet_type: WalletType,
+        encryption_fields: DatabaseEncryptionFields,
         master_key: CipherSeed,
-        seed_phrase: String,
-        view_key: PrivateKey,
-        spend_key: PrivateKey,
-        birthday_block: u64,
     ) -> Self {
+        let birthday_block = master_key.birthday() as u64;
         Self {
             id: None,
             name,
+            wallet_type,
+            encryption_fields,
             master_key,
-            seed_phrase: Some(seed_phrase),
-            view_key_hex: hex::encode(view_key.as_bytes()),
-            spend_key_hex: Some(hex::encode(spend_key.as_bytes())),
             birthday_block,
             latest_scanned_block: None,
             created_at: None,
             updated_at: None,
-        }
-    }
-
-    /// Create a new wallet from view and spend keys
-    pub fn from_keys(
-        name: String,
-        master_key: CipherSeed,
-        view_key: PrivateKey,
-        spend_key: PrivateKey,
-        birthday_block: u64,
-    ) -> Self {
-        Self {
-            id: None,
-            name,
-            master_key,
-            seed_phrase: None,
-            view_key_hex: hex::encode(view_key.as_bytes()),
-            spend_key_hex: Some(hex::encode(spend_key.as_bytes())),
-            birthday_block,
-            latest_scanned_block: None,
-            created_at: None,
-            updated_at: None,
-        }
-    }
-
-    /// Create a view-only wallet (no spend key)
-    pub fn view_only(name: String, master_key: CipherSeed, view_key: PrivateKey, birthday_block: u64) -> Self {
-        Self {
-            id: None,
-            name,
-            master_key,
-            seed_phrase: None,
-            view_key_hex: hex::encode(view_key.as_bytes()),
-            spend_key_hex: None,
-            birthday_block,
-            latest_scanned_block: None,
-            created_at: None,
-            updated_at: None,
-        }
-    }
-
-    /// Validate that the wallet has the required keys
-    pub fn validate(&self) -> Result<(), String> {
-        // View key is always required
-        if self.view_key_hex.is_empty() {
-            return Err("View key is required".to_string());
-        }
-
-        // Either seed phrase or keys (or both) must be present
-        if self.seed_phrase.is_none() && self.spend_key_hex.is_none() {
-            // This is a view-only wallet, which is valid
-        }
-
-        Ok(())
-    }
-
-    /// Check if this wallet has a seed phrase
-    pub fn has_seed_phrase(&self) -> bool {
-        self.seed_phrase.is_some()
-    }
-
-    /// Check if this wallet has individual keys (always true now since view key is required)
-    pub fn has_individual_keys(&self) -> bool {
-        true
-    }
-
-    /// Check if this wallet can spend (has spend key or seed phrase)
-    pub fn can_spend(&self) -> bool {
-        self.seed_phrase.is_some() || self.spend_key_hex.is_some()
-    }
-
-    /// Get the view key as PrivateKey (decode from hex)
-    pub fn get_view_key(&self) -> Result<PrivateKey, String> {
-        let bytes = hex::decode(&self.view_key_hex).map_err(|e| format!("Invalid view key hex: {e}"))?;
-        if bytes.len() != 32 {
-            return Err(format!("View key must be 32 bytes, got {}", bytes.len()));
-        }
-        Ok(PrivateKey::from_canonical_bytes(&bytes).map_err(|e| e.to_string())?)
-    }
-
-    /// Get the spend key as PrivateKey (decode from hex)
-    pub fn get_spend_key(&self) -> Result<PrivateKey, String> {
-        if let Some(hex_key) = &self.spend_key_hex {
-            let bytes = hex::decode(hex_key).map_err(|e| format!("Invalid spend key hex: {e}"))?;
-            if bytes.len() != 32 {
-                return Err(format!("Spend key must be 32 bytes, got {}", bytes.len()));
-            }
-            Ok(PrivateKey::from_canonical_bytes(&bytes).map_err(|e| e.to_string())?)
-        } else {
-            Err("No spend key available".to_string())
         }
     }
 
