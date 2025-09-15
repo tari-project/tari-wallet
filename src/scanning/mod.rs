@@ -873,7 +873,7 @@ mod tests {
     async fn test_tip_info() {
         let tip_info = TipInfo {
             best_block_height: 1000,
-            best_block_hash: vec![1, 2, 3, 4],
+            best_block_hash: FixedHash::new([1u8; 32]),
             accumulated_difficulty: "5678".to_string(),
             pruned_height: 500,
             timestamp: 1234567890,

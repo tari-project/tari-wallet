@@ -15,6 +15,8 @@
 
 use tari_common_types::transaction::{TransactionDirection, TransactionStatus};
 use tari_transaction_components::key_manager::TransactionKeyManagerInterface;
+#[cfg(all(feature = "grpc", feature = "storage"))]
+use tari_utilities::SafePassword;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::Instant;
 
@@ -1455,11 +1457,11 @@ impl WalletScanner {
     /// - Event emitter is not configured
     /// - Scanning is cancelled by external signal
     #[cfg(all(feature = "grpc", feature = "storage"))]
-    pub async fn scan(
+    pub async fn scan<KM>(
         &mut self,
-        scanner: &mut GrpcBlockchainScanner,
-        scan_context: &ScanContext,
+        scanner: &mut GrpcBlockchainScanner<KM>,
         config: &BinaryScanConfig,
+        passphrase: SafePassword,
         cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     ) -> WalletResult<ScanResult> {
         // Check that event emitter is configured
@@ -1485,7 +1487,7 @@ impl WalletScanner {
         // Execute the scan with enhanced error handling
         let mut event_emitter = self.config.event_emitter.take().unwrap();
         let scan_result = self
-            .execute_scan_with_retry(scanner, scan_context, config, &mut event_emitter, cancel_rx)
+            .execute_scan_with_retry(scanner, config, passphrase, &mut event_emitter, cancel_rx)
             .await;
 
         // Put the event emitter back
@@ -1568,11 +1570,11 @@ impl WalletScanner {
 
     /// Execute the scan with retry logic for failed operations
     #[cfg(all(feature = "grpc", feature = "storage"))]
-    async fn execute_scan_with_retry(
+    async fn execute_scan_with_retry<KM>(
         &mut self,
-        scanner: &mut GrpcBlockchainScanner,
-        scan_context: &ScanContext,
+        scanner: &mut GrpcBlockchainScanner<KM>,
         config: &BinaryScanConfig,
+        passphrase: SafePassword,
         event_emitter: &mut super::event_emitter::ScanEventEmitter,
         cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     ) -> WalletResult<ScanResult> {
@@ -1580,8 +1582,15 @@ impl WalletScanner {
         let max_retries = self.config.retry_config.max_retries;
 
         loop {
-            match scan_wallet_across_blocks_with_cancellation(scanner, scan_context, config, cancel_rx, event_emitter)
-                .await
+            let passphrase_clone = passphrase.clone();
+            match scan_wallet_across_blocks_with_cancellation(
+                scanner,
+                config,
+                passphrase_clone,
+                cancel_rx,
+                event_emitter,
+            )
+            .await
             {
                 Ok(result) => return Ok(result),
                 Err(e) => {
@@ -1967,10 +1976,10 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor, KM: Transact
 
 /// Core scanning logic - simplified and focused with batch processing
 #[cfg(all(feature = "grpc", feature = "storage"))]
-async fn scan_wallet_across_blocks_with_cancellation(
-    scanner: &mut GrpcBlockchainScanner,
-    scan_context: &ScanContext,
+async fn scan_wallet_across_blocks_with_cancellation<KM>(
+    scanner: &mut GrpcBlockchainScanner<KM>,
     config: &BinaryScanConfig,
+    passphrase: SafePassword,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     event_emitter: &mut super::event_emitter::ScanEventEmitter,
 ) -> WalletResult<ScanResult> {
@@ -1985,7 +1994,10 @@ async fn scan_wallet_across_blocks_with_cancellation(
             if let Some(ref db_path) = config.database_path {
                 // For now, use a placeholder wallet ID. This should be improved to get the actual wallet ID
                 // The wallet ID would come from the DatabaseStorageListener or storage backend
-                if let Ok(Some(existing_state)) = event_emitter.try_load_existing_wallet_state(db_path, Some(1)).await {
+                if let Ok(Some(existing_state)) = event_emitter
+                    .try_load_existing_wallet_state(db_path, passphrase, Some(1))
+                    .await
+                {
                     existing_state
                 } else {
                     WalletState::new()
@@ -2011,7 +2023,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
 
     // Emit scan started event
     event_emitter
-        .emit_scan_started(config, scan_context, (from_block, to_block), wallet_context)
+        .emit_scan_started(config, (from_block, to_block), wallet_context)
         .await?;
 
     // Display scanning information (already handled in prepare_block_heights, don't duplicate)
@@ -2031,8 +2043,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
         validate_signatures: true,
         handle_special_outputs: true,
         detect_corruption: true,
-        private_key: Some(scan_context.view_key.clone()),
-        public_key: None,
     };
 
     // Create scan config for the blockchain scanner
@@ -2120,11 +2130,8 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     );
 
                     // Scan for wallet outputs and spent outputs (with detailed information for events)
-                    let (found_outputs, spent_output_details) = block.scan_for_wallet_activity_with_details(
-                        &scan_context.view_key,
-                        &scan_context.entropy,
-                        &mut wallet_state,
-                    )?;
+                    let (found_outputs, spent_output_details) =
+                        block.scan_for_wallet_activity_with_details(&mut wallet_state)?;
 
                     let processing_duration = processing_start.elapsed();
                     let spent_outputs_count = spent_output_details.len();
@@ -2150,8 +2157,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
 
                         for transaction in block_transactions {
                             // Create address info and block info for the event
-                            let address_info =
-                                super::event_emitter::create_address_info_from_transaction(scan_context, transaction);
+                            let address_info = super::event_emitter::create_address_info_from_transaction(transaction);
                             let block_info_event = super::event_emitter::create_block_info_from_block(&block);
 
                             // Find the corresponding output from the block
