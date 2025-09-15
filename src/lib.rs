@@ -11,7 +11,9 @@ pub mod events;
 pub mod extraction;
 pub mod hex_utils;
 // pub mod key_management;
+mod key_manager_builder;
 pub mod scanning;
+pub use key_manager_builder::KeyManagerBuilder;
 
 #[allow(dead_code)]
 pub mod storage;

@@ -57,6 +57,9 @@ use wasm_bindgen_futures::JsFuture;
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
+#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+use crate::BlockHeaderInfo;
 use crate::{
     data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct},
     errors::{WalletError, WalletResult},
@@ -105,7 +108,7 @@ pub struct HttpBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpBlockHeader {
     pub height: u64,
-    pub hash: String,
+    pub hash: Vec<u8>,
     pub timestamp: u64,
 }
 
@@ -1040,6 +1043,48 @@ where KM: TransactionKeyManagerInterface
             inputs: Vec::new(),  // HTTP API doesn't provide input details
             kernels: Vec::new(), // HTTP API doesn't provide kernel details
             timestamp: block.header.timestamp,
+        }))
+    }
+
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
+        let url = format!("{}/get_header_by_height?height={}", self.base_url, height);
+
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "HTTP request failed: {e}"
+            )))
+        })?;
+
+        if !response.status().is_success() {
+            if response.status() == 404 {
+                return Ok(None);
+            }
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP error: {}",
+                    response.status()
+                )),
+            ));
+        }
+
+        let body = response.text().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to read response body: {e}"
+            )))
+        })?;
+        dbg!(&body);
+
+        let header_response: HttpBlockHeader = serde_json::from_str(&body).map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to parse response: {e}"
+            )))
+        })?;
+
+        Ok(Some(BlockHeaderInfo {
+            height: header_response.height,
+            hash: header_response.hash,
+            timestamp: header_response.timestamp,
         }))
     }
 }

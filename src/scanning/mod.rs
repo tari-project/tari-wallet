@@ -144,6 +144,36 @@ pub struct ScanConfig {
     pub extraction_config: ExtractionConfig,
 }
 
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            start_height: 0,
+            end_height: None,
+            batch_size: 100,
+            request_timeout: Duration::from_secs(30),
+            extraction_config: ExtractionConfig::default(),
+        }
+    }
+}
+
+impl ScanConfig {
+    pub fn with_start_height(mut self, start_height: u64) -> Self {
+        self.start_height = start_height;
+        self
+    }
+
+    pub fn with_end_height(mut self, end_height: u64) -> Self {
+        self.end_height = Some(end_height);
+        self
+    }
+
+    pub fn with_start_end_heights(mut self, start_height: u64, end_height: u64) -> Self {
+        self.start_height = start_height;
+        self.end_height = Some(end_height);
+        self
+    }
+}
+
 // Helper module for Duration serialization
 mod duration_serde {
     use std::time::Duration;
@@ -176,18 +206,6 @@ impl ScanConfig {
 pub struct ScanConfigWithCallback {
     pub config: ScanConfig,
     pub progress_callback: Option<LegacyProgressCallback>,
-}
-
-impl Default for ScanConfig {
-    fn default() -> Self {
-        Self {
-            start_height: 0,
-            end_height: None,
-            batch_size: 100,
-            request_timeout: Duration::from_secs(30),
-            extraction_config: ExtractionConfig::default(),
-        }
-    }
 }
 
 /// Configuration for wallet-specific scanning
@@ -322,6 +340,17 @@ pub struct BlockInfo {
     pub kernels: Vec<TransactionKernel>,
 }
 
+/// Block header information
+#[derive(Debug, Clone, Default)]
+pub struct BlockHeaderInfo {
+    /// Block height
+    pub height: u64,
+    /// Block hash
+    pub hash: Vec<u8>,
+    /// Timestamp
+    pub timestamp: u64,
+}
+
 /// Blockchain scanner trait for scanning UTXOs
 ///
 /// This trait provides a lightweight interface that can be implemented by
@@ -346,6 +375,8 @@ pub trait BlockchainScanner: Send + Sync {
 
     /// Get a single block by height
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>>;
+
+    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>>;
 }
 
 /// Wallet scanner trait for scanning with wallet keys
@@ -764,6 +795,18 @@ impl BlockchainScanner for MockBlockchainScanner {
 
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
         Ok(self.blocks.iter().find(|b| b.height == height).cloned())
+    }
+
+    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
+        if let Some(block) = self.blocks.iter().find(|b| b.height == height) {
+            Ok(Some(BlockHeaderInfo {
+                height: block.height,
+                hash: block.hash.clone(),
+                timestamp: block.timestamp,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 

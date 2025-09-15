@@ -24,8 +24,8 @@ thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing
 
 # === Tari Ecosystem Dependencies ===
-tari_common  = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
-tari_common_types  = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+tari_common = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+tari_common_types = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
 tari_crypto = { version = "0.22.1", features = ["borsh"] }
 tari_utilities = { version = "0.8", features = ["std"] }
 tari_script = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
@@ -88,6 +88,7 @@ rusqlite = { version = "0.31", features = [
     "blob",
 ], optional = true }
 tokio-rusqlite = { version = "0.5", optional = true }
+anyhow = "1.0.99"
 
 # === Platform-Specific Dependencies ===
 # Native targets (non-WASM) - Full reqwest with all features
@@ -143,7 +144,14 @@ tonic-build = "0.10" # GRPC code generation
 
 [features]
 default = ["http"]
-grpc = ["rayon", "tonic", "prost", "tracing", "tracing-subscriber", "minotari_app_grpc"]
+grpc = [
+    "rayon",
+    "tonic",
+    "prost",
+    "tracing",
+    "tracing-subscriber",
+    "minotari_app_grpc",
+]
 http = [
     "tracing",
     "reqwest",

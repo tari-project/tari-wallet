@@ -4,9 +4,10 @@
 //! including deterministic key derivation from seed phrases and imported private keys.
 
 pub mod key_derivation;
+mod key_manager_builder;
 pub mod seed_phrase;
 pub mod stealth_address;
-
+pub use key_manager_builder::KeyManagerBuilder;
 use tari_common_types::types::{CompressedPublicKey, PrivateKey};
 use zeroize::Zeroize;
 
