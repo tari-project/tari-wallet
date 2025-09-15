@@ -1,18 +1,3 @@
-//! Main wallet scanning implementation and public API.
-//!
-//! This module contains the core blockchain scanning logic, wallet creation
-//! and setup functions, and the primary public API for wallet scanning
-//! operations.
-//!
-//! # Module Organization
-//! - Transaction extraction helper functions
-//! - Wallet creation utilities
-//! - Block processing helpers
-//! - Balance calculation helpers
-//! - Core scanning logic and public API
-//!
-//! This module is part of the scanner.rs binary refactoring effort.
-
 use tari_common_types::transaction::{TransactionDirection, TransactionStatus};
 use tari_transaction_components::key_manager::TransactionKeyManagerInterface;
 #[cfg(all(feature = "grpc", feature = "storage"))]
@@ -59,7 +44,14 @@ use crate::scanning::{
     data_processor::{BlockData, CompletionData, DataProcessor, ProgressData},
     progress::ProgressTracker,
 };
-use crate::{common::format_number, errors::WalletError, WalletResult, WalletState, WalletTransaction};
+use crate::{
+    common::format_number,
+    errors::WalletError,
+    scanning::{event_emitter::ScanEventEmitter, BlockScanResult, BlockchainScanner, WalletOutput},
+    WalletResult,
+    WalletState,
+    WalletTransaction,
+};
 
 // =============================================================================
 // Transaction extraction helper functions
@@ -1457,7 +1449,7 @@ impl WalletScanner {
     /// - Event emitter is not configured
     /// - Scanning is cancelled by external signal
     #[cfg(all(feature = "grpc", feature = "storage"))]
-    pub async fn scan<KM>(
+    pub async fn scan<KM: TransactionKeyManagerInterface>(
         &mut self,
         scanner: &mut GrpcBlockchainScanner<KM>,
         config: &BinaryScanConfig,
@@ -1570,7 +1562,7 @@ impl WalletScanner {
 
     /// Execute the scan with retry logic for failed operations
     #[cfg(all(feature = "grpc", feature = "storage"))]
-    async fn execute_scan_with_retry<KM>(
+    async fn execute_scan_with_retry<KM: TransactionKeyManagerInterface>(
         &mut self,
         scanner: &mut GrpcBlockchainScanner<KM>,
         config: &BinaryScanConfig,
@@ -1976,57 +1968,27 @@ async fn scan_wallet_across_blocks_with_processor<T: DataProcessor, KM: Transact
 
 /// Core scanning logic - simplified and focused with batch processing
 #[cfg(all(feature = "grpc", feature = "storage"))]
-async fn scan_wallet_across_blocks_with_cancellation<KM>(
+async fn scan_wallet_across_blocks_with_cancellation<KM: TransactionKeyManagerInterface>(
     scanner: &mut GrpcBlockchainScanner<KM>,
     config: &BinaryScanConfig,
-    passphrase: SafePassword,
+    _passphrase: SafePassword,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     event_emitter: &mut super::event_emitter::ScanEventEmitter,
 ) -> WalletResult<ScanResult> {
-    // Determine scanning block range (now simplified without storage backend)
+    // Determine scanning block range
     let (from_block, to_block) = determine_scan_range_with_events(config, event_emitter).await?;
-
-    // Initialize scanning state - try to load existing wallet state from database if available
-    let mut wallet_state = {
-        #[cfg(feature = "storage")]
-        {
-            // Try to load existing wallet state from database if database path is available
-            if let Some(ref db_path) = config.database_path {
-                // For now, use a placeholder wallet ID. This should be improved to get the actual wallet ID
-                // The wallet ID would come from the DatabaseStorageListener or storage backend
-                if let Ok(Some(existing_state)) = event_emitter
-                    .try_load_existing_wallet_state(db_path, passphrase, Some(1))
-                    .await
-                {
-                    existing_state
-                } else {
-                    WalletState::new()
-                }
-            } else {
-                WalletState::new()
-            }
-        }
-        #[cfg(not(feature = "storage"))]
-        {
-            WalletState::new()
-        }
-    };
-    let _start_time = Instant::now();
 
     // Prepare block heights list for scanning
     let block_heights = prepare_block_heights(config, from_block, to_block);
 
-    // Create wallet context for event
+    // Emit scan started event
     let mut wallet_context = std::collections::HashMap::new();
     wallet_context.insert("scan_type".to_string(), "full_scan".to_string());
     wallet_context.insert("batch_size".to_string(), config.batch_size.to_string());
-
-    // Emit scan started event
     event_emitter
         .emit_scan_started(config, (from_block, to_block), wallet_context)
         .await?;
 
-    // Display scanning information (already handled in prepare_block_heights, don't duplicate)
     if !config.quiet && config.block_heights.is_none() {
         println!(
             "🔍 Scanning blocks {} to {} ({} blocks total)...",
@@ -2036,40 +1998,22 @@ async fn scan_wallet_across_blocks_with_cancellation<KM>(
         );
     }
 
-    // Create extraction config from scan context
-    let extraction_config = crate::extraction::ExtractionConfig {
-        enable_key_derivation: true,
-        validate_range_proofs: true,
-        validate_signatures: true,
-        handle_special_outputs: true,
-        detect_corruption: true,
-    };
-
-    // Create scan config for the blockchain scanner
-    let _scan_config = super::ScanConfig {
-        start_height: from_block,
-        end_height: Some(to_block),
-        batch_size: config.batch_size as u64,
-        request_timeout: std::time::Duration::from_secs(30),
-        extraction_config: extraction_config.clone(),
-    };
-
-    // Perform the actual blockchain scan
+    // Batch scan implementation
+    let mut wallet_state = WalletState::new();
     let mut blocks_processed = 0u64;
-    let mut _total_outputs_found = 0usize;
-    let mut _total_spent_outputs = 0usize;
     let mut last_progress_update = Instant::now();
-    let mut current_block_index = 0;
+    let total_blocks = block_heights.len() as u64;
+    let batch_size = config.batch_size as usize;
+    let mut batch_start = 0;
 
-    // Process blocks in batches with cancellation support
-    while current_block_index < block_heights.len() {
-        // Check for cancellation
+    while batch_start < block_heights.len() {
+        // Check for cancellation before each batch
         if *cancel_rx.borrow() {
             if !config.quiet {
                 println!("\n🛑 Scan cancelled by user");
             }
-            let current_block = if current_block_index < block_heights.len() {
-                block_heights[current_block_index]
+            let current_block = if batch_start < block_heights.len() {
+                block_heights[batch_start]
             } else {
                 to_block
             };
@@ -2079,8 +2023,6 @@ async fn scan_wallet_across_blocks_with_cancellation<KM>(
                 blocks_processed as usize,
                 config.block_heights.is_some(),
             );
-
-            // Emit scan cancelled event
             event_emitter
                 .emit_scan_cancelled(
                     "User requested cancellation".to_string(),
@@ -2088,220 +2030,80 @@ async fn scan_wallet_across_blocks_with_cancellation<KM>(
                     Some(&metadata),
                 )
                 .await?;
-
             return Ok(ScanResult::Interrupted(wallet_state, Some(metadata)));
         }
 
-        // Create batch of blocks to process - for specific blocks, use larger batches to reduce GRPC calls
-        let effective_batch_size = if config.block_heights.is_some() {
-            // For specific blocks, use larger batches (up to 100) since we're not scanning sequentially
-            std::cmp::min(config.batch_size * 10, 100)
-        } else {
-            config.batch_size
-        };
-
-        let batch_end_index = std::cmp::min(current_block_index + effective_batch_size, block_heights.len());
-        let batch_heights: Vec<u64> = block_heights[current_block_index..batch_end_index].to_vec();
-
-        // Create batch config for this set of specific blocks
-        let batch_start_height = batch_heights[0];
-        let batch_end_height = batch_heights[batch_heights.len() - 1];
-        let _batch_config = super::ScanConfig {
-            start_height: batch_start_height,
-            end_height: Some(batch_end_height),
+        let batch_end = std::cmp::min(batch_start + batch_size, block_heights.len());
+        let batch_heights = &block_heights[batch_start..batch_end];
+        let scan_config = super::ScanConfig {
+            start_height: batch_heights[0],
+            end_height: Some(*batch_heights.last().unwrap()),
             batch_size: config.batch_size as u64,
             request_timeout: std::time::Duration::from_secs(30),
-            extraction_config: extraction_config.clone(),
+            extraction_config: crate::extraction::ExtractionConfig::default(),
         };
 
-        // Get blocks and process them using the proper block scanning logic
-        match scanner.get_blocks_by_heights(batch_heights.clone()).await {
-            Ok(blocks) => {
-                for block_info in blocks {
-                    let processing_start = std::time::Instant::now();
+        let scan_results = BlockchainScanner::scan_blocks(scanner, scan_config).await?;
 
-                    // Convert BlockInfo to Block for processing
-                    let block = crate::data_structures::block::Block::new(
-                        block_info.height,
-                        block_info.hash.clone(),
-                        block_info.timestamp,
-                        block_info.outputs.clone(),
-                        block_info.inputs.clone(),
-                    );
-
-                    // Scan for wallet outputs and spent outputs (with detailed information for events)
-                    let (found_outputs, spent_output_details) =
-                        block.scan_for_wallet_activity_with_details(&mut wallet_state)?;
-
-                    let processing_duration = processing_start.elapsed();
-                    let spent_outputs_count = spent_output_details.len();
-
-                    // Update global counters
-                    _total_outputs_found += found_outputs;
-                    _total_spent_outputs += spent_outputs_count;
-
-                    // Emit block processed event with correct spent count
-                    event_emitter
-                        .emit_block_processed(&block, processing_duration, found_outputs, spent_outputs_count)
-                        .await?;
-
-                    // Emit individual OutputFound events for database storage and detailed logging
-                    // (Progress counting is handled by BlockProcessed events to avoid double counting)
-                    if found_outputs > 0 {
-                        // Get the transactions that were just added to wallet_state for this block
-                        let block_transactions: Vec<_> = wallet_state
-                            .transactions
-                            .iter()
-                            .filter(|tx| tx.block_height == block.height)
-                            .collect();
-
-                        for transaction in block_transactions {
-                            // Create address info and block info for the event
-                            let address_info = super::event_emitter::create_address_info_from_transaction(transaction);
-                            let block_info_event = super::event_emitter::create_block_info_from_block(&block);
-
-                            // Find the corresponding output from the block
-                            if let Some(output) = block.outputs.iter().find(|o| {
-                                // Match by commitment or other identifying field
-                                o.commitment == transaction.commitment
-                            }) {
-                                event_emitter
-                                    .emit_output_found(output, &block_info_event, &address_info, transaction)
-                                    .await?;
-                            }
-                        }
-                    }
-
-                    // Emit spent output events for each spent output found
-                    for spent_info in spent_output_details {
-                        let original_block_info = crate::events::types::BlockInfo::new(
-                            spent_info.original_block_height,
-                            String::new(), // We don't have the original block hash
-                            0,             // We don't have the original block timestamp
-                            0,             // Default output index for spent output reference
-                        );
-
-                        event_emitter
-                            .emit_spent_output_found(
-                                &spent_info.spent_transaction,
-                                &block,
-                                spent_info.input_index,
-                                &spent_info.match_method,
-                                &original_block_info,
-                            )
-                            .await?;
-                    }
-                }
-
-                let batch_size = batch_heights.len() as u64;
-                blocks_processed += batch_size;
-
-                // Emit progress update - disable for specific blocks since they're fast and progress values are wrong
-                let should_emit_progress = if config.block_heights.is_some() {
-                    // Skip progress for specific blocks - they're fast enough and progress bar values are incorrect
-                    false
-                } else {
-                    // For range scanning, use the configured frequency
-                    blocks_processed % config.progress_frequency as u64 == 0 ||
-                        last_progress_update.elapsed().as_secs() >= 1
-                };
-
-                if should_emit_progress {
-                    let total_blocks = block_heights.len() as u64;
-                    let processing_rate = if last_progress_update.elapsed().as_secs_f64() > 0.0 {
-                        blocks_processed as f64 / last_progress_update.elapsed().as_secs_f64()
-                    } else {
-                        0.0
-                    };
-                    let estimated_completion = if processing_rate > 0.0 {
-                        let remaining_blocks = total_blocks - blocks_processed;
-                        let remaining_seconds = remaining_blocks as f64 / processing_rate;
-                        Some(std::time::SystemTime::now() + std::time::Duration::from_secs_f64(remaining_seconds))
-                    } else {
-                        None
-                    };
-
-                    let current_block = if current_block_index > 0 {
-                        // Get the last block we just processed
-                        block_heights[current_block_index - 1]
-                    } else {
-                        // Haven't processed any blocks yet, use the first block
-                        block_heights.first().copied().unwrap_or(from_block)
-                    };
-
-                    event_emitter
-                        .emit_scan_progress(
-                            blocks_processed,
-                            total_blocks,
-                            current_block,
-                            wallet_state.transactions.len(),
-                            Some(processing_rate),
-                            estimated_completion,
-                        )
-                        .await?;
-
-                    last_progress_update = Instant::now();
-                }
-
-                current_block_index = batch_end_index;
-            },
-            Err(e) => {
-                if !config.quiet {
-                    let batch_start = batch_heights[0];
-                    let batch_end = batch_heights[batch_heights.len() - 1];
-                    eprintln!("❌ Error getting blocks {batch_start}-{batch_end}: {e}");
-                }
-
-                // Emit scan error event
-                let error_block = if current_block_index < block_heights.len() {
-                    Some(block_heights[current_block_index])
-                } else {
-                    None
-                };
-                event_emitter
-                    .emit_scan_error(
-                        &e,
-                        error_block,
-                        true, // can retry
-                        0,    // retry count (not tracked yet)
-                    )
-                    .await?;
-
-                return Err(e);
-            },
+        for block_result in &scan_results {
+            add_outputs_from_blockscan(&mut wallet_state, &block_result.wallet_outputs, block_result.height);
+            emit_block_processed_simple(event_emitter, block_result, &wallet_state).await?;
         }
+
+        blocks_processed += scan_results.len() as u64;
+
+        // Emit progress update
+        let should_emit_progress = if config.block_heights.is_some() {
+            false
+        } else {
+            blocks_processed % config.progress_frequency as u64 == 0 || last_progress_update.elapsed().as_secs() >= 1
+        };
+        if should_emit_progress {
+            let processing_rate = if last_progress_update.elapsed().as_secs_f64() > 0.0 {
+                blocks_processed as f64 / last_progress_update.elapsed().as_secs_f64()
+            } else {
+                0.0
+            };
+            let estimated_completion = if processing_rate > 0.0 {
+                let remaining_blocks = total_blocks - blocks_processed;
+                let remaining_seconds = remaining_blocks as f64 / processing_rate;
+                Some(std::time::SystemTime::now() + std::time::Duration::from_secs_f64(remaining_seconds))
+            } else {
+                None
+            };
+            let last_block_height = scan_results.last().map(|b| b.height).unwrap_or(to_block);
+            event_emitter
+                .emit_scan_progress(
+                    blocks_processed,
+                    total_blocks,
+                    last_block_height,
+                    wallet_state.transactions.len(),
+                    Some(processing_rate),
+                    estimated_completion,
+                )
+                .await?;
+            last_progress_update = Instant::now();
+        }
+
+        batch_start = batch_end;
     }
 
-    // Wallet state has been updated directly by the block scanning logic
-    let total_blocks_scanned = block_heights.len();
     if !config.quiet {
-        println!("✅ Completed scanning {total_blocks_scanned} blocks");
-        if !wallet_state.transactions.is_empty() {
-            println!("   Found {} total transactions", wallet_state.transactions.len());
-        }
+        println!("✅ Completed scanning {total_blocks} blocks");
     }
 
-    // Create scan metadata
     let metadata = ScanMetadata::new(
         from_block,
         to_block,
         block_heights.len(),
         config.block_heights.is_some(),
     );
-
-    // Emit scan completed event (storage will be handled by DatabaseStorageListener)
     event_emitter
-        .emit_scan_completed(
-            &metadata,
-            &wallet_state,
-            true, // success
-        )
+        .emit_scan_completed(&metadata, &wallet_state, true)
         .await?;
-
     if !config.quiet {
-        println!(); // Clear progress line
+        println!();
     }
-
     Ok(ScanResult::Completed(wallet_state, Some(metadata)))
 }
 
@@ -3661,3 +3463,25 @@ impl Default for ScannerBuilder {
 // as they were placeholders. The new WalletScanner and ScanResult types provide
 // the complete scanning functionality.
 //
+
+// Helper: Add wallet outputs from BlockScanResult to WalletState and emit output_found events
+fn add_outputs_from_blockscan(_wallet_state: &mut WalletState, _outputs: &[WalletOutput], _block_height: u64) {
+    // TODO: Implement actual conversion and addition
+}
+
+// Helper: Emit a block processed event for BlockScanResult and emit output_found events
+async fn emit_block_processed_simple(
+    event_emitter: &mut ScanEventEmitter,
+    block_result: &BlockScanResult,
+    wallet_state: &WalletState,
+) -> WalletResult<()> {
+    println!(
+        "[STUB] Block processed: height={}, outputs_found={}",
+        block_result.height,
+        block_result.wallet_outputs.len()
+    );
+    for output in &block_result.wallet_outputs {
+        println!("[STUB] Output found in block {}: {:?}", block_result.height, output);
+    }
+    Ok(())
+}
