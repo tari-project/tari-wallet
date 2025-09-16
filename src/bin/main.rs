@@ -33,6 +33,8 @@ enum Commands {
     ClearDatabase(ClearDatabaseArgs),
     /// List all wallets stored in database
     ListWallets(ListWalletsArgs),
+    /// Scan wallet using HTTP scanner
+    Scan(ScanArgs),
 }
 
 #[derive(Debug, Args)]
@@ -116,6 +118,7 @@ async fn main() -> WalletResult<()> {
         Commands::New(args) => handle_new_wallet(args).await?,
         Commands::ClearDatabase(args) => handle_clear_database(args).await?,
         Commands::ListWallets(args) => handle_list_wallets(args).await?,
+        Commands::Scan(args) => handle_scan(args).await?,
     }
 
     Ok(())
@@ -129,7 +132,7 @@ async fn handle_new_wallet(args: NewArgs) -> WalletResult<()> {
 
     let existing_wallet = storage.get_wallet_by_name(&wallet_name).await?;
     if existing_wallet.is_some() {
-        println!("⚠️  WARNING: wallet {wallet_name} was not created, since it already exists");
+        println!("❌  Error: wallet {wallet_name} was not created, since it already exists");
         return Ok(());
     }
 
@@ -223,6 +226,10 @@ async fn handle_list_wallets(args: ListWalletsArgs) -> WalletResult<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn handle_scan(args: ScanArgs) -> WalletResult<()> {
     Ok(())
 }
 

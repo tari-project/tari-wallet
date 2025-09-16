@@ -46,7 +46,11 @@ pub mod storage_manager;
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 pub mod background_writer;
 
-pub mod wallet_scanner;
+// Disabled for now
+// pub mod wallet_scanner;
+
+#[cfg(all(feature = "storage", feature = "http"))]
+pub mod new_wallet_scanner;
 
 pub mod progress;
 
