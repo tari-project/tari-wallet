@@ -767,7 +767,11 @@ pub enum ScannerType<KM> {
         key_manager: KM,
         url: String,
     },
-    // Http { url: String },
+    #[cfg(feature = "http")]
+    Http {
+        key_manager: KM,
+        url: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -808,6 +812,10 @@ where KM: TransactionKeyManagerInterface
             Some(ScannerType::Grpc { url, key_manager }) => {
                 let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
                 Ok(Box::new(scanner))
+            },
+            #[cfg(feature = "http")]
+            Some(ScannerType::Http { .. }) => {
+                unimplemented!()
             },
             None => Err(WalletError::ConfigurationError(
                 "Scanner type not specified".to_string(),
