@@ -1,11 +1,16 @@
 #![cfg(all(feature = "storage", feature = "http"))]
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use lightweight_wallet_libs::{
     common::format_number,
+    key_manager::TransactionKeyManager,
+    new_wallet_scanner::NewWalletScanner,
+    BinaryScanConfig,
     DatabaseEncryptionFields,
+    HttpBlockchainScanner,
+    OutputFormat,
     SqliteStorage,
     StoredWallet,
     WalletResult,
@@ -17,6 +22,7 @@ use tari_common_types::{
     wallet_types::{ProvidedKeysWallet, WalletType},
 };
 use tari_utilities::{hex::Hex, SafePassword};
+use tokio::sync::watch;
 
 #[derive(Debug, Parser)]
 #[command(version, author, about, long_about = None)]
@@ -230,6 +236,63 @@ async fn handle_list_wallets(args: ListWalletsArgs) -> WalletResult<()> {
 }
 
 async fn handle_scan(args: ScanArgs) -> WalletResult<()> {
+    let wallet_name = args.name;
+    let password = as_safe_password(&args.passphrase);
+    let storage = SqliteStorage::new(&args.database, password.clone()).await?;
+    storage.initialize().await?;
+
+    let existing_wallet = storage
+        .get_wallet_by_name(&wallet_name)
+        .await?
+        .ok_or_else(|| format!("❌  Error: No wallet with name {wallet_name} was found"))?;
+
+    let key_manager = TransactionKeyManager::build(
+        Arc::new(storage),
+        existing_wallet.master_key,
+        existing_wallet.wallet_type,
+        existing_wallet.id.unwrap(),
+    )
+    .await?;
+
+    // use crate::scanning::{
+    // new_wallet_scanner::WalletScanner,
+    // scan_config::{BinaryScanConfig, OutputFormat},
+    // HttpBlockchainScanner,
+    // ScanEventEmitter,
+    // };
+
+    // Prepare scan config from CLI args
+    let config = BinaryScanConfig {
+        from_block: 0,  // TODO: make configurable
+        to_block: 1000, // TODO: make configurable
+        block_heights: None,
+        progress_frequency: 10,
+        quiet: false,
+        output_format: OutputFormat::Summary,
+        batch_size: 100,
+        database_path: Some(args.database.clone()),
+        wallet_name: Some(wallet_name.clone()),
+        explicit_from_block: None,
+        use_database: true,
+    };
+
+    // Create WalletScanner with default events
+    let mut scanner = NewWalletScanner::new_with_default_events("cli_scanner".to_string())
+        .map_err(|e| format!("Failed to create scanner: {e}"))?;
+
+    // Create HTTP blockchain scanner
+    // TODO: You may need to pass keys/context here
+    let mut http_scanner = HttpBlockchainScanner::new(args.base_url.clone(), key_manager.as_interface()).await?;
+
+    // Prepare cancellation channel
+    let (cancel_tx, mut cancel_rx) = watch::channel(false);
+
+    // Run scan
+    let scan_result = scanner.scan(&mut http_scanner, &config, &mut cancel_rx).await?;
+
+    // Display result
+    scan_result.display(&config);
+
     Ok(())
 }
 

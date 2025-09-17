@@ -1,7 +1,6 @@
 #![cfg(all(feature = "storage", feature = "http"))]
 
 use tari_transaction_components::{key_manager::TransactionKeyManagerInterface, transaction_components::WalletOutput};
-use tari_utilities::SafePassword;
 use tokio::time::Instant;
 
 use crate::{
@@ -10,59 +9,12 @@ use crate::{
     BlockScanResult,
     HttpBlockchainScanner,
     ScanEventEmitter,
+    ScanMetadata,
     ScannerStorage,
     WalletError,
     WalletResult,
     WalletState,
 };
-
-#[derive(Debug, Clone)]
-pub struct ScanMetadata {
-    /// Block range that was scanned
-    pub from_block: u64,
-    pub to_block: u64,
-    /// Total blocks that were processed
-    pub blocks_processed: usize,
-    /// Whether specific blocks were scanned vs a range
-    pub had_specific_blocks: bool,
-    /// Start time of the scan operation
-    pub start_time: Option<Instant>,
-    /// End time of the scan operation
-    pub end_time: Option<Instant>,
-}
-
-impl ScanMetadata {
-    /// Create new scan metadata
-    pub fn new(from_block: u64, to_block: u64, blocks_processed: usize, had_specific_blocks: bool) -> Self {
-        Self {
-            from_block,
-            to_block,
-            blocks_processed,
-            had_specific_blocks,
-            start_time: None,
-            end_time: None,
-        }
-    }
-
-    /// Calculate scan duration if times are available
-    pub fn duration(&self) -> Option<std::time::Duration> {
-        match (self.start_time, self.end_time) {
-            (Some(start), Some(end)) => Some(end.duration_since(start)),
-            _ => None,
-        }
-    }
-
-    /// Calculate blocks per second if duration is available
-    pub fn blocks_per_second(&self) -> Option<f64> {
-        self.duration().map(|duration| {
-            if duration.as_secs_f64() > 0.0 {
-                self.blocks_processed as f64 / duration.as_secs_f64()
-            } else {
-                0.0
-            }
-        })
-    }
-}
 
 /// Represents the result of a wallet scanning operation
 #[derive(Debug, Clone)]
@@ -480,12 +432,12 @@ impl std::fmt::Debug for WalletScannerConfig {
     }
 }
 
-pub struct WalletScanner {
+pub struct NewWalletScanner {
     /// Scanner configuration
     config: WalletScannerConfig,
 }
 
-impl WalletScanner {
+impl NewWalletScanner {
     /// Create a new wallet scanner with default configuration
     pub fn new() -> Self {
         Self {
@@ -607,7 +559,7 @@ impl WalletScanner {
     ///
     /// # Errors
     /// Returns an error if any configuration parameter is invalid.
-    pub fn build(self) -> Result<WalletScanner, ScannerConfigError> {
+    pub fn build(self) -> Result<NewWalletScanner, ScannerConfigError> {
         self.config.validate()?;
         Ok(self)
     }
@@ -682,7 +634,6 @@ impl WalletScanner {
         &mut self,
         scanner: &mut HttpBlockchainScanner<KM>,
         config: &BinaryScanConfig,
-        passphrase: SafePassword,
         cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     ) -> WalletResult<ScanResult> {
         // Check that event emitter is configured
@@ -708,7 +659,7 @@ impl WalletScanner {
         // Execute the scan with enhanced error handling
         let mut event_emitter = self.config.event_emitter.take().unwrap();
         let scan_result = self
-            .execute_scan_with_retry(scanner, config, passphrase, &mut event_emitter, cancel_rx)
+            .execute_scan_with_retry(scanner, config, &mut event_emitter, cancel_rx)
             .await;
 
         // Put the event emitter back
@@ -739,7 +690,6 @@ impl WalletScanner {
         &mut self,
         scanner: &mut HttpBlockchainScanner<KM>,
         config: &BinaryScanConfig,
-        passphrase: SafePassword,
         event_emitter: &mut super::event_emitter::ScanEventEmitter,
         cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     ) -> WalletResult<ScanResult> {
@@ -747,16 +697,7 @@ impl WalletScanner {
         let max_retries = self.config.retry_config.max_retries;
 
         loop {
-            let passphrase_clone = passphrase.clone();
-            match scan_wallet_across_blocks_with_cancellation(
-                scanner,
-                config,
-                passphrase_clone,
-                cancel_rx,
-                event_emitter,
-            )
-            .await
-            {
+            match scan_wallet_across_blocks_with_cancellation(scanner, config, cancel_rx, event_emitter).await {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     attempts += 1;
@@ -808,7 +749,7 @@ impl WalletScanner {
     }
 }
 
-impl Default for WalletScanner {
+impl Default for NewWalletScanner {
     fn default() -> Self {
         Self::new()
     }
@@ -881,18 +822,10 @@ fn prepare_block_heights(config: &BinaryScanConfig, from_block: u64, to_block: u
     }
 }
 
-/// Initialize scanning operation and return initial state
-fn initialize_scan_state() -> (WalletState, Instant) {
-    let wallet_state = WalletState::new();
-    let start_time = Instant::now();
-    (wallet_state, start_time)
-}
-
 /// Core scanning logic - simplified and focused with batch processing
 async fn scan_wallet_across_blocks_with_cancellation<KM: TransactionKeyManagerInterface>(
     scanner: &mut HttpBlockchainScanner<KM>,
     config: &BinaryScanConfig,
-    _passphrase: SafePassword,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     event_emitter: &mut super::event_emitter::ScanEventEmitter,
 ) -> WalletResult<ScanResult> {
@@ -1497,22 +1430,22 @@ impl ScannerBuilder {
     ///
     /// This consumes the builder and returns a configured WalletScanner.
     /// The scanner will be validated before creation.
-    pub fn build(mut self) -> Result<WalletScanner, ScannerConfigError> {
+    pub fn build(mut self) -> Result<NewWalletScanner, ScannerConfigError> {
         self.validate()?;
 
         // Move event_emitter into config
         self.config.event_emitter = self.event_emitter.take();
 
-        Ok(WalletScanner::from_config(self.config))
+        Ok(NewWalletScanner::from_config(self.config))
     }
 
     /// Build the final WalletScanner without validation
     ///
     /// This skips validation and may result in a scanner that fails at runtime.
     /// Only use this for testing or when you're certain the configuration is valid.
-    pub fn build_unchecked(mut self) -> WalletScanner {
+    pub fn build_unchecked(mut self) -> NewWalletScanner {
         self.config.event_emitter = self.event_emitter.take();
-        WalletScanner::from_config(self.config)
+        NewWalletScanner::from_config(self.config)
     }
 }
 
