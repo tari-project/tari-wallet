@@ -186,7 +186,7 @@ mod test {
     use tari_utilities::hex::Hex;
 
     use super::*;
-    use crate::{storage::StoredWallet, SqliteStorage};
+    use crate::{storage::StoredWallet, DatabaseEncryptionFields, SqliteStorage};
 
     async fn create_test_wallet(storage: &SqliteStorage) -> u32 {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -195,6 +195,7 @@ mod test {
             id: None,
             name: format!("test_wallet_{}_{}", std::process::id(), timestamp),
             wallet_type: WalletType::default(),
+            encryption_fields: DatabaseEncryptionFields::default(),
             master_key: CipherSeed::new(),
             birthday_block: 0,
             latest_scanned_block: None,

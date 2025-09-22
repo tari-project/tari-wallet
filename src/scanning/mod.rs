@@ -17,9 +17,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tari_common_types::types::FixedHash;
+use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
-    transaction_components::{Transaction, TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
+    transaction_components::{Transaction, TransactionOutput, WalletOutput},
 };
 
 use crate::{
@@ -284,7 +286,7 @@ pub struct TipInfo {
     /// Current best block height
     pub best_block_height: u64,
     /// Current best block hash
-    pub best_block_hash: Vec<u8>,
+    pub best_block_hash: FixedHash,
     /// Accumulated difficulty
     pub accumulated_difficulty: String,
     /// Pruned height (minimum height this node can provide complete blocks for)
@@ -299,11 +301,11 @@ pub struct UtxoScanResult {
     /// Block height
     pub height: u64,
     /// Block hash
-    pub block_hash: Vec<u8>,
+    pub block_hash: FixedHash,
     /// Wallet outputs extracted from transaction outputs
     pub wallet_outputs: Vec<IncompleteScannedOutput>,
     /// Input hashes
-    pub inputs: Vec<Vec<u8>>,
+    pub inputs: Vec<FixedHash>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
 }
@@ -314,30 +316,13 @@ pub struct BlockScanResult {
     /// Block height
     pub height: u64,
     /// Block hash
-    pub block_hash: Vec<u8>,
+    pub block_hash: FixedHash,
     /// Wallet outputs extracted from transaction outputs (hash, output)
     pub wallet_outputs: Vec<(Vec<u8>, WalletOutput)>,
     /// Input hashes
-    pub inputs: Vec<Vec<u8>>,
+    pub inputs: Vec<FixedHash>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
-}
-
-/// Block information
-#[derive(Debug, Clone, Default)]
-pub struct BlockInfo {
-    /// Block height
-    pub height: u64,
-    /// Block hash
-    pub hash: Vec<u8>,
-    /// Block timestamp
-    pub timestamp: u64,
-    /// Transaction outputs in this block
-    pub outputs: Vec<TransactionOutput>,
-    /// Transaction inputs in this block
-    pub inputs: Vec<TransactionInput>,
-    /// Transaction kernels in this block
-    pub kernels: Vec<TransactionKernel>,
 }
 
 /// Block header information
@@ -371,10 +356,10 @@ pub trait BlockchainScanner: Send + Sync {
     async fn fetch_utxos(&mut self, hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>>;
 
     /// Get blocks by height range
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<BlockInfo>>;
+    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>>;
 
     /// Get a single block by height
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>>;
+    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>>;
 
     async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>>;
 }
@@ -726,7 +711,7 @@ pub trait TransactionBroadcaster: Send + Sync {
 
 /// Mock implementation for testing
 pub struct MockBlockchainScanner {
-    blocks: Vec<BlockInfo>,
+    blocks: Vec<Block>,
     tip_info: TipInfo,
 }
 
@@ -743,7 +728,7 @@ impl MockBlockchainScanner {
             blocks: Vec::new(),
             tip_info: TipInfo {
                 best_block_height: 1000,
-                best_block_hash: vec![1, 2, 3, 4],
+                best_block_hash: FixedHash::zero(),
                 accumulated_difficulty: "0x19ede5dc5f735cc64e1223f35840".to_owned(),
                 pruned_height: 500,
                 timestamp: 1234567890,
@@ -752,7 +737,7 @@ impl MockBlockchainScanner {
     }
 
     /// Add a mock block
-    pub fn add_block(&mut self, block: BlockInfo) {
+    pub fn add_block(&mut self, block: Block) {
         self.blocks.push(block);
     }
 
@@ -783,18 +768,18 @@ impl BlockchainScanner for MockBlockchainScanner {
         Ok(Vec::new())
     }
 
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<BlockInfo>> {
+    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>> {
         let mut result = Vec::new();
         for height in heights {
-            if let Some(block) = self.blocks.iter().find(|b| b.height == height) {
+            if let Some(block) = self.blocks.iter().find(|b| b.header.height == height) {
                 result.push(block.clone());
             }
         }
         Ok(result)
     }
 
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
-        Ok(self.blocks.iter().find(|b| b.height == height).cloned())
+    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
+        Ok(self.blocks.iter().find(|b| b.header.height == height).cloned())
     }
 
     async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
@@ -811,17 +796,18 @@ impl BlockchainScanner for MockBlockchainScanner {
 }
 
 /// Builder for creating blockchain scanners
-pub struct BlockchainScannerBuilder {
-    scanner_type: Option<ScannerType>,
+pub struct BlockchainScannerBuilder<KM> {
+    scanner_type: Option<ScannerType<KM>>,
     config: Option<ScannerConfig>,
 }
 
 #[derive(Debug, Clone)]
-pub enum ScannerType {
+pub enum ScannerType<KM> {
     Mock,
     // Add other scanner types here as needed
     #[cfg(feature = "grpc")]
     Grpc {
+        key_manager: KM,
         url: String,
     },
     // Http { url: String },
@@ -834,7 +820,9 @@ pub struct ScannerConfig {
     pub retry_attempts: u32,
 }
 
-impl BlockchainScannerBuilder {
+impl<KM> BlockchainScannerBuilder<KM>
+where KM: TransactionKeyManagerInterface
+{
     /// Create a new builder
     pub fn new() -> Self {
         Self {
@@ -844,7 +832,7 @@ impl BlockchainScannerBuilder {
     }
 
     /// Set the scanner type
-    pub fn with_type(mut self, scanner_type: ScannerType) -> Self {
+    pub fn with_type(mut self, scanner_type: ScannerType<KM>) -> Self {
         self.scanner_type = Some(scanner_type);
         self
     }
@@ -860,20 +848,14 @@ impl BlockchainScannerBuilder {
         match self.scanner_type {
             Some(ScannerType::Mock) => Ok(Box::new(MockBlockchainScanner::new())),
             #[cfg(feature = "grpc")]
-            Some(ScannerType::Grpc { url }) => {
-                let scanner = GrpcBlockchainScanner::new(url).await?;
+            Some(ScannerType::Grpc { url, key_manager }) => {
+                let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
                 Ok(Box::new(scanner))
             },
             None => Err(WalletError::ConfigurationError(
                 "Scanner type not specified".to_string(),
             )),
         }
-    }
-}
-
-impl Default for BlockchainScannerBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -934,7 +916,7 @@ mod tests {
     async fn test_tip_info() {
         let tip_info = TipInfo {
             best_block_height: 1000,
-            best_block_hash: vec![1, 2, 3, 4],
+            best_block_hash: FixedHash::new([1u8; 32]),
             accumulated_difficulty: "5678".to_string(),
             pruned_height: 500,
             timestamp: 1234567890,

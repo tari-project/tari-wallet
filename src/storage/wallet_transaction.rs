@@ -8,10 +8,10 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tari_common_types::{
     transaction::{TransactionDirection, TransactionStatus},
-    types::CompressedCommitment,
+    types::{CompressedCommitment, FixedHash},
 };
 use tari_transaction_components::transaction_components::memo_field::MemoField;
-use tari_utilities::ByteArray;
+use tari_utilities::{hex::Hex, ByteArray};
 // Simple number formatting (removed utils::number module)
 
 /// A wallet transaction representing either a received output or spent input
@@ -26,7 +26,7 @@ pub struct WalletTransaction {
     /// Commitment of the output/input
     pub commitment: CompressedCommitment,
     /// Output hash from HTTP response (for identification and matching)
-    pub output_hash: Option<Vec<u8>>,
+    pub output_hash: FixedHash,
     /// Value in microMinotari
     pub value: u64,
     /// Associated payment ID
@@ -55,7 +55,7 @@ impl WalletTransaction {
         output_index: Option<usize>,
         input_index: Option<usize>,
         commitment: CompressedCommitment,
-        output_hash: Option<Vec<u8>>,
+        output_hash: FixedHash,
         value: u64,
         payment_id: MemoField,
         transaction_status: TransactionStatus,
@@ -105,7 +105,7 @@ impl WalletTransaction {
 
     /// Get the output hash as hex string (if available)
     pub fn output_hash_hex(&self) -> Option<String> {
-        self.output_hash.as_ref().map(hex::encode)
+        Some(self.output_hash.to_hex())
     }
 }
 
@@ -120,7 +120,7 @@ pub struct WalletState {
     outputs_by_commitment: HashMap<Vec<u8>, usize>,
     /// Map from output hash bytes to transaction index for fast lookup
     #[serde(skip)]
-    outputs_by_hash: HashMap<Vec<u8>, usize>,
+    outputs_by_hash: HashMap<FixedHash, usize>,
     /// Running balance in microMinotari (can be negative)
     running_balance: i64,
     /// Total received in microMinotari
@@ -164,9 +164,8 @@ impl WalletState {
                 .insert(transaction.commitment.as_bytes().to_vec(), index);
 
             // Index by output hash if available
-            if let Some(ref output_hash) = transaction.output_hash {
-                self.outputs_by_hash.insert(output_hash.clone(), index);
-            }
+
+            self.outputs_by_hash.insert(transaction.output_hash.clone(), index);
         }
     }
 
@@ -177,7 +176,7 @@ impl WalletState {
         block_height: u64,
         output_index: usize,
         commitment: CompressedCommitment,
-        output_hash: Option<Vec<u8>>,
+        output_hash: FixedHash,
         value: u64,
         payment_id: MemoField,
         transaction_status: TransactionStatus,
@@ -206,23 +205,21 @@ impl WalletState {
             .insert(commitment.as_bytes().to_vec(), tx_index);
 
         // Index by output hash if available - CRITICAL for spent detection
-        if let Some(hash) = output_hash {
-            self.outputs_by_hash.insert(hash.clone(), tx_index);
+        self.outputs_by_hash.insert(output_hash.clone(), tx_index);
 
-            // Debug logging for output hash indexing
-            #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
-            {
-                let hash_hex = hex::encode(&hash);
-                web_sys::console::log_1(
-                    &format!(
-                        "📝 INDEXED OUTPUT: Hash {} -> Value {} μT (total tracked: {})",
-                        hash_hex,
-                        value,
-                        self.outputs_by_hash.len()
-                    )
-                    .into(),
-                );
-            }
+        // Debug logging for output hash indexing
+        #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+        {
+            let hash_hex = hex::encode(&hash);
+            web_sys::console::log_1(
+                &format!(
+                    "📝 INDEXED OUTPUT: Hash {} -> Value {} μT (total tracked: {})",
+                    hash_hex,
+                    value,
+                    self.outputs_by_hash.len()
+                )
+                .into(),
+            );
         }
 
         self.transactions.push(transaction);
@@ -261,7 +258,7 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         commitment.clone(),
-                        None, // No output_hash for spending
+                        FixedHash::zero(), // No output_hash for spending
                         spent_value,
                         transaction.payment_id.clone(),
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
@@ -281,7 +278,12 @@ impl WalletState {
 
     /// Mark an output as spent by output hash and create an outbound transaction record
     /// This is used when we have the output hash from HTTP inputs array
-    pub fn mark_output_spent_by_hash(&mut self, output_hash: &[u8], block_height: u64, input_index: usize) -> bool {
+    pub fn mark_output_spent_by_hash(
+        &mut self,
+        output_hash: &FixedHash,
+        block_height: u64,
+        input_index: usize,
+    ) -> bool {
         if let Some(&tx_index) = self.outputs_by_hash.get(output_hash) {
             if let Some(transaction) = self.transactions.get_mut(tx_index) {
                 if !transaction.is_spent {
@@ -318,7 +320,7 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         transaction.commitment.clone(),
-                        Some(output_hash.to_vec()), // Include the output hash that was spent
+                        output_hash.clone(), // Include the output hash that was spent
                         spent_value,
                         transaction.payment_id.clone(),
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
@@ -435,7 +437,7 @@ impl WalletState {
     }
 
     /// Get all tracked output hashes (for debugging) - returns (hash, transaction_index, value, is_spent)
-    pub fn get_tracked_hashes(&self) -> Vec<(Vec<u8>, usize, u64, bool)> {
+    pub fn get_tracked_hashes(&self) -> Vec<(FixedHash, usize, u64, bool)> {
         self.outputs_by_hash
             .iter()
             .map(|(hash, &tx_index)| {
@@ -514,7 +516,7 @@ mod tests {
             Some(0),
             None,
             commitment.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -539,7 +541,7 @@ mod tests {
             Some(0),
             None,
             commitment,
-            None,
+            FixedHash::zero(),
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -578,7 +580,7 @@ mod tests {
             100,
             0,
             commitment,
-            None, // No output_hash in test
+            FixedHash::zero(), // No output_hash in test
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -608,7 +610,7 @@ mod tests {
             100,
             0,
             commitment.clone(),
-            None, // No output_hash in test
+            FixedHash::zero(), // No output_hash in test
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -682,7 +684,7 @@ mod tests {
             100,
             0,
             commitment1.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -694,7 +696,7 @@ mod tests {
             200,
             1,
             commitment2,
-            None,
+            FixedHash::zero(),
             2000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -723,7 +725,7 @@ mod tests {
             Some(0),
             None,
             commitment.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -737,7 +739,7 @@ mod tests {
             Some(0),
             None,
             commitment,
-            None,
+            FixedHash::zero(),
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -761,7 +763,7 @@ mod tests {
             100,
             0,
             commitment1.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -773,7 +775,7 @@ mod tests {
             200,
             1,
             commitment2.clone(),
-            None,
+            FixedHash::zero(),
             2000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,
@@ -814,7 +816,7 @@ mod tests {
             100,
             0,
             commitment,
-            None,
+            FixedHash::zero(),
             1000000,
             MemoField::default(),
             TransactionStatus::MinedConfirmed,

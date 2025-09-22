@@ -139,6 +139,9 @@ pub enum DataStructureError {
 
     #[error("Invalid network: {0}")]
     InvalidNetwork(String),
+
+    #[error("Invalid Hash: {0}")]
+    InvalidHash(String),
 }
 
 /// Errors related to serialization and deserialization

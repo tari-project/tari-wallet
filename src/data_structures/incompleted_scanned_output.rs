@@ -84,7 +84,6 @@ impl IncompleteScannedOutput {
         output: TransactionOutput,
         key_manager: &KM,
     ) -> Result<Option<WalletOutput>, WalletError> {
-
         match WalletOutput::new_imported(
             self.value,
             self.commitment_mask_key_id.clone(),
@@ -92,7 +91,8 @@ impl IncompleteScannedOutput {
             output,
             key_manager,
         )
-        .await{
+        .await
+        {
             Ok(wo) => Ok(Some(wo)),
             Err(_e) => Ok(None),
         }

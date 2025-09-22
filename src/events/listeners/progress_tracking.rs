@@ -12,12 +12,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use tari_transaction_components::transaction_components::WalletOutput;
+use tari_node_components::blocks::{Block, BlockHeader};
+use tari_transaction_components::{aggregated_body::AggregateBody, transaction_components::WalletOutput};
 
-use crate::{
-    events::{AddressInfo, EventListener, SharedEvent, WalletScanEvent},
-    BlockInfo,
-};
+use crate::events::{AddressInfo, EventListener, SharedEvent, WalletScanEvent};
 
 /// Progress information for scanning operations
 ///
@@ -387,7 +385,7 @@ impl ProgressTrackingListener {
     async fn handle_output_found(
         &self,
         _output_data: &WalletOutput,
-        _block_info: &BlockInfo,
+        _block_info: &Block,
         _address_info: &AddressInfo,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Ok(mut state) = self.state.lock() {
@@ -682,8 +680,10 @@ impl EventListener for ProgressTrackingListener {
                 address_info,
                 ..
             } => {
-                self.handle_output_found(output_data, &Default::default(), address_info)
-                    .await
+                let header = BlockHeader::new(0);
+                let body = AggregateBody::new(vec![], vec![], vec![]);
+                let block = Block::new(header, body);
+                self.handle_output_found(output_data, &block, address_info).await
             },
             WalletScanEvent::SpentOutputFound { .. } => {
                 // Track spent outputs in inputs_found counter

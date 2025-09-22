@@ -512,7 +512,7 @@ impl ConsoleLoggingListener {
                 block_info: Default::default(),
                 address_info: address_info.clone(),
                 transaction_data: crate::events::types::TransactionData::new(
-                    output_data.value.as_u64(),
+                    output_data.value().as_u64(),
                     "Found".to_string(),
                     "Inbound".to_string(),
                     block_info.timestamp,

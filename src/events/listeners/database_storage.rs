@@ -488,6 +488,8 @@ impl DatabaseStorageListener {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Some(wallet_id) = self.wallet_id {
             // Parse the commitment
+
+            use tari_common_types::types::FixedHash;
             let commitment =
                 CompressedCommitment::from_hex(commitment_hex).map_err(|e| format!("Invalid commitment hex: {e}"))?;
 
@@ -497,7 +499,7 @@ impl DatabaseStorageListener {
                 None, // No output_index for spending transaction
                 Some(input_index),
                 commitment,
-                None, // No output hash for outbound transaction
+                FixedHash::zero(), // No output hash for outbound transaction
                 value,
                 MemoField::default(),              // No payment ID for spending transaction
                 TransactionStatus::MinedConfirmed, // Spending is confirmed since it's in a block
@@ -634,7 +636,7 @@ impl DatabaseStorageListener {
         // let commitment = CompressedCommitment::new(commitment_array);
         let commitment = CompressedCommitment::default();
 
-        let features_json = serde_json::to_string(&output_data.features)?;
+        let features_json = serde_json::to_string(&output_data.features())?;
 
         // Create a basic StoredOutput with minimal required fields
         // Note: This is a simplified conversion - in a real implementation,
@@ -646,38 +648,38 @@ impl DatabaseStorageListener {
             // Core UTXO identification
             commitment: commitment.as_bytes().to_vec(),
             hash: commitment.as_bytes().to_vec(), // Use commitment as hash for now
-            value: output_data.value.into(),
+            value: output_data.value().into(),
 
-            commitment_mask_key: output_data.commitment_mask_key_id.to_string(),
-            script_key: output_data.script_key_id.to_string(),
+            commitment_mask_key: output_data.commitment_mask_key_id().to_string(),
+            script_key: output_data.script_key_id().to_string(),
 
             // Script and covenant data
-            script: output_data.script.to_hex().as_bytes().to_vec(),
-            input_data: output_data.input_data.to_bytes(),
-            covenant: output_data.covenant.to_bytes().clone(),
+            script: output_data.script().to_hex().as_bytes().to_vec(),
+            input_data: output_data.input_data().to_bytes(),
+            covenant: output_data.covenant().to_bytes().clone(),
 
             // Output features and type
             features_json,
 
             // Maturity and lock constraints
-            maturity: output_data.features.maturity,
-            script_lock_height: output_data.script_lock_height,
+            maturity: output_data.features().maturity,
+            script_lock_height: output_data.script_lock_height(),
 
             // Metadata signature components - would need wallet context
-            sender_offset_public_key: output_data.sender_offset_public_key.as_bytes().into(),
-            metadata_signature_ephemeral_commitment: output_data.metadata_signature.ephemeral_commitment().to_vec(),
-            metadata_signature_ephemeral_pubkey: output_data.metadata_signature.ephemeral_pubkey().to_vec(),
-            metadata_signature_u_a: output_data.metadata_signature.u_a().to_vec(),
-            metadata_signature_u_x: output_data.metadata_signature.u_x().to_vec(),
-            metadata_signature_u_y: output_data.metadata_signature.u_y().to_vec(),
+            sender_offset_public_key: output_data.sender_offset_public_key().as_bytes().into(),
+            metadata_signature_ephemeral_commitment: output_data.metadata_signature().ephemeral_commitment().to_vec(),
+            metadata_signature_ephemeral_pubkey: output_data.metadata_signature().ephemeral_pubkey().to_vec(),
+            metadata_signature_u_a: output_data.metadata_signature().u_a().to_vec(),
+            metadata_signature_u_x: output_data.metadata_signature().u_x().to_vec(),
+            metadata_signature_u_y: output_data.metadata_signature().u_y().to_vec(),
 
             // Payment information
-            encrypted_data: output_data.encrypted_data.to_byte_vec(),
-            minimum_value_promise: output_data.minimum_value_promise.into(),
-            payment_id: output_data.payment_id.to_bytes(),
+            encrypted_data: output_data.encrypted_data().to_byte_vec(),
+            minimum_value_promise: output_data.minimum_value_promise().into(),
+            payment_id: output_data.payment_id().to_bytes(),
 
             // Range proof
-            rangeproof: output_data.range_proof.as_ref().map(|rp| rp.as_vec().clone()),
+            rangeproof: output_data.range_proof().as_ref().map(|rp| rp.as_vec().clone()),
 
             // Status and spending tracking
             status: 0, // Unspent
@@ -975,6 +977,8 @@ impl DatabaseStorageListener {
         // TODO: get commitment
         // let commitment = CompressedCommitment::from_hex(&output_data.commitment)
         // .map_err(|e| format!("Invalid commitment hex: {e}"))?;
+
+        use tari_common_types::types::FixedHash;
         let commitment = CompressedCommitment::default();
 
         // Parse direction
@@ -1010,7 +1014,7 @@ impl DatabaseStorageListener {
             output_index: transaction_data.output_index,
             input_index: None,
             commitment,
-            output_hash: None,
+            output_hash: FixedHash::zero(),
             value: transaction_data.value,
             payment_id,
             is_spent: false, // For new outputs found during scanning

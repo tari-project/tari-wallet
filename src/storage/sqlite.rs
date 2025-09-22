@@ -391,6 +391,8 @@ impl SqliteStorage {
 
     /// Convert a database row to a WalletTransaction
     fn row_to_transaction(row: &Row) -> rusqlite::Result<WalletTransaction> {
+        use tari_common_types::types::FixedHash;
+
         let commitment_bytes: Vec<u8> = row.get("commitment_bytes")?;
         let commitment = CompressedCommitment::from_canonical_bytes(&commitment_bytes).map_err(|e| {
             rusqlite::Error::ToSqlConversionFailure(Box::new(DataStructureError::InvalidCommitment(e.to_string())))
@@ -421,7 +423,7 @@ impl SqliteStorage {
             output_index: row.get::<_, Option<i64>>("output_index")?.map(|i| i as usize),
             input_index: row.get::<_, Option<i64>>("input_index")?.map(|i| i as usize),
             commitment,
-            output_hash: None, // Not stored in database, computed elsewhere when needed
+            output_hash: FixedHash::zero(), // Not stored in database, computed elsewhere when needed
             value: row.get::<_, i64>("value")? as u64,
             payment_id,
             is_spent: row.get("is_spent")?,

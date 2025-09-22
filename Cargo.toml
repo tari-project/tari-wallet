@@ -72,11 +72,7 @@ tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 
 # === GRPC Dependencies (blockchain scanning) ===
-tonic = { version = "0.10", features = [
-    "tls",
-    "tls-roots",
-    "prost",
-], optional = true }
+tonic = { version = "0.13", features = ["tls-ring", "prost"], optional = true }
 prost = { version = "0.12", optional = true }
 
 # === CLI Tools ===
@@ -141,7 +137,7 @@ async-trait = "0.1"
 tokio = { version = "1.0", features = ["full", "test-util"] }
 
 [build-dependencies]
-tonic-build = "0.10" # GRPC code generation
+tonic-build = "0.13" # GRPC code generation
 
 [features]
 default = ["http"]

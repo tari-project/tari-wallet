@@ -2,7 +2,14 @@ use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use tari_common_types::types::{ComAndPubSignature, CompressedCommitment, CompressedPublicKey, PrivateKey, RangeProof};
+use tari_common_types::types::{
+    ComAndPubSignature,
+    CompressedCommitment,
+    CompressedPublicKey,
+    FixedHash,
+    PrivateKey,
+    RangeProof,
+};
 use tari_script::{ExecutionStack, TariScript};
 use tari_transaction_components::{
     key_manager::{TariKeyId, TransactionKeyManagerInterface},
@@ -74,7 +81,7 @@ impl TryFrom<&StoredOutput> for WalletOutput {
     type Error = WalletError;
 
     fn try_from(o: &StoredOutput) -> WalletResult<Self> {
-        Ok(WalletOutput::new_with_rangeproof(
+        Ok(WalletOutput::new_from_parts(
             TransactionOutputVersion::get_current_version(),
             MicroMinotari::from(o.value),
             TariKeyId::from_str(&o.commitment_mask_key).map_err(DataStructureError::InvalidKeyId)?,
@@ -118,21 +125,23 @@ impl TryFrom<&StoredOutput> for WalletOutput {
                 None => None,
             },
             MemoField::from_bytes(&o.payment_id),
+            FixedHash::try_from(o.hash.clone()).map_err(|e| DataStructureError::InvalidHash(e.to_string()))?,
+            CompressedCommitment::from_vec(&o.commitment)
+                .map_err(|e| DataStructureError::InvalidCommitment(format!("Could not deserialize commitment: {e}")))?,
         ))
     }
 }
 
 impl StoredOutput {
     async fn from_wallet_output<KM: TransactionKeyManagerInterface>(
-        km: &KM,
         wallet_id: u32,
         o: &WalletOutput,
         bi: Option<&BlockInfo>,
     ) -> WalletResult<Self> {
-        let tx_output = o.to_transaction_output(km).await?;
+        let tx_output = o.to_transaction_output()?;
 
         let mut covenant = Vec::new();
-        BorshSerialize::serialize(&o.covenant, &mut covenant)
+        BorshSerialize::serialize(o.covenant(), &mut covenant)
             .map_err(|err| SerializationError::BorshSerializationError(err.to_string()))?;
 
         Ok(StoredOutput {
@@ -140,26 +149,26 @@ impl StoredOutput {
             wallet_id,
             commitment: tx_output.commitment.to_vec(),
             hash: tx_output.hash().to_vec(),
-            value: o.value.into(),
-            commitment_mask_key: o.commitment_mask_key_id.to_string(),
-            script_key: o.script_key_id.to_string(),
-            script: o.script.to_bytes(),
-            input_data: o.input_data.to_bytes(),
+            value: o.value().into(),
+            commitment_mask_key: o.commitment_mask_key_id().to_string(),
+            script_key: o.script_key_id().to_string(),
+            script: o.script().to_bytes(),
+            input_data: o.input_data().to_bytes(),
             covenant,
-            features_json: serde_json::to_string(&o.features)
+            features_json: serde_json::to_string(o.features())
                 .map_err(|e| SerializationError::SerdeSerializationError(e.to_string()))?,
-            maturity: o.features.maturity,
-            script_lock_height: o.script_lock_height,
-            sender_offset_public_key: o.sender_offset_public_key.to_vec(),
-            metadata_signature_ephemeral_commitment: o.metadata_signature.ephemeral_commitment().to_vec(),
-            metadata_signature_ephemeral_pubkey: o.metadata_signature.ephemeral_pubkey().to_vec(),
-            metadata_signature_u_a: o.metadata_signature.u_a().to_vec(),
-            metadata_signature_u_x: o.metadata_signature.u_x().to_vec(),
-            metadata_signature_u_y: o.metadata_signature.u_y().to_vec(),
-            encrypted_data: o.encrypted_data.to_byte_vec(),
-            minimum_value_promise: o.minimum_value_promise.into(),
-            payment_id: o.payment_id.to_bytes(),
-            rangeproof: o.range_proof.as_ref().map(|rp| rp.to_vec()),
+            maturity: o.features().maturity,
+            script_lock_height: o.script_lock_height(),
+            sender_offset_public_key: o.sender_offset_public_key().to_vec(),
+            metadata_signature_ephemeral_commitment: o.metadata_signature().ephemeral_commitment().to_vec(),
+            metadata_signature_ephemeral_pubkey: o.metadata_signature().ephemeral_pubkey().to_vec(),
+            metadata_signature_u_a: o.metadata_signature().u_a().to_vec(),
+            metadata_signature_u_x: o.metadata_signature().u_x().to_vec(),
+            metadata_signature_u_y: o.metadata_signature().u_y().to_vec(),
+            encrypted_data: o.encrypted_data().to_byte_vec(),
+            minimum_value_promise: o.minimum_value_promise().into(),
+            payment_id: o.payment_id().to_bytes(),
+            rangeproof: o.range_proof().as_ref().map(|rp| rp.to_vec()),
             status: OutputStatus::Unspent as u32,
             mined_height: bi.map(|bi| bi.height),
             block_hash: bi.map(|bi| bi.hash.clone()),

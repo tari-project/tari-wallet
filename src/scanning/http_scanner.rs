@@ -42,6 +42,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use serde_wasm_bindgen;
+use tari_common_types::types::FixedHash;
+use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
     rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponse},
@@ -64,7 +66,7 @@ use crate::{
     data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct},
     errors::{WalletError, WalletResult},
     extraction::ExtractionConfig,
-    scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
+    scanning::{BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
     UtxoScanResult,
 };
 /// HTTP API tip info response - matches the actual API structure
@@ -766,13 +768,17 @@ where KM: TransactionKeyManagerInterface
                     blocks_with_utxos.insert(http_block.header_hash.clone());
                 }
             }
-
+            let mined_timestamp = http_block.mined_timestamp;
             utxos.push(UtxoScanResult {
                 height: http_block.height,
-                block_hash: http_block.header_hash,
+                block_hash: FixedHash::try_from(http_block.header_hash).unwrap_or_default(),
                 wallet_outputs,
-                inputs: http_block.inputs,
-                mined_timestamp: http_block.mined_timestamp,
+                inputs: http_block
+                    .inputs
+                    .into_iter()
+                    .map(|i| FixedHash::try_from(i).unwrap_or_default())
+                    .collect(),
+                mined_timestamp,
             });
         }
         let mut results = Vec::new();
@@ -850,7 +856,7 @@ where KM: TransactionKeyManagerInterface
 
             Ok(TipInfo {
                 best_block_height: tip_response.metadata.best_block_height,
-                best_block_hash: tip_response.metadata.best_block_hash,
+                best_block_hash: FixedHash::try_from(tip_response.metadata.best_block_hash).unwrap_or_default(),
                 accumulated_difficulty: tip_response.metadata.accumulated_difficulty,
                 pruned_height: tip_response.metadata.pruned_height,
                 timestamp: tip_response.metadata.timestamp,
@@ -940,7 +946,7 @@ where KM: TransactionKeyManagerInterface
         ))
     }
 
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<BlockInfo>> {
+    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>> {
         let mut blocks = Vec::new();
 
         for height in heights {
@@ -953,46 +959,9 @@ where KM: TransactionKeyManagerInterface
     }
 
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
-        let url = format!("{}/base_node/blocks/{}", self.base_url, height);
-
-        let response = self.client.get(&url).timeout(self.timeout).send().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                "Failed to fetch block {height}: {e}"
-            )))
-        })?;
-
-        if !response.status().is_success() {
-            if response.status() == 404 {
-                return Ok(None);
-            }
-            return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP {} error fetching block {height}",
-                    response.status()
-                )),
-            ));
-        }
-
-        let block_response: SingleBlockResponse = response.json().await.map_err(|e| {
-            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                "Failed to parse block response for height {height}: {e}"
-            )))
-        })?;
-
-        let block = block_response.block;
-        Ok(Some(BlockInfo {
-            height: block.header.height,
-            hash: hex::decode(&block.header.hash).map_err(|_| {
-                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                    "Invalid block hash format",
-                ))
-            })?,
-            outputs: block.body.outputs,
-            inputs: Vec::new(),  // HTTP API doesn't provide input details
-            kernels: Vec::new(), // HTTP API doesn't provide kernel details
-            timestamp: block.header.timestamp,
-        }))
+    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
+        // method does not exit
+        Ok(None)
     }
 
     #[cfg(all(feature = "http", target_arch = "wasm32"))]
