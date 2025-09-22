@@ -47,7 +47,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
 {
     /// Create a new wallet with the given master key and birthday
     pub async fn new(
-        master_seed: CipherSeed,
+        master_seed: Option<CipherSeed>,
         crypto_factories: CryptoFactories,
         wallet_type: Arc<WalletType>,
         backend: KMBackend,
@@ -82,7 +82,7 @@ where KMBackend: TransactionKeyManagerBackend + 'static
             Err(e) => return Err(format!("Failed to create CipherSeed from mnemonic: {}", e)),
         };
 
-        Ok(Wallet::new(master_key, crypto_factories, wallet_type, backend, network).await)
+        Ok(Wallet::new(Some(master_key), crypto_factories, wallet_type, backend, network).await)
     }
 
     /// Generate a new wallet with random entropy
@@ -91,19 +91,19 @@ where KMBackend: TransactionKeyManagerBackend + 'static
     /// Note: The passphrase parameter is included for API consistency but is not
     /// currently used since we generate random entropy directly rather than
     /// deriving from a mnemonic phrase.
-    pub async fn generate_new(
+    pub async fn generate_random(
         crypto_factories: CryptoFactories,
         wallet_type: Arc<WalletType>,
         backend: KMBackend,
         network: Network,
     ) -> Self {
-        let master_key = CipherSeed::new();
-        Wallet::new(master_key, crypto_factories, wallet_type, backend, network).await
+        let master_key = CipherSeed::random();
+        Wallet::new(Some(master_key), crypto_factories, wallet_type, backend, network).await
     }
 
     /// Get the wallet birthday (creation timestamp)
     pub async fn birthday(&self) -> u16 {
-        self.key_manager.get_birthday().await
+        self.key_manager.get_birthday().await.unwrap_or_default()
     }
 
     /// Get a reference to the wallet metadata

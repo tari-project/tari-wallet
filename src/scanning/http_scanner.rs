@@ -713,12 +713,18 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+        use std::{
+            collections::{HashMap, HashSet},
+            time::Instant,
+        };
+
         #[cfg(feature = "tracing")]
         debug!(
             "Starting HTTP block scan from height {} to {:?}",
             config.start_height, config.end_height
         );
 
+        let timer = Instant::now();
         let end_height = match config.end_height {
             Some(height) => height,
             None => {
@@ -732,25 +738,32 @@ where KM: TransactionKeyManagerInterface
         }
 
         // Fetch blocks using the new API
+        println!("Fetching blocks from {} to {}", config.start_height, end_height);
         let http_blocks = self.fetch_block_range(config.start_height, end_height).await?;
+        println!(
+            "Fetched {} blocks. Time taken: {:?}",
+            http_blocks.len(),
+            timer.elapsed()
+        );
 
         let mut utxos = Vec::new();
 
+        let mut blocks_with_utxos = HashSet::new();
         for http_block in http_blocks {
             let mut wallet_outputs = Vec::new();
 
             for output in &http_block.outputs {
                 let scanned_output = output.clone().try_into()?;
-
                 // Strategy 1: Regular recoverable outputs
                 if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
                     wallet_outputs.push(wallet_output);
+                    blocks_with_utxos.insert(http_block.header_hash.clone());
                     continue;
                 }
-
                 // Strategy 2: One-sided payments
                 if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output).await? {
                     wallet_outputs.push(wallet_output);
+                    blocks_with_utxos.insert(http_block.header_hash.clone());
                 }
             }
 
@@ -763,20 +776,31 @@ where KM: TransactionKeyManagerInterface
             });
         }
         let mut results = Vec::new();
+        // fetch all the unique blocks we need before processing
+        let mut block_data = HashMap::new();
+        for block_hash in blocks_with_utxos {
+            let block_response = self.get_utxos_by_block(&block_hash.to_hex()).await?;
+            block_data.insert(block_hash, block_response);
+        }
         for block in utxos {
             let mut wallet_outputs = Vec::new();
             for output in block.wallet_outputs {
-                let block_response = self.get_utxos_by_block(&block.block_hash.to_hex()).await?;
+                // Block should always be present as we fetched them above
+                let block_response = block_data.get(&block.block_hash).ok_or_else(|| {
+                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                        "Block data missing for output",
+                    ))
+                })?;
                 if let Some(index) = block_response
                     .outputs
                     .iter()
                     .position(|o| *o.encrypted_data() == output.encrypted_data)
                 {
-                    if let Some(wallet_output) = output
-                        .to_wallet_output(block_response.outputs[index].clone(), &self.key_manager)
-                        .await?
-                    {
-                        wallet_outputs.push(wallet_output);
+                    let tx_output = block_response.outputs[index].clone();
+                    let output_hash = output.output_hash.clone();
+                    // Attempt to convert to wallet output
+                    if let Some(wallet_output) = output.to_wallet_output(tx_output, &self.key_manager).await? {
+                        wallet_outputs.push((output_hash.to_vec(), wallet_output));
                     }
                 }
             }

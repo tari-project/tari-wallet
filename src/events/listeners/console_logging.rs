@@ -485,7 +485,7 @@ impl ConsoleLoggingListener {
             stats.outputs_found += 1;
         }
 
-        let amount_str = output_data.value.to_string();
+        let amount_str = output_data.value().to_string();
         // let mine_str = if output_data.is_mine { "MINE" } else { "OTHER" };
         // let color = if output_data.is_mine {
         //     self.colors.success

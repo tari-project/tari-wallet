@@ -315,8 +315,8 @@ pub struct BlockScanResult {
     pub height: u64,
     /// Block hash
     pub block_hash: Vec<u8>,
-    /// Wallet outputs extracted from transaction outputs
-    pub wallet_outputs: Vec<WalletOutput>,
+    /// Wallet outputs extracted from transaction outputs (hash, output)
+    pub wallet_outputs: Vec<(Vec<u8>, WalletOutput)>,
     /// Input hashes
     pub inputs: Vec<Vec<u8>>,
     /// Timestamp when block was mined

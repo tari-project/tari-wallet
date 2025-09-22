@@ -29,5 +29,7 @@ pub use hex_utils::*;
 // pub use key_management::*;
 pub use scanning::*;
 pub use storage::*;
+// Re-export types from transaction components for easier use
+pub mod transaction_components;
 // pub use validation::*;
 pub use wallet::*;
