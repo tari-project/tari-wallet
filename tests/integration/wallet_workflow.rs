@@ -110,7 +110,7 @@ async fn test_complete_wallet_creation_workflow() {
 #[tokio::test]
 async fn test_wallet_creation_entropy_sources() {
     // Test 1: Wallet from random generation
-    let wallet_random = Wallet::generate_new(None);
+    let wallet_random = Wallet::generate_random(None);
     assert!(wallet_random.birthday() > 0);
     assert!(wallet_random.export_seed_phrase().is_err()); // No seed phrase available
 

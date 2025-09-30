@@ -23,6 +23,7 @@ use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
     transaction_components::{Transaction, TransactionOutput, WalletOutput},
 };
+use tari_utilities::epoch_time::EpochTime;
 
 use crate::{
     errors::{WalletError, WalletResult},
@@ -149,6 +150,36 @@ pub struct ScanConfig {
     pub extraction_config: ExtractionConfig,
 }
 
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            start_height: 0,
+            end_height: None,
+            batch_size: 100,
+            request_timeout: Duration::from_secs(30),
+            extraction_config: ExtractionConfig::default(),
+        }
+    }
+}
+
+impl ScanConfig {
+    pub fn with_start_height(mut self, start_height: u64) -> Self {
+        self.start_height = start_height;
+        self
+    }
+
+    pub fn with_end_height(mut self, end_height: u64) -> Self {
+        self.end_height = Some(end_height);
+        self
+    }
+
+    pub fn with_start_end_heights(mut self, start_height: u64, end_height: u64) -> Self {
+        self.start_height = start_height;
+        self.end_height = Some(end_height);
+        self
+    }
+}
+
 // Helper module for Duration serialization
 mod duration_serde {
     use std::time::Duration;
@@ -181,18 +212,6 @@ impl ScanConfig {
 pub struct ScanConfigWithCallback {
     pub config: ScanConfig,
     pub progress_callback: Option<LegacyProgressCallback>,
-}
-
-impl Default for ScanConfig {
-    fn default() -> Self {
-        Self {
-            start_height: 0,
-            end_height: None,
-            batch_size: 100,
-            request_timeout: Duration::from_secs(30),
-            extraction_config: ExtractionConfig::default(),
-        }
-    }
 }
 
 /// Configuration for wallet-specific scanning
@@ -302,12 +321,23 @@ pub struct BlockScanResult {
     pub height: u64,
     /// Block hash
     pub block_hash: FixedHash,
-    /// Wallet outputs extracted from transaction outputs
-    pub wallet_outputs: Vec<WalletOutput>,
+    /// Wallet outputs extracted from transaction outputs (hash, output)
+    pub wallet_outputs: Vec<(Vec<u8>, WalletOutput)>,
     /// Input hashes
     pub inputs: Vec<FixedHash>,
     /// Timestamp when block was mined
     pub mined_timestamp: u64,
+}
+
+/// Block header information
+#[derive(Debug, Clone)]
+pub struct BlockHeaderInfo {
+    /// Block height
+    pub height: u64,
+    /// Block hash
+    pub hash: FixedHash,
+    /// Timestamp
+    pub timestamp: EpochTime,
 }
 
 /// Blockchain scanner trait for scanning UTXOs
@@ -334,6 +364,8 @@ pub trait BlockchainScanner: Send + Sync {
 
     /// Get a single block by height
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>>;
+
+    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>>;
 }
 
 /// Wallet scanner trait for scanning with wallet keys
@@ -753,6 +785,18 @@ impl BlockchainScanner for MockBlockchainScanner {
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
         Ok(self.blocks.iter().find(|b| b.header.height == height).cloned())
     }
+
+    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
+        if let Some(block) = self.blocks.iter().find(|b| b.header.height == height) {
+            Ok(Some(BlockHeaderInfo {
+                height: block.header.height,
+                hash: block.header.hash(),
+                timestamp: block.header.timestamp,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Builder for creating blockchain scanners
@@ -811,10 +855,16 @@ where KM: TransactionKeyManagerInterface
     pub async fn build(self) -> WalletResult<Box<dyn BlockchainScanner>> {
         match self.scanner_type {
             Some(ScannerType::Mock) => Ok(Box::new(MockBlockchainScanner::new())),
-            #[cfg(feature = "grpc")]
             Some(ScannerType::Grpc { url, key_manager }) => {
-                let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
-                Ok(Box::new(scanner))
+                #[cfg(feature = "grpc")]
+                {
+                    let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
+                    Ok(Box::new(scanner))
+                }
+                #[cfg(not(feature = "grpc"))]
+                {
+                    Err(WalletError::ConfigurationError("gRPC feature not enabled".to_string()))
+                }
             },
             #[cfg(feature = "http")]
             Some(ScannerType::Http { .. }) => {
