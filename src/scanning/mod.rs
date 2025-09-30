@@ -23,6 +23,7 @@ use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
     transaction_components::{Transaction, TransactionOutput, WalletOutput},
 };
+use tari_utilities::epoch_time::EpochTime;
 
 use crate::{
     errors::{WalletError, WalletResult},
@@ -326,14 +327,14 @@ pub struct BlockScanResult {
 }
 
 /// Block header information
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BlockHeaderInfo {
     /// Block height
     pub height: u64,
     /// Block hash
-    pub hash: Vec<u8>,
+    pub hash: FixedHash,
     /// Timestamp
-    pub timestamp: u64,
+    pub timestamp: EpochTime,
 }
 
 /// Blockchain scanner trait for scanning UTXOs
@@ -783,11 +784,11 @@ impl BlockchainScanner for MockBlockchainScanner {
     }
 
     async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
-        if let Some(block) = self.blocks.iter().find(|b| b.height == height) {
+        if let Some(block) = self.blocks.iter().find(|b| b.header.height == height) {
             Ok(Some(BlockHeaderInfo {
-                height: block.height,
-                hash: block.hash.clone(),
-                timestamp: block.timestamp,
+                height: block.header.height,
+                hash: block.header.hash(),
+                timestamp: block.header.timestamp,
             }))
         } else {
             Ok(None)
@@ -804,12 +805,7 @@ pub struct BlockchainScannerBuilder<KM> {
 #[derive(Debug, Clone)]
 pub enum ScannerType<KM> {
     Mock,
-    // Add other scanner types here as needed
-    #[cfg(feature = "grpc")]
-    Grpc {
-        key_manager: KM,
-        url: String,
-    },
+    Grpc { key_manager: KM, url: String },
     // Http { url: String },
 }
 
@@ -847,10 +843,16 @@ where KM: TransactionKeyManagerInterface
     pub async fn build(self) -> WalletResult<Box<dyn BlockchainScanner>> {
         match self.scanner_type {
             Some(ScannerType::Mock) => Ok(Box::new(MockBlockchainScanner::new())),
-            #[cfg(feature = "grpc")]
             Some(ScannerType::Grpc { url, key_manager }) => {
-                let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
-                Ok(Box::new(scanner))
+                #[cfg(feature = "grpc")]
+                {
+                    let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
+                    Ok(Box::new(scanner))
+                }
+                #[cfg(not(feature = "grpc"))]
+                {
+                    Err(WalletError::ConfigurationError("gRPC feature not enabled".to_string()))
+                }
             },
             None => Err(WalletError::ConfigurationError(
                 "Scanner type not specified".to_string(),

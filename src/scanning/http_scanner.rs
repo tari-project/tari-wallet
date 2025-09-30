@@ -752,26 +752,29 @@ where KM: TransactionKeyManagerInterface
 
         let mut blocks_with_utxos = HashSet::new();
         for http_block in http_blocks {
+            use reqwest::header;
+
             let mut wallet_outputs = Vec::new();
 
+            let header_hash = FixedHash::try_from(http_block.header_hash.clone()).unwrap_or_default();
             for output in &http_block.outputs {
                 let scanned_output = output.clone().try_into()?;
                 // Strategy 1: Regular recoverable outputs
                 if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
                     wallet_outputs.push(wallet_output);
-                    blocks_with_utxos.insert(http_block.header_hash.clone());
+                    blocks_with_utxos.insert(header_hash.clone());
                     continue;
                 }
                 // Strategy 2: One-sided payments
                 if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output).await? {
                     wallet_outputs.push(wallet_output);
-                    blocks_with_utxos.insert(http_block.header_hash.clone());
+                    blocks_with_utxos.insert(header_hash.clone());
                 }
             }
             let mined_timestamp = http_block.mined_timestamp;
             utxos.push(UtxoScanResult {
                 height: http_block.height,
-                block_hash: FixedHash::try_from(http_block.header_hash).unwrap_or_default(),
+                block_hash: header_hash,
                 wallet_outputs,
                 inputs: http_block
                     .inputs
@@ -1041,6 +1044,8 @@ where KM: TransactionKeyManagerInterface
 
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
+        use tari_utilities::epoch_time::EpochTime;
+
         let url = format!("{}/get_header_by_height?height={}", self.base_url, height);
 
         let response = self.client.get(&url).send().await.map_err(|e| {
@@ -1076,8 +1081,8 @@ where KM: TransactionKeyManagerInterface
 
         Ok(Some(BlockHeaderInfo {
             height: header_response.height,
-            hash: header_response.hash,
-            timestamp: header_response.timestamp,
+            hash: FixedHash::try_from(header_response.hash).unwrap_or_default(),
+            timestamp: EpochTime::from(header_response.timestamp),
         }))
     }
 }
