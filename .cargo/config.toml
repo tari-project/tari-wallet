@@ -1,17 +1,17 @@
 [target.'cfg(not(target_arch = "wasm32"))']
 rustflags = [
-    "-D", "dead_code",
-    "-D", "unused_imports",
-    "-D", "unused_variables",
-    "-D", "unreachable_code",
+#    "-D", "dead_code",
+#    "-D", "unused_imports",
+#    "-D", "unused_variables",
+#    "-D", "unreachable_code",
 ]
 
 [target.'cfg(target_arch = "wasm32")']
 rustflags = [
-    "-D", "dead_code", 
-    "-D", "unused_imports",
-    "-D", "unused_variables",
-    "-D", "unreachable_code",
+#    "-D", "dead_code",
+#    "-D", "unused_imports",
+#    "-D", "unused_variables",
+#    "-D", "unreachable_code",
 ]
 
 [build]

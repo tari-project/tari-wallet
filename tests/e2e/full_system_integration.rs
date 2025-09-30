@@ -430,14 +430,14 @@ fn create_test_output(
     view_key: &PrivateKey,
     spend_key: &PrivateKey,
 ) -> Result<TransactionOutput, WalletError> {
-    use lightweight_wallet_libs::data_structures::{encrypted_data::EncryptedData, payment_id::PaymentId};
+    use lightweight_wallet_libs::data_structures::{encrypted_data::EncryptedData, payment_id::MemoField};
 
     let commitment = CompressedCommitment::new([0x42; 32]);
     let sender_offset_public_key = CompressedPublicKey::from_private_key(spend_key);
 
     let micro_value = MicroMinotari::from(value);
     let mask = PrivateKey::new([0x03; 32]);
-    let payment_id = PaymentId::Empty;
+    let payment_id = MemoField::Empty;
 
     let encrypted_data =
         EncryptedData::encrypt_data(view_key, &commitment, micro_value, &mask, payment_id).map_err(|e| {

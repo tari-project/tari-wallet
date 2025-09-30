@@ -8,6 +8,8 @@
 #[cfg(feature = "storage")]
 pub mod connection_pool;
 #[cfg(feature = "storage")]
+pub mod database_encryption;
+#[cfg(feature = "storage")]
 pub mod event_storage;
 #[cfg(feature = "storage")]
 pub mod key_manager;
@@ -19,9 +21,12 @@ pub mod sqlite;
 #[cfg(feature = "storage")]
 pub mod storage_trait;
 pub mod stored_output;
+pub mod wallet_transaction;
 
 #[cfg(feature = "storage")]
 pub use connection_pool::*;
+#[cfg(feature = "storage")]
+pub use database_encryption::*;
 #[cfg(feature = "storage")]
 pub use event_storage::*;
 pub use output_status::*;
@@ -32,3 +37,4 @@ pub use sqlite::*;
 #[cfg(feature = "storage")]
 pub use storage_trait::*;
 pub use stored_output::*;
+pub use wallet_transaction::*;

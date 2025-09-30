@@ -30,11 +30,13 @@ use serde::Serialize;
 use tokio::sync::watch;
 
 #[cfg(feature = "storage")]
-use crate::data_structures::wallet_transaction::{WalletState, WalletTransaction};
 #[cfg(feature = "storage")]
 use crate::events::types::{WalletEvent, WalletEventError, WalletEventResult};
 #[cfg(feature = "storage")]
-use crate::storage::event_storage::{EventStorage, StoredEvent};
+use crate::{
+    storage::event_storage::{EventStorage, StoredEvent},
+    WalletState,
+};
 
 /// Configuration for event replay operations
 #[derive(Debug, Clone)]
@@ -2412,6 +2414,8 @@ impl<S: EventStorage + Sync> EventReplayEngine<S> {
         discrepancies: &mut Vec<StateDiscrepancy>,
     ) -> UtxoComparison {
         // Get current state unspent transactions
+
+        use crate::WalletTransaction;
         let current_utxos = current_state.get_unspent_transactions();
         let mut current_utxo_map: HashMap<String, &WalletTransaction> = HashMap::new();
 

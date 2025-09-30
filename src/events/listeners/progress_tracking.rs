@@ -5,14 +5,17 @@
 //! It tracks scan statistics, calculates ETA, and reports progress at configurable intervals.
 
 use std::{
+    collections::HashMap,
     error::Error,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
+use tari_node_components::blocks::{Block, BlockHeader};
+use tari_transaction_components::{aggregated_body::AggregateBody, transaction_components::WalletOutput};
 
-use crate::events::{EventListener, SharedEvent, WalletScanEvent};
+use crate::events::{AddressInfo, EventListener, SharedEvent, WalletScanEvent};
 
 /// Progress information for scanning operations
 ///
@@ -381,9 +384,9 @@ impl ProgressTrackingListener {
     /// Handle OutputFound event
     async fn handle_output_found(
         &self,
-        _output_data: &crate::events::types::OutputData,
-        _block_info: &crate::events::types::BlockInfo,
-        _address_info: &crate::events::types::AddressInfo,
+        _output_data: &WalletOutput,
+        _block_info: &Block,
+        _address_info: &AddressInfo,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Ok(mut state) = self.state.lock() {
             state.outputs_found += 1;
@@ -445,7 +448,7 @@ impl ProgressTrackingListener {
     /// Handle ScanCompleted event
     async fn handle_scan_completed(
         &self,
-        final_statistics: &std::collections::HashMap<String, u64>,
+        final_statistics: &HashMap<String, u64>,
         success: bool,
         _total_duration: Duration,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -676,7 +679,12 @@ impl EventListener for ProgressTrackingListener {
                 block_info,
                 address_info,
                 ..
-            } => self.handle_output_found(output_data, block_info, address_info).await,
+            } => {
+                let header = BlockHeader::new(0);
+                let body = AggregateBody::new(vec![], vec![], vec![]);
+                let block = Block::new(header, body);
+                self.handle_output_found(output_data, &block, address_info).await
+            },
             WalletScanEvent::SpentOutputFound { .. } => {
                 // Track spent outputs in inputs_found counter
                 if let Ok(mut state) = self.state.lock() {

@@ -488,6 +488,7 @@ impl MockEventListener {
     ///
     /// This method supports deterministic async testing by using Tokio's time
     /// infrastructure when available (in tests with `tokio::test(start_paused = true)`).
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn wait_for_event_count(&self, expected_count: usize, timeout: Duration) -> Result<(), String> {
         self.wait_for_event_count_with_interval(expected_count, timeout, Duration::from_millis(10))
             .await
@@ -521,6 +522,7 @@ impl MockEventListener {
     ///
     /// This method supports deterministic async testing by using Tokio's time
     /// infrastructure when available (in tests with `tokio::test(start_paused = true)`).
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn wait_for_event_type(&self, event_type: &str, timeout: Duration) -> Result<CapturedEvent, String> {
         self.wait_for_event_type_with_interval(event_type, timeout, Duration::from_millis(10))
             .await

@@ -5,20 +5,17 @@
 
 use std::collections::HashMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-
-use crate::data_structures::{
-    payment_id::PaymentId,
+use tari_common_types::{
     transaction::{TransactionDirection, TransactionStatus},
-    types::CompressedCommitment,
-    CompressedPublicKey,
-    PrivateKey,
+    types::{CompressedCommitment, FixedHash},
 };
+use tari_transaction_components::transaction_components::memo_field::MemoField;
+use tari_utilities::{hex::Hex, ByteArray};
 // Simple number formatting (removed utils::number module)
 
 /// A wallet transaction representing either a received output or spent input
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WalletTransaction {
     /// Block height where this transaction was found
     pub block_height: u64,
@@ -29,11 +26,11 @@ pub struct WalletTransaction {
     /// Commitment of the output/input
     pub commitment: CompressedCommitment,
     /// Output hash from HTTP response (for identification and matching)
-    pub output_hash: Option<Vec<u8>>,
+    pub output_hash: FixedHash,
     /// Value in microMinotari
     pub value: u64,
     /// Associated payment ID
-    pub payment_id: PaymentId,
+    pub payment_id: MemoField,
     /// Whether this output has been spent
     pub is_spent: bool,
     /// Block height where this output was spent (if spent)
@@ -46,10 +43,8 @@ pub struct WalletTransaction {
     pub transaction_direction: TransactionDirection,
     /// Whether this transaction is mature (can be spent)
     pub is_mature: bool,
-    /// Commitment mask private key
-    pub commitment_mask_private_key: Option<PrivateKey>,
-    /// Script key
-    pub script_key: Option<CompressedPublicKey>,
+    /// Whether this transaction is a coinbase transaction
+    pub is_coinbase: bool,
 }
 
 impl WalletTransaction {
@@ -60,14 +55,13 @@ impl WalletTransaction {
         output_index: Option<usize>,
         input_index: Option<usize>,
         commitment: CompressedCommitment,
-        output_hash: Option<Vec<u8>>,
+        output_hash: FixedHash,
         value: u64,
-        payment_id: PaymentId,
+        payment_id: MemoField,
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
-        commitment_mask_private_key: Option<PrivateKey>,
-        script_key: Option<CompressedPublicKey>,
+        is_coinbase: bool,
     ) -> Self {
         Self {
             block_height,
@@ -83,8 +77,7 @@ impl WalletTransaction {
             transaction_status,
             transaction_direction,
             is_mature,
-            commitment_mask_private_key,
-            script_key,
+            is_coinbase,
         }
     }
 
@@ -97,7 +90,7 @@ impl WalletTransaction {
 
     /// Check if this is a coinbase transaction
     pub fn is_coinbase(&self) -> bool {
-        self.transaction_status.is_coinbase()
+        self.is_coinbase
     }
 
     /// Check if this transaction is confirmed
@@ -112,24 +105,22 @@ impl WalletTransaction {
 
     /// Get the output hash as hex string (if available)
     pub fn output_hash_hex(&self) -> Option<String> {
-        self.output_hash.as_ref().map(hex::encode)
+        Some(self.output_hash.to_hex())
     }
 }
 
 /// Wallet state tracking all transactions and balances
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "WalletStateSerde")]
 pub struct WalletState {
     /// All wallet transactions
     pub transactions: Vec<WalletTransaction>,
     /// Map from commitment bytes to transaction index for fast lookup
     #[serde(skip)]
-    #[borsh(skip)]
     outputs_by_commitment: HashMap<Vec<u8>, usize>,
     /// Map from output hash bytes to transaction index for fast lookup
     #[serde(skip)]
-    #[borsh(skip)]
-    outputs_by_hash: HashMap<Vec<u8>, usize>,
+    outputs_by_hash: HashMap<FixedHash, usize>,
     /// Running balance in microMinotari (can be negative)
     running_balance: i64,
     /// Total received in microMinotari
@@ -173,9 +164,8 @@ impl WalletState {
                 .insert(transaction.commitment.as_bytes().to_vec(), index);
 
             // Index by output hash if available
-            if let Some(ref output_hash) = transaction.output_hash {
-                self.outputs_by_hash.insert(output_hash.clone(), index);
-            }
+
+            self.outputs_by_hash.insert(transaction.output_hash.clone(), index);
         }
     }
 
@@ -186,14 +176,13 @@ impl WalletState {
         block_height: u64,
         output_index: usize,
         commitment: CompressedCommitment,
-        output_hash: Option<Vec<u8>>,
+        output_hash: FixedHash,
         value: u64,
-        payment_id: PaymentId,
+        payment_id: MemoField,
         transaction_status: TransactionStatus,
         transaction_direction: TransactionDirection,
         is_mature: bool,
-        commitment_mask_private_key: Option<PrivateKey>,
-        script_key: Option<CompressedPublicKey>,
+        is_coinbase: bool,
     ) {
         let transaction = WalletTransaction::new(
             block_height,
@@ -206,8 +195,7 @@ impl WalletState {
             transaction_status,
             transaction_direction,
             is_mature,
-            commitment_mask_private_key,
-            script_key,
+            is_coinbase,
         );
 
         let tx_index = self.transactions.len();
@@ -217,23 +205,21 @@ impl WalletState {
             .insert(commitment.as_bytes().to_vec(), tx_index);
 
         // Index by output hash if available - CRITICAL for spent detection
-        if let Some(hash) = output_hash {
-            self.outputs_by_hash.insert(hash.clone(), tx_index);
+        self.outputs_by_hash.insert(output_hash.clone(), tx_index);
 
-            // Debug logging for output hash indexing
-            #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
-            {
-                let hash_hex = hex::encode(&hash);
-                web_sys::console::log_1(
-                    &format!(
-                        "📝 INDEXED OUTPUT: Hash {} -> Value {} μT (total tracked: {})",
-                        hash_hex,
-                        value,
-                        self.outputs_by_hash.len()
-                    )
-                    .into(),
-                );
-            }
+        // Debug logging for output hash indexing
+        #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+        {
+            let hash_hex = hex::encode(&hash);
+            web_sys::console::log_1(
+                &format!(
+                    "📝 INDEXED OUTPUT: Hash {} -> Value {} μT (total tracked: {})",
+                    hash_hex,
+                    value,
+                    self.outputs_by_hash.len()
+                )
+                .into(),
+            );
         }
 
         self.transactions.push(transaction);
@@ -272,14 +258,13 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         commitment.clone(),
-                        None, // No output_hash for spending
+                        FixedHash::zero(), // No output_hash for spending
                         spent_value,
                         transaction.payment_id.clone(),
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
-                        None, // Spending key
-                        None, // Script key
+                        false,
                     );
 
                     self.transactions.push(outbound_transaction);
@@ -293,7 +278,12 @@ impl WalletState {
 
     /// Mark an output as spent by output hash and create an outbound transaction record
     /// This is used when we have the output hash from HTTP inputs array
-    pub fn mark_output_spent_by_hash(&mut self, output_hash: &[u8], block_height: u64, input_index: usize) -> bool {
+    pub fn mark_output_spent_by_hash(
+        &mut self,
+        output_hash: &FixedHash,
+        block_height: u64,
+        input_index: usize,
+    ) -> bool {
         if let Some(&tx_index) = self.outputs_by_hash.get(output_hash) {
             if let Some(transaction) = self.transactions.get_mut(tx_index) {
                 if !transaction.is_spent {
@@ -330,14 +320,13 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         transaction.commitment.clone(),
-                        Some(output_hash.to_vec()), // Include the output hash that was spent
+                        output_hash.clone(), // Include the output hash that was spent
                         spent_value,
                         transaction.payment_id.clone(),
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
-                        None, // Spending key
-                        None, // Script key
+                        false,
                     );
 
                     self.transactions.push(outbound_transaction);
@@ -448,7 +437,7 @@ impl WalletState {
     }
 
     /// Get all tracked output hashes (for debugging) - returns (hash, transaction_index, value, is_spent)
-    pub fn get_tracked_hashes(&self) -> Vec<(Vec<u8>, usize, u64, bool)> {
+    pub fn get_tracked_hashes(&self) -> Vec<(FixedHash, usize, u64, bool)> {
         self.outputs_by_hash
             .iter()
             .map(|(hash, &tx_index)| {
@@ -518,28 +507,22 @@ impl From<WalletStateSerde> for WalletState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::{
-        payment_id::PaymentId,
-        transaction::{TransactionDirection, TransactionStatus},
-        types::CompressedCommitment,
-    };
 
     #[test]
     fn test_wallet_transaction_creation() {
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::default();
         let tx = WalletTransaction::new(
             100,
             Some(0),
             None,
             commitment.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         assert_eq!(tx.block_height, 100);
@@ -552,20 +535,19 @@ mod tests {
 
     #[test]
     fn test_wallet_transaction_mark_spent() {
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::default();
         let mut tx = WalletTransaction::new(
             100,
             Some(0),
             None,
             commitment,
-            None,
+            FixedHash::zero(),
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         assert!(!tx.is_spent);
@@ -592,20 +574,19 @@ mod tests {
     #[test]
     fn test_wallet_state_add_received_output() {
         let mut state = WalletState::new();
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::default();
 
         state.add_received_output(
             100,
             0,
             commitment,
-            None, // No output_hash in test
+            FixedHash::zero(), // No output_hash in test
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         assert_eq!(state.transactions.len(), 1);
@@ -622,21 +603,20 @@ mod tests {
     #[test]
     fn test_wallet_state_mark_output_spent() {
         let mut state = WalletState::new();
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::default();
 
         // Add an output
         state.add_received_output(
             100,
             0,
             commitment.clone(),
-            None, // No output_hash in test
+            FixedHash::zero(), // No output_hash in test
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         assert_eq!(state.transactions.len(), 1);
@@ -683,7 +663,7 @@ mod tests {
     #[test]
     fn test_wallet_state_mark_nonexistent_output_spent() {
         let mut state = WalletState::new();
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::default();
 
         // Try to mark a non-existent output as spent
         let marked = state.mark_output_spent(&commitment, 200, 5);
@@ -696,35 +676,33 @@ mod tests {
     #[test]
     fn test_wallet_state_get_filtered_transactions() {
         let mut state = WalletState::new();
-        let commitment1 = CompressedCommitment::new([1u8; 32]);
-        let commitment2 = CompressedCommitment::new([2u8; 32]);
+        let commitment1 = CompressedCommitment::default();
+        let commitment2 = CompressedCommitment::default();
 
         // Add two outputs
         state.add_received_output(
             100,
             0,
             commitment1.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
         state.add_received_output(
             200,
             1,
             commitment2,
-            None,
+            FixedHash::zero(),
             2000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         // Spend one
@@ -741,20 +719,19 @@ mod tests {
 
     #[test]
     fn test_wallet_transaction_coinbase_detection() {
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::default();
         let coinbase_tx = WalletTransaction::new(
             100,
             Some(0),
             None,
             commitment.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
-            PaymentId::Empty,
-            TransactionStatus::CoinbaseConfirmed,
+            MemoField::default(),
+            TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            true,
         );
 
         let regular_tx = WalletTransaction::new(
@@ -762,14 +739,13 @@ mod tests {
             Some(0),
             None,
             commitment,
-            None,
+            FixedHash::zero(),
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         assert!(coinbase_tx.is_coinbase());
@@ -779,35 +755,33 @@ mod tests {
     #[test]
     fn test_transaction_direction_counts() {
         let mut state = WalletState::new();
-        let commitment1 = CompressedCommitment::new([1u8; 32]);
-        let commitment2 = CompressedCommitment::new([2u8; 32]);
+        let commitment1 = CompressedCommitment::default();
+        let commitment2 = CompressedCommitment::default();
 
         // Add inbound transactions
         state.add_received_output(
             100,
             0,
             commitment1.clone(),
-            None,
+            FixedHash::zero(),
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
         state.add_received_output(
             200,
             1,
             commitment2.clone(),
-            None,
+            FixedHash::zero(),
             2000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         // Initial state: 2 inbound, 0 outbound
@@ -836,31 +810,24 @@ mod tests {
         use serde_json;
 
         let mut state = WalletState::new();
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::default();
 
         state.add_received_output(
             100,
             0,
             commitment,
-            None,
+            FixedHash::zero(),
             1000000,
-            PaymentId::Empty,
+            MemoField::default(),
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
-            None,
-            None,
+            false,
         );
 
         // Test JSON serialization
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: WalletState = serde_json::from_str(&json).unwrap();
-        assert_eq!(state.transactions.len(), deserialized.transactions.len());
-        assert_eq!(state.get_balance(), deserialized.get_balance());
-
-        // Test borsh serialization
-        let bytes = borsh::to_vec(&state).unwrap();
-        let deserialized: WalletState = borsh::from_slice(&bytes).unwrap();
         assert_eq!(state.transactions.len(), deserialized.transactions.len());
         assert_eq!(state.get_balance(), deserialized.get_balance());
     }

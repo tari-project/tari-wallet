@@ -4,12 +4,14 @@
 //! including deterministic key derivation from seed phrases and imported private keys.
 
 pub mod key_derivation;
+mod key_manager_builder;
 pub mod seed_phrase;
 pub mod stealth_address;
-
+pub use key_manager_builder::KeyManagerBuilder;
+use tari_common_types::types::{CompressedPublicKey, PrivateKey};
 use zeroize::Zeroize;
 
-use crate::{data_structures::types::PrivateKey, errors::KeyManagementError};
+use crate::errors::KeyManagementError;
 
 /// Key derivation path for deterministic key generation
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -66,7 +68,7 @@ pub struct DerivedKeyPair {
     /// The derived private key
     pub private_key: PrivateKey,
     /// The derived public key
-    pub public_key: crate::data_structures::types::CompressedPublicKey,
+    pub public_key: CompressedPublicKey,
     /// The key index
     pub key_index: u64,
     /// The derivation path used
@@ -77,7 +79,7 @@ impl DerivedKeyPair {
     /// Create a new derived key pair
     pub fn new(
         private_key: PrivateKey,
-        public_key: crate::data_structures::types::CompressedPublicKey,
+        public_key: CompressedPublicKey,
         key_index: u64,
         derivation_path: KeyDerivationPath,
     ) -> Self {
@@ -99,10 +101,7 @@ pub trait KeyManager {
     fn derive_private_key(&self, path: &KeyDerivationPath) -> Result<PrivateKey, KeyManagementError>;
 
     /// Derive a public key from the given path
-    fn derive_public_key(
-        &self,
-        path: &KeyDerivationPath,
-    ) -> Result<crate::data_structures::types::CompressedPublicKey, KeyManagementError>;
+    fn derive_public_key(&self, path: &KeyDerivationPath) -> Result<CompressedPublicKey, KeyManagementError>;
 
     /// Get the next key pair in sequence
     fn next_key_pair(&mut self) -> Result<DerivedKeyPair, KeyManagementError>;

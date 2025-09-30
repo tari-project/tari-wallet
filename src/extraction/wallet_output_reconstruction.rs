@@ -1,11 +1,10 @@
-use crate::{
-    data_structures::{
-        payment_id::PaymentId,
-        types::MicroMinotari,
-        wallet_output::{KeyId, WalletOutput},
-    },
-    errors::WalletError,
+use tari_transaction_components::{
+    key_manager::TariKeyId,
+    transaction_components::{MemoField, WalletOutput},
+    MicroMinotari,
 };
+
+use crate::errors::WalletError;
 
 /// Result of wallet output reconstruction
 #[derive(Debug, Clone)]
@@ -15,9 +14,9 @@ pub struct WalletOutputReconstructionResult {
     /// The extracted value
     pub value: MicroMinotari,
     /// The extracted payment ID
-    pub payment_id: PaymentId,
+    pub payment_id: MemoField,
     /// The key used for decryption
-    pub decryption_key_id: KeyId,
+    pub decryption_key_id: TariKeyId,
 }
 
 /// Options for wallet output reconstruction
@@ -54,7 +53,7 @@ pub enum WalletOutputReconstructionError {
     DecryptionFailed(#[from] WalletError),
 
     #[error("Failed to extract payment ID: {0}")]
-    PaymentIdExtractionFailed(String),
+    MemoFieldExtractionFailed(String),
 
     #[error("No suitable key found for decryption")]
     NoSuitableKey,

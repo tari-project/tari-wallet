@@ -6,6 +6,8 @@
 
 #[cfg(feature = "storage")]
 use async_trait::async_trait;
+#[cfg(feature = "storage")]
+use tari_utilities::SafePassword;
 
 #[cfg(feature = "storage")]
 use crate::{
@@ -42,8 +44,8 @@ impl DatabaseDataProcessor {
     }
 
     /// Create a new database data processor with SQLite database
-    pub async fn new_with_database(database_path: &str) -> WalletResult<Self> {
-        let storage = ScannerStorage::new_with_database(database_path).await?;
+    pub async fn new_with_database(database_path: &str, passphrase: SafePassword) -> WalletResult<Self> {
+        let storage = ScannerStorage::new_with_database(database_path, passphrase).await?;
         Ok(Self { storage })
     }
 
@@ -79,9 +81,9 @@ impl DatabaseDataProcessor {
 
     /// Start background writer (for non-memory storage)
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn start_background_writer(&mut self, database_path: &str) -> WalletResult<()> {
+    pub async fn start_background_writer(&mut self, database_path: &str, passphrase: SafePassword) -> WalletResult<()> {
         if !self.storage.is_memory_only {
-            self.storage.start_background_writer(database_path).await
+            self.storage.start_background_writer(database_path, passphrase).await
         } else {
             Ok(())
         }
@@ -98,20 +100,9 @@ impl DatabaseDataProcessor {
     }
 
     /// Handle wallet operations (compatibility method)
-    pub async fn handle_wallet_operations(
-        &mut self,
-        config: &crate::scanning::BinaryScanConfig,
-        scan_context: Option<&crate::scanning::ScanContext>,
-    ) -> WalletResult<Option<crate::scanning::ScanContext>> {
-        self.storage.handle_wallet_operations(config, scan_context).await
-    }
-
-    /// Load scan context from wallet
-    pub async fn load_scan_context_from_wallet(
-        &mut self,
-        quiet: bool,
-    ) -> WalletResult<Option<crate::scanning::ScanContext>> {
-        self.storage.load_scan_context_from_wallet(quiet).await
+    pub async fn handle_wallet_operations(&mut self, config: &crate::scanning::BinaryScanConfig) -> WalletResult<()> {
+        self.storage.handle_wallet_operations(config).await?;
+        Ok(())
     }
 
     /// Get wallet birthday
@@ -182,7 +173,7 @@ impl DataProcessor for DatabaseDataProcessor {
 #[derive(Debug, Default)]
 pub struct MemoryStorageProcessor {
     /// All transactions found during scanning
-    pub transactions: Vec<crate::data_structures::wallet_transaction::WalletTransaction>,
+    pub transactions: Vec<crate::WalletTransaction>,
     /// Latest block scanned
     pub latest_block: Option<u64>,
 }
@@ -197,7 +188,7 @@ impl MemoryStorageProcessor {
     }
 
     /// Get all transactions
-    pub fn get_transactions(&self) -> &[crate::data_structures::wallet_transaction::WalletTransaction] {
+    pub fn get_transactions(&self) -> &[crate::WalletTransaction] {
         &self.transactions
     }
 

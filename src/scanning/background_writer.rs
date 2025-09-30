@@ -7,13 +7,15 @@
 //! This module is part of the scanner.rs binary refactoring effort.
 
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+use tari_common_types::types::CompressedCommitment;
+#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
 use crate::{
-    data_structures::{types::CompressedCommitment, wallet_transaction::WalletTransaction},
     errors::WalletResult,
     storage::{StoredOutput, WalletStorage},
+    WalletTransaction,
 };
 
 /// Background writer commands for non-WASM32 architectures
@@ -195,13 +197,14 @@ mod tests {
     use chrono::NaiveDateTime;
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use tari_common_types::types::CompressedPublicKey;
+    use tari_utilities::ByteArray;
 
-    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-    use crate::data_structures::WalletState;
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use crate::key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql};
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     use crate::storage::{OutputFilter, StorageStats, StoredWallet, TransactionFilter};
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    use crate::WalletState;
 
     #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
     #[derive(Debug, Clone)]
@@ -758,7 +761,7 @@ mod tests {
 
         // Send a mark transaction spent command
         let (response_tx, response_rx) = oneshot::channel();
-        let commitment = CompressedCommitment::new([1u8; 32]);
+        let commitment = CompressedCommitment::from_canonical_bytes(&[1u8; 32]).unwrap();
         let block_height = 2000;
         let input_index = 5;
 
@@ -807,8 +810,8 @@ mod tests {
         // Send a batch mark command
         let (response_tx, response_rx) = oneshot::channel();
         let commitments = vec![
-            (CompressedCommitment::new([1u8; 32]), 1000, 0),
-            (CompressedCommitment::new([2u8; 32]), 1001, 1),
+            (CompressedCommitment::from_canonical_bytes(&[1u8; 32]).unwrap(), 1000, 0),
+            (CompressedCommitment::from_canonical_bytes(&[2u8; 32]).unwrap(), 1001, 1),
         ];
 
         command_tx

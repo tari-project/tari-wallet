@@ -1,3 +1,4 @@
+use tari_common_types::seeds::error::CipherError;
 use tari_script::ScriptError;
 use tari_transaction_components::{
     key_manager::error::{KeyManagerServiceError, KeyManagerStorageError},
@@ -10,79 +11,58 @@ use thiserror::Error;
 pub enum WalletError {
     #[error("Data structure error: {0}")]
     DataStructureError(#[from] DataStructureError),
-
     #[error("Serialization error: {0}")]
     SerializationError(#[from] SerializationError),
-
     #[error("Validation error: {0}")]
     ValidationError(#[from] ValidationError),
-
     #[error("Key management error: {0}")]
     KeyManagementError(#[from] KeyManagementError),
-
     #[error("Scanning error: {0}")]
     ScanningError(#[from] ScanningError),
-
     #[error("Encryption error: {0}")]
     EncryptionError(#[from] EncryptionError),
-
     #[error("Hex error: {0}")]
     HexError(#[from] crate::hex_utils::HexError),
-
     #[error("Conversion error: {0}")]
     ConversionError(String),
-
     #[error("Invalid argument: {argument} = {value}. {message}")]
     InvalidArgument {
         argument: String,
         value: String,
         message: String,
     },
-
     #[error("Operation not supported: {0}")]
     OperationNotSupported(String),
-
     #[error("Resource not found: {0}")]
     ResourceNotFound(String),
-
     #[error("Insufficient funds: {0}")]
     InsufficientFunds(String),
-
     #[error("Timeout error: {0}")]
     Timeout(String),
-
     #[error("Network error: {0}")]
     NetworkError(String),
-
     #[error("Storage error: {0}")]
     StorageError(String),
-
     #[error("Internal error: {0}")]
     InternalError(String),
-
     #[error("Connection error: {0}")]
     ConnectionError(String),
-
     #[error("gRPC error: {0}")]
     GrpcError(String),
-
     #[error("Data error: {0}")]
     DataError(String),
-
     #[error("Configuration error: {0}")]
     ConfigurationError(String),
-
     #[error("Key Manager storage error: {0}")]
     KeyManagerStorageError(#[from] KeyManagerStorageError),
-
     #[error("Key Manager service error: {0}")]
     KeyManagerServiceError(#[from] KeyManagerServiceError),
-
     #[error("Transaction error: {0}")]
     TransactionError(#[from] TransactionError),
-
     #[error("Script error: {0}")]
     ScriptError(#[from] ScriptError),
+    #[error("Cipher error: {0}")]
+    CipherError(#[from] CipherError),
 }
 
 /// Errors related to data structure operations
@@ -116,7 +96,7 @@ pub enum DataStructureError {
     InvalidCommitment(String),
 
     #[error("Invalid payment ID: {0}")]
-    InvalidPaymentId(String),
+    InvalidMemoField(String),
 
     #[error("Invalid transaction output: {0}")]
     InvalidTransactionOutput(String),
@@ -159,6 +139,9 @@ pub enum DataStructureError {
 
     #[error("Invalid network: {0}")]
     InvalidNetwork(String),
+
+    #[error("Invalid Hash: {0}")]
+    InvalidHash(String),
 }
 
 /// Errors related to serialization and deserialization
@@ -276,28 +259,20 @@ pub enum ValidationError {
 pub enum KeyManagementError {
     #[error("Key not found: {0}")]
     KeyNotFound(String),
-
     #[error("Invalid private key: {0}")]
     InvalidPrivateKey(String),
-
     #[error("Invalid public key: {0}")]
     InvalidPublicKey(String),
-
     #[error("Invalid key derivation path: {0}")]
     InvalidKeyDerivationPath(String),
-
     #[error("Key derivation failed: {0}")]
     KeyDerivationFailed(String),
-
     #[error("Key import failed: {0}")]
     KeyImportFailed(String),
-
     #[error("Key export failed: {0}")]
     KeyExportFailed(String),
-
     #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),
-
     #[error("Key recovery failed: {0}")]
     KeyRecoveryFailed(String),
 

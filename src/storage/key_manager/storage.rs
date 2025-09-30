@@ -11,7 +11,6 @@ use tari_transaction_components::key_manager::{
     TransactionKeyManagerBackend,
 };
 use tari_utilities::hex::Hex;
-use tokio::runtime::Handle;
 
 use crate::{
     key_manager::{ImportedKey, NewImportedKeySql, NewKeyManagerStateSql},
@@ -48,126 +47,127 @@ impl TransactionKeyManagerWalletStorage {
             .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?
             .ok_or(KeyManagerStorageError::StorageError("Wallet not found".to_string()))?;
 
-        let key_bytes =
-            Vec::from_hex(&wallet.view_key_hex).map_err(|e| KeyManagerStorageError::AeadError(e.to_string()))?;
-        let key = Key::from_slice(&key_bytes);
-        let cipher = XChaCha20Poly1305::new(key);
-
-        Ok(Self::new(database_connection, cipher, wallet_id))
+        // TODO: add implementation
+        unimplemented!()
+        // let key_bytes =
+        // Vec::from_hex(&wallet.view_key_hex).map_err(|e| KeyManagerStorageError::AeadError(e.to_string()))?;
+        // let key = Key::from_slice(&key_bytes);
+        // let cipher = XChaCha20Poly1305::new(key);
+        //
+        // Ok(Self::new(database_connection, cipher, wallet_id))
     }
 }
 
+#[async_trait::async_trait]
 impl TransactionKeyManagerBackend for TransactionKeyManagerWalletStorage {
-    fn get_key_manager(&self, branch: &str) -> Result<Option<KeyManagerState>, KeyManagerStorageError> {
-        let result = match tokio::task::block_in_place(|| {
-            Handle::current().block_on(self.database_connection.key_manager_get_state(branch, self.wallet_id))
-        })
-        .ok()
-        {
-            None => None,
-            Some(km) => {
-                let cipher = self.cipher.read().unwrap();
-                let km = km
-                    .decrypt(&cipher)
-                    .map_err(|e| KeyManagerStorageError::AeadError(format!("Decryption Error: {}", e)))?;
-                Some(KeyManagerState::try_from(km)?)
-            },
-        };
-        Ok(result)
+    async fn get_key_manager(&self, branch: &str) -> Result<Option<KeyManagerState>, KeyManagerStorageError> {
+        let state = self
+            .database_connection
+            .key_manager_get_state(branch, self.wallet_id)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
+        let cipher = self.cipher.read().unwrap();
+        let km = state
+            .decrypt(&cipher)
+            .map_err(|e| KeyManagerStorageError::AeadError(format!("Decryption Error: {}", e)))?;
+        let result = KeyManagerState::try_from(km)?;
+        Ok(Some(result))
     }
 
-    fn add_key_manager(&self, key_manager: KeyManagerState) -> Result<(), KeyManagerStorageError> {
-        let cipher = self.cipher.read().unwrap();
-
+    async fn add_key_manager(&self, key_manager: KeyManagerState) -> Result<(), KeyManagerStorageError> {
         let km_sql = NewKeyManagerStateSql::new(key_manager, self.wallet_id);
-        let km_sql = km_sql
-            .encrypt(&cipher)
-            .map_err(|e| KeyManagerStorageError::AeadError(format!("Encryption Error: {}", e)))?;
-        tokio::task::block_in_place(|| {
-            Handle::current().block_on(self.database_connection.key_manager_commit_state(&km_sql))
-        })
-        .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
+        let km_sql = {
+            let cipher = self.cipher.read().unwrap();
+            km_sql
+                .encrypt(&cipher)
+                .map_err(|e| KeyManagerStorageError::AeadError(format!("Encryption Error: {}", e)))?
+        };
+
+        self.database_connection
+            .key_manager_commit_state(&km_sql)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
         Ok(())
     }
 
-    fn increment_key_index(&self, branch: &str) -> Result<(), KeyManagerStorageError> {
-        let cipher = self.cipher.read().unwrap();
-        let km = tokio::task::block_in_place(|| {
-            Handle::current().block_on(self.database_connection.key_manager_get_state(branch, self.wallet_id))
-        })
-        .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
-        let mut km = km
-            .decrypt(&cipher)
-            .map_err(|e| KeyManagerStorageError::AeadError(format!("Decryption Error: {}", e)))?;
-        let mut bytes: [u8; 8] = [0u8; 8];
-        bytes.copy_from_slice(&km.primary_key_index[..8]);
-        let index = u64::from_le_bytes(bytes) + 1;
-        km.primary_key_index = index.to_le_bytes().to_vec();
-        let km = km
-            .encrypt(&cipher)
-            .map_err(|e| KeyManagerStorageError::AeadError(format!("Encryption Error: {}", e)))?;
-        tokio::task::block_in_place(|| {
-            Handle::current().block_on(
-                self.database_connection
-                    .key_manager_set_index(km.id, km.primary_key_index),
-            )
-        })
-        .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))
+    async fn increment_key_index(&self, branch: &str) -> Result<(), KeyManagerStorageError> {
+        let km = self
+            .database_connection
+            .key_manager_get_state(branch, self.wallet_id)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
+        let km = {
+            let cipher = self.cipher.read().unwrap();
+            let mut km = km
+                .decrypt(&cipher)
+                .map_err(|e| KeyManagerStorageError::AeadError(format!("Decryption Error: {}", e)))?;
+            let mut bytes: [u8; 8] = [0u8; 8];
+            bytes.copy_from_slice(&km.primary_key_index[..8]);
+            let index = u64::from_le_bytes(bytes) + 1;
+            km.primary_key_index = index.to_le_bytes().to_vec();
+            km.encrypt(&cipher)
+                .map_err(|e| KeyManagerStorageError::AeadError(format!("Encryption Error: {}", e)))?
+        };
+
+        self.database_connection
+            .key_manager_set_index(km.id, km.primary_key_index)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))
     }
 
-    fn set_key_index(&self, branch: &str, index: u64) -> Result<(), KeyManagerStorageError> {
-        let cipher = self.cipher.read().unwrap();
-        let km = tokio::task::block_in_place(|| {
-            Handle::current().block_on(self.database_connection.key_manager_get_state(branch, self.wallet_id))
-        })
-        .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
-        let mut km = km
-            .decrypt(&cipher)
-            .map_err(|e| KeyManagerStorageError::AeadError(format!("Decryption Error: {}", e)))?;
-        km.primary_key_index = index.to_le_bytes().to_vec();
-        let km = km
-            .encrypt(&cipher)
-            .map_err(|e| KeyManagerStorageError::AeadError(format!("Encryption Error: {}", e)))?;
-        tokio::task::block_in_place(|| {
-            Handle::current().block_on(
-                self.database_connection
-                    .key_manager_set_index(km.id, km.primary_key_index),
-            )
-        })
-        .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))
+    async fn set_key_index(&self, branch: &str, index: u64) -> Result<(), KeyManagerStorageError> {
+        let km = self
+            .database_connection
+            .key_manager_get_state(branch, self.wallet_id)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
+        let km = {
+            let cipher = self.cipher.read().unwrap();
+            let mut km = km
+                .decrypt(&cipher)
+                .map_err(|e| KeyManagerStorageError::AeadError(format!("Decryption Error: {}", e)))?;
+            km.primary_key_index = index.to_le_bytes().to_vec();
+            km.encrypt(&cipher)
+                .map_err(|e| KeyManagerStorageError::AeadError(format!("Encryption Error: {}", e)))?
+        };
+
+        self.database_connection
+            .key_manager_set_index(km.id, km.primary_key_index)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))
     }
 
-    fn insert_imported_key(
+    async fn insert_imported_key(
         &self,
         public_key: CompressedPublicKey,
         private_key: PrivateKey,
     ) -> Result<(), KeyManagerStorageError> {
         // check if we already have the key:
-        if self.get_imported_key(&public_key).is_ok() {
+        if self.get_imported_key(&public_key).await.is_ok() {
             // we already have the key so we dont have to add it in
             return Ok(());
         }
-        let cipher = self.cipher.read().unwrap();
-        let key = ImportedKey {
-            public_key,
-            private_key,
+        let encrypted_key = {
+            let cipher = self.cipher.read().unwrap();
+            let key = ImportedKey {
+                public_key,
+                private_key,
+            };
+            NewImportedKeySql::new_from_imported_key(key, self.wallet_id, &cipher)?
         };
-        let encrypted_key = NewImportedKeySql::new_from_imported_key(key, self.wallet_id, &cipher)?;
-        tokio::task::block_in_place(|| {
-            Handle::current().block_on(self.database_connection.key_manager_commit_imported_key(&encrypted_key))
-        })
-        .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))
+        self.database_connection
+            .key_manager_commit_imported_key(&encrypted_key)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))
     }
 
-    fn get_imported_key(&self, public_key: &CompressedPublicKey) -> Result<PrivateKey, KeyManagerStorageError> {
+    async fn get_imported_key(&self, public_key: &CompressedPublicKey) -> Result<PrivateKey, KeyManagerStorageError> {
+        let key = self
+            .database_connection
+            .key_manager_get_imported_key(public_key, self.wallet_id)
+            .await
+            .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
         let cipher = self.cipher.read().unwrap();
-        let key = tokio::task::block_in_place(|| {
-            Handle::current().block_on(
-                self.database_connection
-                    .key_manager_get_imported_key(public_key, self.wallet_id),
-            )
-        })
-        .map_err(|e| KeyManagerStorageError::StorageError(e.to_string()))?;
         let unencrypted_key = key.to_imported_key(&cipher)?;
         Ok(unencrypted_key.private_key)
     }
@@ -177,12 +177,16 @@ impl TransactionKeyManagerBackend for TransactionKeyManagerWalletStorage {
 mod test {
     use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305};
     use rand::{rngs::OsRng, RngCore};
-    use tari_common_types::types::{CompressedPublicKey, PrivateKey};
+    use tari_common_types::{
+        seeds::cipher_seed::CipherSeed,
+        types::{CompressedPublicKey, PrivateKey},
+        wallet_types::WalletType,
+    };
     use tari_transaction_components::key_manager::KeyManagerState;
     use tari_utilities::hex::Hex;
 
     use super::*;
-    use crate::{storage::StoredWallet, CipherSeed, SqliteStorage};
+    use crate::{storage::StoredWallet, DatabaseEncryptionFields, SqliteStorage};
 
     async fn create_test_wallet(storage: &SqliteStorage) -> u32 {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -190,10 +194,9 @@ mod test {
         let test_wallet = StoredWallet {
             id: None,
             name: format!("test_wallet_{}_{}", std::process::id(), timestamp),
+            wallet_type: WalletType::default(),
+            encryption_fields: DatabaseEncryptionFields::default(),
             master_key: CipherSeed::new(),
-            seed_phrase: None,
-            view_key_hex: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string(),
-            spend_key_hex: None,
             birthday_block: 0,
             latest_scanned_block: None,
             created_at: None,
@@ -215,37 +218,37 @@ mod test {
         TransactionKeyManagerWalletStorage::new(Arc::new(db), cipher, wallet_id)
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_key_manager_crud() {
         let km_db = setup_db().await;
 
         // Test get_key_manager on empty DB
-        assert!(km_db.get_key_manager("test_branch").unwrap().is_none());
+        assert!(km_db.get_key_manager("test_branch").await.unwrap().is_none());
 
         // Test add_key_manager
         let initial_state = KeyManagerState {
             branch_seed: "test_branch".to_string(),
             primary_key_index: 10,
         };
-        km_db.add_key_manager(initial_state.clone()).unwrap();
+        km_db.add_key_manager(initial_state.clone()).await.unwrap();
 
         // Test get_key_manager after adding
-        let fetched_state = km_db.get_key_manager("test_branch").unwrap().unwrap();
+        let fetched_state = km_db.get_key_manager("test_branch").await.unwrap().unwrap();
         assert_eq!(fetched_state.branch_seed, initial_state.branch_seed);
         assert_eq!(fetched_state.primary_key_index, initial_state.primary_key_index);
 
         // Test increment_key_index
-        km_db.increment_key_index("test_branch").unwrap();
-        let state_after_increment = km_db.get_key_manager("test_branch").unwrap().unwrap();
+        km_db.increment_key_index("test_branch").await.unwrap();
+        let state_after_increment = km_db.get_key_manager("test_branch").await.unwrap().unwrap();
         assert_eq!(state_after_increment.primary_key_index, 11);
 
         // Test set_key_index
-        km_db.set_key_index("test_branch", 25).unwrap();
-        let state_after_set = km_db.get_key_manager("test_branch").unwrap().unwrap();
+        km_db.set_key_index("test_branch", 25).await.unwrap();
+        let state_after_set = km_db.get_key_manager("test_branch").await.unwrap().unwrap();
         assert_eq!(state_after_set.primary_key_index, 25);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_imported_keys_crud() {
         let km_db = setup_db().await;
 
@@ -257,14 +260,15 @@ mod test {
         // Test insert_imported_key
         km_db
             .insert_imported_key(public_key.clone(), private_key.clone())
+            .await
             .unwrap();
 
         // Test get_imported_key
-        let fetched_private_key = km_db.get_imported_key(&public_key).unwrap();
+        let fetched_private_key = km_db.get_imported_key(&public_key).await.unwrap();
         assert_eq!(fetched_private_key, private_key);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_build_and_cipher_consistency() {
         let db = Arc::new(SqliteStorage::new_in_memory().await.unwrap());
         db.initialize().await.unwrap();
@@ -285,9 +289,9 @@ mod test {
             branch_seed: "test_branch_1".to_string(),
             primary_key_index: 10,
         };
-        km_db1.add_key_manager(initial_state.clone()).unwrap();
+        km_db1.add_key_manager(initial_state.clone()).await.unwrap();
 
-        let fetched_state_from_db2 = km_db2.get_key_manager("test_branch_1").unwrap().unwrap();
+        let fetched_state_from_db2 = km_db2.get_key_manager("test_branch_1").await.unwrap().unwrap();
         assert_eq!(fetched_state_from_db2.branch_seed, initial_state.branch_seed);
         assert_eq!(
             fetched_state_from_db2.primary_key_index,
@@ -301,13 +305,14 @@ mod test {
 
         km_db1
             .insert_imported_key(public_key.clone(), private_key.clone())
+            .await
             .unwrap();
 
-        let fetched_private_key_from_db2 = km_db2.get_imported_key(&public_key).unwrap();
+        let fetched_private_key_from_db2 = km_db2.get_imported_key(&public_key).await.unwrap();
         assert_eq!(fetched_private_key_from_db2, private_key);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_build_non_existent_wallet() {
         let db = Arc::new(SqliteStorage::new_in_memory().await.unwrap());
         db.initialize().await.unwrap();

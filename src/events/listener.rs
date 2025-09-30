@@ -523,6 +523,7 @@ impl std::fmt::Debug for EventRegistry {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};

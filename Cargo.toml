@@ -24,12 +24,15 @@ thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] } # Secure memory clearing
 
 # === Tari Ecosystem Dependencies ===
-tari_common  = { git = "https://github.com/SWvheerden/tari/", rev = "3161c5f6e154ca963d6afe7132c2a85859ffa246" }
-tari_common_types  = { git = "https://github.com/SWvheerden/tari/", rev = "3161c5f6e154ca963d6afe7132c2a85859ffa246" }
+# tari_common = { git = "https://github.com/SWvheerden/tari/", rev = "1b094de62278bdcf3af48dea42a6ea99b5a1a404" }
+tari_common = { path = "../tari/common" }
+tari_common_types = { path = "../tari/base_layer/common_types" }
 tari_crypto = { version = "0.22.1", features = ["borsh"] }
 tari_utilities = { version = "0.8", features = ["std"] }
-tari_script = { git = "https://github.com/SWvheerden/tari/", rev = "3161c5f6e154ca963d6afe7132c2a85859ffa246" }
-tari_transaction_components = { git = "https://github.com/SWvheerden/tari/", rev = "3161c5f6e154ca963d6afe7132c2a85859ffa246" }
+tari_script = { path = "../tari/infrastructure/tari_script" }
+tari_transaction_components = { path = "../tari/base_layer/transaction_components" }
+minotari_app_grpc = { path = "../tari/applications/minotari_app_grpc", optional = true }
+tari_node_components = { path = "../tari/base_layer/node_components" }
 
 # === Cryptographic Primitives ===
 chacha20poly1305 = "0.10" # AEAD encryption
@@ -69,11 +72,7 @@ tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 
 # === GRPC Dependencies (blockchain scanning) ===
-tonic = { version = "0.10", features = [
-    "tls",
-    "tls-roots",
-    "prost",
-], optional = true }
+tonic = { version = "0.13", features = ["tls-ring", "prost"], optional = true }
 prost = { version = "0.12", optional = true }
 
 # === CLI Tools ===
@@ -86,6 +85,7 @@ rusqlite = { version = "0.31", features = [
     "blob",
 ], optional = true }
 tokio-rusqlite = { version = "0.5", optional = true }
+anyhow = "1.0.99"
 
 # === Platform-Specific Dependencies ===
 # Native targets (non-WASM) - Full reqwest with all features
@@ -109,6 +109,7 @@ web-sys = { version = "0.3", features = [
     "RequestInit",
     "RequestMode",
     "Window",
+    "Performance",
 ], optional = true }
 js-sys = { version = "0.3", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
@@ -136,11 +137,18 @@ async-trait = "0.1"
 tokio = { version = "1.0", features = ["full", "test-util"] }
 
 [build-dependencies]
-tonic-build = "0.10" # GRPC code generation
+tonic-build = "0.13" # GRPC code generation
 
 [features]
 default = ["http"]
-grpc = ["rayon", "tonic", "prost", "tracing", "tracing-subscriber"]
+grpc = [
+    "rayon",
+    "tonic",
+    "prost",
+    "tracing",
+    "tracing-subscriber",
+    "minotari_app_grpc",
+]
 http = [
     "tracing",
     "reqwest",
@@ -156,17 +164,21 @@ grpc-storage = ["grpc", "storage"]
 http-storage = ["http", "storage"]
 
 # Don't build binaries for WASM target - they use tokio/clap which are not WASM-compatible
-[[bin]]
-name = "scanner"
-required-features = ["grpc"]
+# [[bin]]
+# name = "scanner"
+# required-features = ["grpc"]
+
+# [[bin]]
+# name = "wallet"
+# required-features = ["storage", "grpc"]
+
+# [[bin]]
+# name = "signing"
+# required-features = ["http"]
 
 [[bin]]
-name = "wallet"
-required-features = ["storage", "grpc"]
-
-[[bin]]
-name = "signing"
-required-features = ["http"]
+name = "main"
+required-features = ["storage", "http"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -202,3 +214,4 @@ required-features = ["http"]
 name = "full_system_integration_e2e"
 path = "tests/e2e/full_system_integration.rs"
 required-features = ["http"]
+tari_common = { path = "../tari/base_layer/core" }

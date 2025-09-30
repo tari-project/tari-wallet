@@ -3,6 +3,7 @@
 //! This module provides complete examples showing how to use the event capture
 //! and assertion utilities for testing event-driven wallet scanning code.
 
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod integration_examples {
     use std::time::Duration;

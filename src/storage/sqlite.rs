@@ -6,13 +6,22 @@
 #[cfg(feature = "storage")]
 use std::path::Path;
 #[cfg(feature = "storage")]
+use std::str::FromStr;
+#[cfg(feature = "storage")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "storage")]
 use async_trait::async_trait;
 #[cfg(feature = "storage")]
 use rusqlite::{params, Row};
-use tari_common_types::types::CompressedPublicKey;
+use tari_common_types::{
+    encryption::encrypt_bytes_integral_nonce,
+    seeds::cipher_seed::CipherSeed,
+    transaction::{TransactionDirection, TransactionStatus},
+    types::{CompressedCommitment, CompressedPublicKey},
+};
+use tari_transaction_components::transaction_components::MemoField;
+use tari_utilities::{hex::Hex, ByteArray, Hidden, SafePassword};
 #[cfg(feature = "storage")]
 use tokio_rusqlite::Connection;
 
@@ -20,18 +29,10 @@ use tokio_rusqlite::Connection;
 #[cfg(feature = "storage")]
 use crate::events::types::WalletEventResult;
 #[cfg(feature = "storage")]
-use crate::key_management::seed_phrase::CipherSeed;
-#[cfg(feature = "storage")]
 use crate::storage::event_storage::{EventFilter, EventStorage, EventStorageStats, StoredEvent};
 #[cfg(feature = "storage")]
 use crate::{
-    data_structures::{
-        payment_id::PaymentId,
-        transaction::{TransactionDirection, TransactionStatus},
-        types::CompressedCommitment,
-        wallet_transaction::{WalletState, WalletTransaction},
-    },
-    errors::{WalletError, WalletResult},
+    errors::{EncryptionError, SerializationError, WalletError, WalletResult},
     key_manager::{ImportedKeySql, KeyManagerStateSql, NewImportedKeySql, NewKeyManagerStateSql},
     storage::{
         OutputFilter,
@@ -43,26 +44,38 @@ use crate::{
         TransactionFilter,
         WalletStorage,
     },
+    DataStructureError,
 };
+#[cfg(feature = "storage")]
+use crate::{WalletState, WalletTransaction};
+
+const WALLET_MASTER_SEED_DOMAIN: &[u8; 26] = b"wallet_setting_master_seed";
 
 /// SQLite storage backend for wallet transactions
 #[cfg(feature = "storage")]
 #[derive(Clone)]
 pub struct SqliteStorage {
     connection: Connection,
+    passphrase: SafePassword,
     performance_config: SqlitePerformanceConfig,
 }
 
 #[cfg(feature = "storage")]
 impl SqliteStorage {
     /// Create a new SQLite storage instance
-    pub async fn new<P: AsRef<Path>>(database_path: P) -> WalletResult<Self> {
-        Self::new_with_config(database_path, SqlitePerformanceConfig::production_optimized()).await
+    pub async fn new<P: AsRef<Path>>(database_path: P, passphrase: SafePassword) -> WalletResult<Self> {
+        Self::new_with_config(
+            database_path,
+            passphrase,
+            SqlitePerformanceConfig::production_optimized(),
+        )
+        .await
     }
 
     /// Create a new SQLite storage instance with custom performance configuration
     pub async fn new_with_config<P: AsRef<Path>>(
         database_path: P,
+        passphrase: SafePassword,
         performance_config: SqlitePerformanceConfig,
     ) -> WalletResult<Self> {
         let connection = Connection::open(database_path)
@@ -71,6 +84,7 @@ impl SqliteStorage {
 
         let storage = Self {
             connection,
+            passphrase,
             performance_config,
         };
 
@@ -85,17 +99,25 @@ impl SqliteStorage {
 
     /// Create an in-memory SQLite storage instance (useful for testing)
     pub async fn new_in_memory() -> WalletResult<Self> {
-        Self::new_in_memory_with_config(SqlitePerformanceConfig::ultra_fast()).await
+        Self::new_in_memory_with_config(
+            SqlitePerformanceConfig::ultra_fast(),
+            SafePassword::from_str("").unwrap(),
+        )
+        .await
     }
 
     /// Create an in-memory SQLite storage instance with custom performance configuration
-    pub async fn new_in_memory_with_config(performance_config: SqlitePerformanceConfig) -> WalletResult<Self> {
+    pub async fn new_in_memory_with_config(
+        performance_config: SqlitePerformanceConfig,
+        passphrase: SafePassword,
+    ) -> WalletResult<Self> {
         let connection = Connection::open(":memory:")
             .await
             .map_err(|e| WalletError::StorageError(format!("Failed to create in-memory database: {e}")))?;
 
         let storage = Self {
             connection,
+            passphrase,
             performance_config,
         };
 
@@ -115,10 +137,9 @@ impl SqliteStorage {
             CREATE TABLE IF NOT EXISTS wallets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
+                wallet_type TEXT NOT NULL,
+                encryption_fields TEXT NOT NULL,
                 master_key TEXT NOT NULL,
-                seed_phrase TEXT,
-                view_key_hex TEXT NOT NULL,
-                spend_key_hex TEXT,
                 birthday_block INTEGER NOT NULL DEFAULT 0,
                 latest_scanned_block INTEGER,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -142,6 +163,7 @@ impl SqliteStorage {
                 transaction_status INTEGER NOT NULL,
                 transaction_direction INTEGER NOT NULL,
                 is_mature BOOLEAN NOT NULL,
+                is_coinbase BOOLEAN NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
@@ -169,7 +191,6 @@ impl SqliteStorage {
                 covenant BLOB NOT NULL,
 
                 -- Output features and type
-                output_type INTEGER NOT NULL,
                 features_json TEXT NOT NULL,
 
                 -- Maturity and lock constraints
@@ -197,6 +218,7 @@ impl SqliteStorage {
                 mined_height BIGINT,
                 block_hash TEXT,
                 spent_in_tx_id BIGINT,
+                received_in_tx_id BIGINT,
 
                 -- Timestamps
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -248,6 +270,7 @@ impl SqliteStorage {
             CREATE INDEX IF NOT EXISTS idx_outputs_maturity ON outputs(maturity);
             CREATE INDEX IF NOT EXISTS idx_outputs_mined_height ON outputs(mined_height);
             CREATE INDEX IF NOT EXISTS idx_outputs_spent_tx ON outputs(spent_in_tx_id);
+            CREATE INDEX IF NOT EXISTS idx_outputs_received_tx ON outputs(received_in_tx_id);
             CREATE INDEX IF NOT EXISTS idx_outputs_wallet_status ON outputs(wallet_id, status);
             CREATE INDEX IF NOT EXISTS idx_outputs_spendable ON outputs(wallet_id, status, maturity, script_lock_height);
 
@@ -310,22 +333,55 @@ impl SqliteStorage {
     }
 
     /// Convert a database row to a StoredWallet
-    fn row_to_wallet(row: &Row) -> rusqlite::Result<StoredWallet> {
-        use crate::HexUtils;
+    fn row_to_wallet(&self, row: &Row) -> rusqlite::Result<StoredWallet> {
+        use tari_common_types::{encryption::decrypt_bytes_integral_nonce, wallet_types::WalletType};
+        use tari_utilities::hex::from_hex;
+
+        use crate::{DatabaseEncryptionFields, HexUtils};
+
+        let encryption_fields: String = row.get("encryption_fields")?;
+        let encryption_fields: DatabaseEncryptionFields = serde_json::from_str(&encryption_fields)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
+        let cipher = encryption_fields
+            .get_cipher(&self.passphrase)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
 
         let master_key_hex: String = row.get("master_key")?;
         let bytes = HexUtils::from_hex(&master_key_hex)
             .map_err(|err| rusqlite::Error::InvalidParameterName(err.to_string()))?;
-        let master_key = CipherSeed::from_enciphered_bytes(&bytes, None)
+        let decrypted_key_bytes = Hidden::hide(
+            decrypt_bytes_integral_nonce(
+                &cipher,
+                WALLET_MASTER_SEED_DOMAIN.to_vec(),
+                &from_hex(master_key_hex.as_str()).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(EncryptionError::DecryptionFailed(e.to_string())),
+                    )
+                })?,
+            )
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(EncryptionError::DecryptionFailed(e.to_string())),
+                )
+            })?,
+        );
+        let master_key = CipherSeed::from_enciphered_bytes(decrypted_key_bytes.reveal(), None)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
+
+        let wallet_type: String = row.get("wallet_type")?;
+        let wallet_type: WalletType = serde_json::from_str(&wallet_type)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
 
         Ok(StoredWallet {
             id: Some(row.get::<_, i64>("id")? as u32),
             name: row.get("name")?,
+            wallet_type,
+            encryption_fields,
             master_key,
-            seed_phrase: row.get("seed_phrase")?,
-            view_key_hex: row.get("view_key_hex")?,
-            spend_key_hex: row.get("spend_key_hex")?,
             birthday_block: row.get::<_, i64>("birthday_block")? as u64,
             latest_scanned_block: row.get::<_, Option<i64>>("latest_scanned_block")?.map(|b| b as u64),
             created_at: row.get("created_at")?,
@@ -335,18 +391,28 @@ impl SqliteStorage {
 
     /// Convert a database row to a WalletTransaction
     fn row_to_transaction(row: &Row) -> rusqlite::Result<WalletTransaction> {
+        use tari_common_types::types::FixedHash;
+
         let commitment_bytes: Vec<u8> = row.get("commitment_bytes")?;
-        let commitment_array: [u8; 32] = commitment_bytes.try_into().map_err(|_| {
-            rusqlite::Error::InvalidColumnType(0, "commitment_bytes".to_string(), rusqlite::types::Type::Blob)
+        let commitment = CompressedCommitment::from_canonical_bytes(&commitment_bytes).map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(DataStructureError::InvalidCommitment(e.to_string())))
         })?;
 
         let payment_id_json: String = row.get("payment_id_json")?;
-        let payment_id: PaymentId =
+        let payment_id: MemoField =
             serde_json::from_str(&payment_id_json).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
         let transaction_status_int: i32 = row.get("transaction_status")?;
-        let transaction_status = TransactionStatus::try_from(transaction_status_int)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        let transaction_status = match transaction_status_int {
+            0 => Ok(TransactionStatus::Completed),
+            1 => Ok(TransactionStatus::Broadcast),
+            2 => Ok(TransactionStatus::MinedUnconfirmed),
+            3 => Ok(TransactionStatus::MinedConfirmed),
+            4 => Ok(TransactionStatus::Rejected),
+            _ => Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
+                WalletError::ConversionError(format!("Invalid transaction status: {transaction_status_int}")),
+            ))),
+        }?;
 
         let transaction_direction_int: i32 = row.get("transaction_direction")?;
         let transaction_direction = TransactionDirection::try_from(transaction_direction_int)
@@ -356,8 +422,8 @@ impl SqliteStorage {
             block_height: row.get::<_, i64>("block_height")? as u64,
             output_index: row.get::<_, Option<i64>>("output_index")?.map(|i| i as usize),
             input_index: row.get::<_, Option<i64>>("input_index")?.map(|i| i as usize),
-            commitment: CompressedCommitment::new(commitment_array),
-            output_hash: None, // Not stored in database, computed elsewhere when needed
+            commitment,
+            output_hash: FixedHash::zero(), // Not stored in database, computed elsewhere when needed
             value: row.get::<_, i64>("value")? as u64,
             payment_id,
             is_spent: row.get("is_spent")?,
@@ -366,8 +432,7 @@ impl SqliteStorage {
             transaction_status,
             transaction_direction,
             is_mature: row.get("is_mature")?,
-            commitment_mask_private_key: None,
-            script_key: None,
+            is_coinbase: row.get("is_coinbase")?,
         })
     }
 
@@ -384,7 +449,6 @@ impl SqliteStorage {
             script: row.get("script")?,
             input_data: row.get("input_data")?,
             covenant: row.get("covenant")?,
-            output_type: row.get::<_, i64>("output_type")? as u32,
             features_json: row.get("features_json")?,
             maturity: row.get::<_, i64>("maturity")? as u64,
             script_lock_height: row.get::<_, i64>("script_lock_height")? as u64,
@@ -402,6 +466,7 @@ impl SqliteStorage {
             mined_height: row.get::<_, Option<i64>>("mined_height")?.map(|h| h as u64),
             block_hash: row.get("block_hash")?,
             spent_in_tx_id: row.get::<_, Option<i64>>("spent_in_tx_id")?.map(|id| id as u64),
+            received_in_tx_id: row.get::<_, Option<i64>>("received_in_tx_id")?.map(|id| id as u64),
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,
         })
@@ -519,68 +584,74 @@ impl WalletStorage for SqliteStorage {
     // === Wallet Management Methods ===
 
     async fn save_wallet(&self, wallet: &StoredWallet) -> WalletResult<u32> {
-        // Validate wallet before saving
-
-        use crate::HexUtils;
-        wallet
-            .validate()
-            .map_err(|e| WalletError::StorageError(format!("Invalid wallet: {e}")))?;
-
         let wallet_clone = wallet.clone();
-        let master_key_hex = HexUtils::to_hex(&wallet_clone.master_key.encipher(None)?);
-        self.connection.call(move |conn| {
-            if let Some(wallet_id) = wallet_clone.id {
-                // Update existing wallet
-                let rows_affected = conn.execute(
-                    r#"
+
+        let cipher = wallet.encryption_fields.get_cipher(&self.passphrase)?;
+        let seed_bytes = Hidden::hide(wallet.master_key.encipher(None)?);
+        let ciphertext_integral_nonce =
+            encrypt_bytes_integral_nonce(&cipher, WALLET_MASTER_SEED_DOMAIN.to_vec(), seed_bytes)
+                .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
+        let master_key_hex = ciphertext_integral_nonce.to_hex();
+
+        let wallet_type = serde_json::to_string(&wallet.wallet_type)
+            .map_err(|e| SerializationError::SerdeSerializationError(e.to_string()))?;
+        let encryption_fields = serde_json::to_string(&wallet.encryption_fields)
+            .map_err(|e| SerializationError::SerdeSerializationError(e.to_string()))?;
+        self.connection
+            .call(move |conn| {
+                if let Some(wallet_id) = wallet_clone.id {
+                    // Update existing wallet
+                    let rows_affected = conn.execute(
+                        r#"
                     UPDATE wallets
-                    SET name = ?, master_key = ?, seed_phrase = ?, view_key_hex = ?, spend_key_hex = ?, birthday_block = ?, latest_scanned_block = ?
+                    SET name = ?, wallet_type = ?, encryption_fields = ?, master_key = ?, birthday_block = ?, latest_scanned_block = ?
                     WHERE id = ?
                     "#,
-                    params![
-                        wallet_clone.name,
-                        master_key_hex,
-                        wallet_clone.seed_phrase,
-                        wallet_clone.view_key_hex,
-                        wallet_clone.spend_key_hex,
-                        wallet_clone.birthday_block as i64,
-                        wallet_clone.latest_scanned_block.map(|b| b as i64),
-                        wallet_id as i64,
-                    ],
-                )?;
+                        params![
+                            wallet_clone.name,
+                            wallet_type,
+                            encryption_fields,
+                            master_key_hex,
+                            wallet_clone.birthday_block as i64,
+                            wallet_clone.latest_scanned_block.map(|b| b as i64),
+                            wallet_id as i64,
+                        ],
+                    )?;
 
-                if rows_affected == 0 {
-                    return Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
-                }
-                Ok(wallet_id)
-            } else {
-                // Insert new wallet
-                conn.execute(
-                    r#"
-                    INSERT INTO wallets (name, master_key, seed_phrase, view_key_hex, spend_key_hex, birthday_block, latest_scanned_block)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    if rows_affected == 0 {
+                        return Err(tokio_rusqlite::Error::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
+                    }
+                    Ok(wallet_id)
+                } else {
+                    // Insert new wallet
+                    conn.execute(
+                        r#"
+                    INSERT INTO wallets (name, wallet_type, encryption_fields, master_key, birthday_block, latest_scanned_block)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     "#,
-                    params![
-                        wallet_clone.name,
-                        master_key_hex,
-                        wallet_clone.seed_phrase,
-                        wallet_clone.view_key_hex,
-                        wallet_clone.spend_key_hex,
-                        wallet_clone.birthday_block as i64,
-                        wallet_clone.latest_scanned_block.map(|b| b as i64),
-                    ],
-                )?;
+                        params![
+                            wallet_clone.name,
+                            wallet_type,
+                            encryption_fields,
+                            master_key_hex,
+                            wallet_clone.birthday_block as i64,
+                            wallet_clone.latest_scanned_block.map(|b| b as i64),
+                        ],
+                    )?;
 
-                Ok(conn.last_insert_rowid() as u32)
-            }
-        }).await.map_err(|e| WalletError::StorageError(format!("Failed to save wallet: {e}")))
+                    Ok(conn.last_insert_rowid() as u32)
+                }
+            })
+            .await
+            .map_err(|e| WalletError::StorageError(format!("Failed to save wallet: {e}")))
     }
 
     async fn get_wallet_by_id(&self, wallet_id: u32) -> WalletResult<Option<StoredWallet>> {
+        let self_clone = self.clone();
         self.connection
             .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallets WHERE id = ?")?;
-                let mut rows = stmt.query_map(params![wallet_id as i64], Self::row_to_wallet)?;
+                let mut rows = stmt.query_map(params![wallet_id as i64], |row| self_clone.row_to_wallet(row))?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -594,10 +665,11 @@ impl WalletStorage for SqliteStorage {
 
     async fn get_wallet_by_name(&self, name: &str) -> WalletResult<Option<StoredWallet>> {
         let name_owned = name.to_string();
+        let self_clone = self.clone();
         self.connection
             .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallets WHERE name = ?")?;
-                let mut rows = stmt.query_map(params![name_owned], Self::row_to_wallet)?;
+                let mut rows = stmt.query_map(params![name_owned], |row| self_clone.row_to_wallet(row))?;
 
                 if let Some(row) = rows.next() {
                     Ok(Some(row?))
@@ -610,10 +682,11 @@ impl WalletStorage for SqliteStorage {
     }
 
     async fn list_wallets(&self) -> WalletResult<Vec<StoredWallet>> {
+        let self_clone = self.clone();
         self.connection
-            .call(|conn| {
+            .call(move |conn| {
                 let mut stmt = conn.prepare("SELECT * FROM wallets ORDER BY created_at DESC")?;
-                let rows = stmt.query_map([], Self::row_to_wallet)?;
+                let rows = stmt.query_map([], |row| self_clone.row_to_wallet(row))?;
 
                 let mut wallets = Vec::new();
                 for row in rows {
@@ -969,8 +1042,7 @@ impl WalletStorage for SqliteStorage {
                         transaction.transaction_status,
                         transaction.transaction_direction,
                         transaction.is_mature,
-                        None,
-                        None,
+                        transaction.is_coinbase,
                     );
 
                     // If the transaction is spent, mark it as spent
@@ -1264,12 +1336,12 @@ impl WalletStorage for SqliteStorage {
                     UPDATE outputs
                     SET wallet_id = ?, commitment = ?, hash = ?, value = ?, commitment_mask_key = ?,
                     script_key = ?, script = ?, input_data = ?, covenant = ?,
-                    output_type = ?, features_json = ?, maturity = ?, script_lock_height = ?,
+                    features_json = ?, maturity = ?, script_lock_height = ?,
                     sender_offset_public_key = ?, metadata_signature_ephemeral_commitment = ?,
                     metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                     metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
                     minimum_value_promise = ?, payment_id = ?, rangeproof = ?, status = ?, mined_height = ?,
-                    block_hash = ?, spent_in_tx_id = ?
+                    block_hash = ?, spent_in_tx_id = ?, received_in_tx_id = ?
                     WHERE id = ?
                     "#,
                         params![
@@ -1282,7 +1354,6 @@ impl WalletStorage for SqliteStorage {
                             output_clone.script,
                             output_clone.input_data,
                             output_clone.covenant,
-                            output_clone.output_type as i64,
                             output_clone.features_json,
                             output_clone.maturity as i64,
                             output_clone.script_lock_height as i64,
@@ -1300,6 +1371,7 @@ impl WalletStorage for SqliteStorage {
                             output_clone.mined_height.map(|h| h as i64),
                             output_clone.block_hash,
                             output_clone.spent_in_tx_id.map(|id| id as i64),
+                            output_clone.received_in_tx_id.map(|id| id as i64),
                             output_id as i64,
                         ],
                     )?;
@@ -1314,11 +1386,11 @@ impl WalletStorage for SqliteStorage {
                         r#"
                     INSERT INTO outputs
                     (wallet_id, commitment, hash, value, commitment_mask_key, script_key,
-                    script, input_data, covenant, output_type, features_json, maturity,
+                    script, input_data, covenant, features_json, maturity,
                     script_lock_height, sender_offset_public_key, metadata_signature_ephemeral_commitment,
                     metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                     metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
-                    status, mined_height, block_hash, spent_in_tx_id)
+                    status, mined_height, block_hash, spent_in_tx_id, received_in_tx_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                         params![
@@ -1331,7 +1403,6 @@ impl WalletStorage for SqliteStorage {
                             output_clone.script,
                             output_clone.input_data,
                             output_clone.covenant,
-                            output_clone.output_type as i64,
                             output_clone.features_json,
                             output_clone.maturity as i64,
                             output_clone.script_lock_height as i64,
@@ -1349,6 +1420,7 @@ impl WalletStorage for SqliteStorage {
                             output_clone.mined_height.map(|h| h as i64),
                             output_clone.block_hash,
                             output_clone.spent_in_tx_id.map(|id| id as i64),
+                            output_clone.received_in_tx_id.map(|id| id as i64),
                         ],
                     )?;
 
@@ -1374,12 +1446,12 @@ impl WalletStorage for SqliteStorage {
                         UPDATE outputs
                         SET wallet_id = ?, commitment = ?, hash = ?, value = ?, commitment_mask_key = ?,
                             script_key = ?, script = ?, input_data = ?, covenant = ?,
-                            output_type = ?, features_json = ?, maturity = ?, script_lock_height = ?,
+                            features_json = ?, maturity = ?, script_lock_height = ?,
                             sender_offset_public_key = ?, metadata_signature_ephemeral_commitment = ?,
                             metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                             metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
                             minimum_value_promise = ?, payment_id = ?, rangeproof = ?, status = ?, mined_height = ?,
-                            spent_in_tx_id = ?
+                            spent_in_tx_id = ?, received_in_tx_id = ?
                         WHERE id = ?
                         "#,
                             params![
@@ -1392,7 +1464,6 @@ impl WalletStorage for SqliteStorage {
                                 output.script,
                                 output.input_data,
                                 output.covenant,
-                                output.output_type as i64,
                                 output.features_json,
                                 output.maturity as i64,
                                 output.script_lock_height as i64,
@@ -1409,6 +1480,7 @@ impl WalletStorage for SqliteStorage {
                                 output.status as i64,
                                 output.mined_height.map(|h| h as i64),
                                 output.spent_in_tx_id.map(|id| id as i64),
+                                output.received_in_tx_id.map(|id| id as i64),
                                 output_id as i64,
                             ],
                         )?;
@@ -1422,16 +1494,17 @@ impl WalletStorage for SqliteStorage {
                             r#"
                         INSERT INTO outputs
                         (wallet_id, commitment, hash, value, commitment_mask_key, script_key,
-                         script, input_data, covenant, output_type, features_json, maturity,
+                         script, input_data, covenant, features_json, maturity,
                          script_lock_height, sender_offset_public_key, metadata_signature_ephemeral_commitment,
                          metadata_signature_ephemeral_pubkey, metadata_signature_u_a, metadata_signature_u_x,
                          metadata_signature_u_y, encrypted_data, minimum_value_promise, payment_id, rangeproof,
-                         status, mined_height, block_hash, spent_in_tx_id)
+                         status, mined_height, block_hash, spent_in_tx_id, received_in_tx_id)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(wallet_id, commitment) DO UPDATE SET
                             status = EXCLUDED.status,
                             mined_height = COALESCE(EXCLUDED.mined_height, mined_height),
                             spent_in_tx_id = COALESCE(EXCLUDED.spent_in_tx_id, spent_in_tx_id),
+                            received_in_tx_id = COALESCE(EXCLUDED.received_in_tx_id, received_in_tx_id),
                             updated_at = CURRENT_TIMESTAMP
                         "#,
                             params![
@@ -1444,7 +1517,6 @@ impl WalletStorage for SqliteStorage {
                                 output.script,
                                 output.input_data,
                                 output.covenant,
-                                output.output_type as i64,
                                 output.features_json,
                                 output.maturity as i64,
                                 output.script_lock_height as i64,
@@ -1462,6 +1534,7 @@ impl WalletStorage for SqliteStorage {
                                 output.mined_height.map(|h| h as i64),
                                 output.block_hash,
                                 output.spent_in_tx_id.map(|id| id as i64),
+                                output.received_in_tx_id.map(|id| id as i64),
                             ],
                         )?;
 
@@ -1501,12 +1574,12 @@ impl WalletStorage for SqliteStorage {
                 UPDATE outputs
                 SET wallet_id = ?, commitment = ?, hash = ?, value = ?, commitment_mask_key = ?,
                     script_key = ?, script = ?, input_data = ?, covenant = ?,
-                    output_type = ?, features_json = ?, maturity = ?, script_lock_height = ?,
+                    features_json = ?, maturity = ?, script_lock_height = ?,
                     sender_offset_public_key = ?, metadata_signature_ephemeral_commitment = ?,
                     metadata_signature_ephemeral_pubkey = ?, metadata_signature_u_a = ?,
                     metadata_signature_u_x = ?, metadata_signature_u_y = ?, encrypted_data = ?,
                     minimum_value_promise = ?, payment_id = ?, rangeproof = ?, status = ?, mined_height = ?,
-                    spent_in_tx_id = ?
+                    spent_in_tx_id = ?, received_in_tx_id = ?
                 WHERE id = ?
                 "#,
                     params![
@@ -1519,7 +1592,6 @@ impl WalletStorage for SqliteStorage {
                         output_clone.script,
                         output_clone.input_data,
                         output_clone.covenant,
-                        output_clone.output_type as i64,
                         output_clone.features_json,
                         output_clone.maturity as i64,
                         output_clone.script_lock_height as i64,
@@ -1536,6 +1608,7 @@ impl WalletStorage for SqliteStorage {
                         output_clone.status as i64,
                         output_clone.mined_height.map(|h| h as i64),
                         output_clone.spent_in_tx_id.map(|id| id as i64),
+                        output_clone.received_in_tx_id.map(|id| id as i64),
                         output_id as i64,
                     ],
                 )?;
