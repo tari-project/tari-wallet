@@ -4,7 +4,4 @@
 //! wallet operations, including UTXOs, transactions,
 //! and cryptographic primitives.
 
-pub mod block;
 pub mod incompleted_scanned_output;
-
-pub use block::BlockSummary;
