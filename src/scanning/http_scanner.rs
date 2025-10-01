@@ -47,7 +47,7 @@ use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
     rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponse},
-    transaction_components::{one_sided::shared_secret_to_output_encryption_key, TransactionError, TransactionOutput},
+    transaction_components::TransactionOutput,
 };
 use tari_utilities::hex::Hex;
 #[cfg(all(feature = "http", feature = "tracing"))]
@@ -575,42 +575,15 @@ where KM: TransactionKeyManagerInterface
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
         let (commitment_mask, value, memo) = match self
             .key_manager
-            .try_output_key_recovery(&output.commitment, &output.encrypted_data, None)
-            .await
+            .try_output_key_recovery(
+                &output.commitment,
+                &output.encrypted_data,
+                &output.sender_offset_public_key,
+            )
+            .await?
         {
-            Ok(value) => value,
-            // Key manager errors here are actual errors and should not be suppressed.
-            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
-            Err(_) => return Ok(None),
-        };
-
-        let output = IncompleteScannedOutput::new(output, value, commitment_mask, memo)?;
-        Ok(Some(output))
-    }
-
-    /// Scan for one-sided payments
-    async fn scan_for_one_sided_payment(
-        &self,
-        output: &ScanningOutputStruct,
-    ) -> WalletResult<Option<IncompleteScannedOutput>> {
-        let view_key = self.key_manager.get_view_key().await?;
-
-        let shared_secret = self
-            .key_manager
-            .get_diffie_hellman_shared_secret(&view_key.key_id, &output.sender_offset_public_key)
-            .await?;
-        let recovery_key = shared_secret_to_output_encryption_key(&shared_secret)
-            .map_err(|e| WalletError::ConversionError(e.to_string()))?;
-
-        let (commitment_mask, value, memo) = match self
-            .key_manager
-            .try_output_key_recovery(&output.commitment, &output.encrypted_data, Some(recovery_key))
-            .await
-        {
-            Ok(value) => value,
-            // Key manager errors here are actual errors and should not be suppressed.
-            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
-            Err(_) => return Ok(None),
+            Some(value) => value,
+            None => return Ok(None),
         };
 
         let output = IncompleteScannedOutput::new(output, value, commitment_mask, memo)?;
@@ -752,23 +725,15 @@ where KM: TransactionKeyManagerInterface
 
         let mut blocks_with_utxos = HashSet::new();
         for http_block in http_blocks {
-            use reqwest::header;
-
             let mut wallet_outputs = Vec::new();
 
             let header_hash = FixedHash::try_from(http_block.header_hash.clone()).unwrap_or_default();
             for output in &http_block.outputs {
                 let scanned_output = output.clone().try_into()?;
-                // Strategy 1: Regular recoverable outputs
                 if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
                     wallet_outputs.push(wallet_output);
                     blocks_with_utxos.insert(header_hash.clone());
                     continue;
-                }
-                // Strategy 2: One-sided payments
-                if let Some(wallet_output) = self.scan_for_one_sided_payment(&scanned_output).await? {
-                    wallet_outputs.push(wallet_output);
-                    blocks_with_utxos.insert(header_hash.clone());
                 }
             }
             let mined_timestamp = http_block.mined_timestamp;
@@ -809,7 +774,7 @@ where KM: TransactionKeyManagerInterface
                     let output_hash = output.output_hash.clone();
                     // Attempt to convert to wallet output
                     if let Some(wallet_output) = output.to_wallet_output(tx_output, &self.key_manager).await? {
-                        wallet_outputs.push((output_hash.to_vec(), wallet_output));
+                        wallet_outputs.push((output_hash, wallet_output));
                     }
                 }
             }
@@ -962,7 +927,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
+    async fn get_block_by_height(&mut self, _height: u64) -> WalletResult<Option<Block>> {
         // method does not exit
         Ok(None)
     }

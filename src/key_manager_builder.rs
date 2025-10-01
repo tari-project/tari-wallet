@@ -5,7 +5,7 @@ use tari_common_types::{
     types::CompressedPublicKey,
     wallet_types::{ProvidedKeysWallet, WalletType},
 };
-use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
+use tari_crypto::ristretto::RistrettoSecretKey;
 use tari_transaction_components::{
     crypto_factories::CryptoFactories,
     key_manager::{memory_key_manager::MemoryKeyManagerBackend, TransactionKeyManagerWrapper},
@@ -37,13 +37,9 @@ impl KeyManagerBuilder {
     pub async fn try_build(self) -> Result<TransactionKeyManagerWrapper<MemoryKeyManagerBackend>, anyhow::Error> {
         if let Some(wallet_type) = self.wallet_type {
             match wallet_type.as_ref() {
-                &WalletType::ProvidedKeys(_) => Ok(TransactionKeyManagerWrapper::new(
-                    None,
-                    MemoryKeyManagerBackend::new(),
-                    CryptoFactories::default(),
-                    wallet_type,
-                )
-                .await?),
+                &WalletType::ProvidedKeys(_) => {
+                    Ok(TransactionKeyManagerWrapper::new(None, CryptoFactories::default(), wallet_type).await?)
+                },
                 _ => {
                     todo!("Not implemented yet")
                 },

@@ -1,5 +1,6 @@
 #![cfg(all(feature = "storage", feature = "http"))]
 
+use tari_common_types::types::FixedHash;
 use tari_transaction_components::{key_manager::TransactionKeyManagerInterface, transaction_components::WalletOutput};
 use tokio::time::Instant;
 
@@ -1456,15 +1457,19 @@ impl Default for ScannerBuilder {
 }
 
 // Helper: Add wallet outputs from BlockScanResult to WalletState and emit output_found events
-fn add_outputs_from_blockscan(_wallet_state: &mut WalletState, _outputs: &[WalletOutput], _block_height: u64) {
+fn add_outputs_from_blockscan(
+    _wallet_state: &mut WalletState,
+    _outputs: &[(FixedHash, WalletOutput)],
+    _block_height: u64,
+) {
     // TODO: Implement actual conversion and addition
 }
 
 // Helper: Emit a block processed event for BlockScanResult and emit output_found events
 async fn emit_block_processed_simple(
-    event_emitter: &mut ScanEventEmitter,
+    _event_emitter: &mut ScanEventEmitter,
     block_result: &BlockScanResult,
-    wallet_state: &WalletState,
+    _wallet_state: &WalletState,
 ) -> WalletResult<()> {
     println!(
         "[STUB] Block processed: height={}, outputs_found={}",

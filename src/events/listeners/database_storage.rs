@@ -20,15 +20,6 @@ use tari_common_types::{
     types::CompressedCommitment,
 };
 #[cfg(feature = "storage")]
-use tari_crypto::ristretto::RistrettoSecretKey;
-#[cfg(feature = "storage")]
-use tari_transaction_components::key_manager::{
-    KeyManagerBranch,
-    SerializedKeyString,
-    TariKeyId,
-    TransactionKeyManagerInterface,
-};
-#[cfg(feature = "storage")]
 use tari_transaction_components::transaction_components::MemoField;
 #[cfg(feature = "storage")]
 use tari_transaction_components::transaction_components::WalletOutput;
@@ -321,10 +312,8 @@ impl DatabaseStorageListener {
                 })?;
 
                 let transaction_key_manager = TransactionKeyManager::build(
-                    self.database.clone(),
                     stored_wallet.master_key,
                     tari_common_types::wallet_types::WalletType::default(),
-                    wallet_id,
                 )
                 .await?;
 
@@ -970,7 +959,7 @@ impl DatabaseStorageListener {
         &self,
         _wallet_id: u32,
         transaction_data: &crate::events::types::TransactionData,
-        output_data: &WalletOutput,
+        _output_data: &WalletOutput,
         block_info: &BlockInfo,
     ) -> Result<WalletTransaction, Box<dyn Error + Send + Sync>> {
         // Parse the commitment from hex
@@ -1002,7 +991,7 @@ impl DatabaseStorageListener {
                 MemoField::default()
             } else {
                 // Try to parse the payment ID from hex
-                let payment_id_bytes = crate::HexUtils::from_hex(payment_id_hex)?;
+                let payment_id_bytes = Vec::<u8>::from_hex(payment_id_hex).map_err(|e| format!("Invalid hex: {e}"))?;
                 MemoField::from_bytes(&payment_id_bytes)
             }
         } else {

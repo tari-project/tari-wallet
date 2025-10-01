@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::ops::{Deref, DerefMut};
 
 use tari_common_types::{seeds::cipher_seed::CipherSeed, wallet_types::WalletType};
 use tari_transaction_components::{
@@ -9,27 +6,20 @@ use tari_transaction_components::{
     key_manager::{TransactionKeyManagerInterface, TransactionKeyManagerWrapper},
 };
 
-use crate::{key_manager::TransactionKeyManagerWalletStorage, EncryptionError, WalletResult, WalletStorage};
+use crate::{key_manager::TransactionKeyManagerWalletStorage, EncryptionError, WalletResult};
 
 #[derive(Clone)]
 pub struct TransactionKeyManager(TransactionKeyManagerWrapper<TransactionKeyManagerWalletStorage>);
 
 impl TransactionKeyManager {
-    pub async fn build(
-        database: Arc<dyn WalletStorage>,
-        master_seed: CipherSeed,
-        wallet_type: WalletType,
-        wallet_id: u32,
-    ) -> WalletResult<Self> {
-        let storage = TransactionKeyManagerWalletStorage::build(database, wallet_id).await?;
+    pub async fn build(master_seed: CipherSeed, wallet_type: WalletType) -> WalletResult<Self> {
         let seed = tari_common_types::seeds::cipher_seed::CipherSeed::from_enciphered_bytes(
             &master_seed.encipher(None)?,
             None,
         )
         .map_err(|err| EncryptionError::DecryptionFailed(err.to_string()))?;
         let wrapper =
-            TransactionKeyManagerWrapper::new(seed, storage.clone(), CryptoFactories::default(), wallet_type.into())
-                .await?;
+            TransactionKeyManagerWrapper::new(Some(seed), CryptoFactories::default(), wallet_type.into()).await?;
         Ok(Self(wrapper))
     }
 

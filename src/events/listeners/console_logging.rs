@@ -1154,7 +1154,6 @@ impl EventListener for ConsoleLoggingListener {
             },
             WalletScanEvent::OutputFound {
                 output_data,
-                block_info,
                 address_info,
                 ..
             } => {

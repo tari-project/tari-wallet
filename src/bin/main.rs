@@ -1,6 +1,6 @@
 #![cfg(all(feature = "storage", feature = "http"))]
 
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use lightweight_wallet_libs::{
@@ -158,7 +158,7 @@ async fn handle_new_wallet(args: NewArgs) -> WalletResult<()> {
                 private_comms_key: None,
                 birthday: None,
             };
-            (WalletType::ProvidedKeys(provided_keys), CipherSeed::new())
+            (WalletType::ProvidedKeys(provided_keys), CipherSeed::random())
         },
         _ => panic!("Impossible"),
     };
@@ -246,13 +246,7 @@ async fn handle_scan(args: ScanArgs) -> WalletResult<()> {
         .await?
         .ok_or_else(|| format!("❌  Error: No wallet with name {wallet_name} was found"))?;
 
-    let key_manager = TransactionKeyManager::build(
-        Arc::new(storage),
-        existing_wallet.master_key,
-        existing_wallet.wallet_type,
-        existing_wallet.id.unwrap(),
-    )
-    .await?;
+    let key_manager = TransactionKeyManager::build(existing_wallet.master_key, existing_wallet.wallet_type).await?;
 
     // use crate::scanning::{
     // new_wallet_scanner::WalletScanner,
@@ -285,7 +279,7 @@ async fn handle_scan(args: ScanArgs) -> WalletResult<()> {
     let mut http_scanner = HttpBlockchainScanner::new(args.base_url.clone(), key_manager.as_interface()).await?;
 
     // Prepare cancellation channel
-    let (cancel_tx, mut cancel_rx) = watch::channel(false);
+    let (_cancel_tx, mut cancel_rx) = watch::channel(false);
 
     // Run scan
     let scan_result = scanner.scan(&mut http_scanner, &config, &mut cancel_rx).await?;

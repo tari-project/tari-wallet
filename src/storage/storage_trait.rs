@@ -7,10 +7,9 @@ use async_trait::async_trait;
 use tari_common_types::{
     seeds::cipher_seed::CipherSeed,
     transaction::{TransactionDirection, TransactionStatus},
-    types::{CompressedCommitment, CompressedPublicKey, PrivateKey},
+    types::{CompressedCommitment, CompressedPublicKey},
     wallet_types::WalletType,
 };
-use tari_utilities::{ByteArray, SafePassword};
 
 use super::{output_status::OutputStatus, stored_output::StoredOutput};
 use crate::{

@@ -17,21 +17,14 @@ use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
-    transaction_components::{
-        one_sided::shared_secret_to_output_encryption_key,
-        Transaction,
-        TransactionError,
-        TransactionInput,
-        TransactionKernel,
-        TransactionOutput,
-        WalletOutput,
-    },
+    transaction_components::{Transaction, TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
 };
 use tonic::{transport::Channel, Request};
 
 use crate::{
     errors::{WalletError, WalletResult},
     scanning::{BlockScanResult, BlockchainScanner, ScanConfig, TipInfo, TransactionBroadcaster},
+    BlockHeaderInfo,
     ExtractionConfig,
 };
 
@@ -133,42 +126,16 @@ where KM: TransactionKeyManagerInterface
     pub async fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
         let (commitment_mask, value, memo) = match self
             .key_manager
-            .try_output_key_recovery(&output.commitment, &output.encrypted_data, None)
-            .await
+            .try_output_key_recovery(
+                &output.commitment,
+                &output.encrypted_data,
+                &output.sender_offset_public_key,
+            )
+            .await?
         {
-            Ok(value) => value,
-            // Key manager errors here are actual errors and should not be suppressed.
-            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
-            Err(_) => return Ok(None),
+            Some(value) => value,
+            None => return Ok(None),
         };
-        match WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await {
-            Ok(wallet_output) => Ok(Some(wallet_output)),
-            Err(_) => Ok(None),
-        }
-    }
-
-    /// Scan for one-sided payments
-    pub async fn scan_for_one_sided_payment(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        let view_key = self.key_manager.get_view_key().await?;
-
-        let shared_secret = self
-            .key_manager
-            .get_diffie_hellman_shared_secret(&view_key.key_id, &output.sender_offset_public_key)
-            .await?;
-        let recovery_key = shared_secret_to_output_encryption_key(&shared_secret)
-            .map_err(|e| WalletError::ConversionError(e.to_string()))?;
-
-        let (commitment_mask, value, memo) = match self
-            .key_manager
-            .try_output_key_recovery(&output.commitment, &output.encrypted_data, Some(recovery_key))
-            .await
-        {
-            Ok(value) => value,
-            // Key manager errors here are actual errors and should not be suppressed.
-            Err(TransactionError::KeyManagerError(e)) => return Err(TransactionError::KeyManagerError(e).into()),
-            Err(_) => return Ok(None),
-        };
-
         match WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await {
             Ok(wallet_output) => Ok(Some(wallet_output)),
             Err(_) => Ok(None),
@@ -324,10 +291,6 @@ where KM: TransactionKeyManagerInterface
                 wallet_outputs.push(wallet_output);
                 continue;
             }
-            if let Some(wallet_output) = self.scan_for_one_sided_payment(output).await? {
-                wallet_outputs.push(wallet_output);
-                continue;
-            }
         }
 
         Ok(wallet_outputs)
@@ -432,11 +395,7 @@ where KM: TransactionKeyManagerInterface
                     // Process outputs without debug output - let caller decide what to log
                     for output in tari_block.body.outputs() {
                         if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
-                            wallet_outputs.push(wallet_output);
-                            continue;
-                        }
-                        if let Some(wallet_output) = self.scan_for_one_sided_payment(output).await? {
-                            wallet_outputs.push(wallet_output);
+                            wallet_outputs.push((output.hash(), wallet_output));
                             continue;
                         }
                     }
@@ -472,11 +431,11 @@ where KM: TransactionKeyManagerInterface
         Ok(Self::convert_tip_info(&tip_info))
     }
 
-    async fn search_utxos(&mut self, commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
+    async fn search_utxos(&mut self, _commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
         Ok(Vec::new())
     }
 
-    async fn fetch_utxos(&mut self, hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>> {
+    async fn fetch_utxos(&mut self, _hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>> {
         Ok(Vec::new())
     }
 
@@ -517,6 +476,19 @@ where KM: TransactionKeyManagerInterface
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
         let blocks = self.get_blocks_by_heights(vec![height]).await?;
         Ok(blocks.into_iter().next())
+    }
+
+    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
+        let block = self.get_block_by_height(height).await?;
+        if let Some(b) = block {
+            Ok(Some(BlockHeaderInfo {
+                height: b.header.height,
+                hash: b.hash(),
+                timestamp: b.header.timestamp,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 

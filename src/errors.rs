@@ -21,8 +21,8 @@ pub enum WalletError {
     ScanningError(#[from] ScanningError),
     #[error("Encryption error: {0}")]
     EncryptionError(#[from] EncryptionError),
-    #[error("Hex error: {0}")]
-    HexError(#[from] crate::hex_utils::HexError),
+    // #[error("Hex error: {0}")]
+    // HexError(#[from] crate::hex_utils::HexError),
     #[error("Conversion error: {0}")]
     ConversionError(String),
     #[error("Invalid argument: {argument} = {value}. {message}")]

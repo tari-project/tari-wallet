@@ -322,7 +322,7 @@ pub struct BlockScanResult {
     /// Block hash
     pub block_hash: FixedHash,
     /// Wallet outputs extracted from transaction outputs (hash, output)
-    pub wallet_outputs: Vec<(Vec<u8>, WalletOutput)>,
+    pub wallet_outputs: Vec<(FixedHash, WalletOutput)>,
     /// Input hashes
     pub inputs: Vec<FixedHash>,
     /// Timestamp when block was mined
@@ -753,7 +753,7 @@ impl MockBlockchainScanner {
 
 #[async_trait(?Send)]
 impl BlockchainScanner for MockBlockchainScanner {
-    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+    async fn scan_blocks(&mut self, _config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
         todo!("Implement scan_blocks for MockBlockchainScanner");
         // DefaultScanningLogic::scan_blocks_with_progress(self, config, None).await
     }

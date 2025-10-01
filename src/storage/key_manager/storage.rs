@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305};
+use chacha20poly1305::XChaCha20Poly1305;
 use tari_common_types::{
     encryption::Encryptable,
     types::{CompressedPublicKey, PrivateKey},
@@ -10,7 +10,6 @@ use tari_transaction_components::key_manager::{
     KeyManagerState,
     TransactionKeyManagerBackend,
 };
-use tari_utilities::hex::Hex;
 
 use crate::{
     key_manager::{ImportedKey, NewImportedKeySql, NewKeyManagerStateSql},

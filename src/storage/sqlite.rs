@@ -337,7 +337,7 @@ impl SqliteStorage {
         use tari_common_types::{encryption::decrypt_bytes_integral_nonce, wallet_types::WalletType};
         use tari_utilities::hex::from_hex;
 
-        use crate::{DatabaseEncryptionFields, HexUtils};
+        use crate::DatabaseEncryptionFields;
 
         let encryption_fields: String = row.get("encryption_fields")?;
         let encryption_fields: DatabaseEncryptionFields = serde_json::from_str(&encryption_fields)
@@ -347,8 +347,6 @@ impl SqliteStorage {
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
 
         let master_key_hex: String = row.get("master_key")?;
-        let bytes = HexUtils::from_hex(&master_key_hex)
-            .map_err(|err| rusqlite::Error::InvalidParameterName(err.to_string()))?;
         let decrypted_key_bytes = Hidden::hide(
             decrypt_bytes_integral_nonce(
                 &cipher,

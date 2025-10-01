@@ -6,12 +6,12 @@
 //!
 //! This module is part of the scanner.rs binary refactoring effort.
 
+// Required imports for ScannerStorage functionality
+#[cfg(feature = "storage")]
+use tari_common_types::seeds::cipher_seed::CipherSeed;
 #[cfg(feature = "storage")]
 #[cfg(feature = "storage")]
 use tari_common_types::types::CompressedCommitment;
-// Required imports for ScannerStorage functionality
-#[cfg(feature = "storage")]
-use tari_common_types::{seeds::cipher_seed::CipherSeed, types::PrivateKey};
 #[cfg(feature = "storage")]
 #[cfg(feature = "storage")]
 use tari_utilities::SafePassword;
@@ -225,7 +225,7 @@ impl ScannerStorage {
                 "default".to_string(),
                 WalletType::default(),
                 DatabaseEncryptionFields::default(),
-                CipherSeed::new(),
+                CipherSeed::random(),
             );
             let wallet_id = storage.save_wallet(&wallet).await?;
             // Note: In library mode, success information should be logged by caller

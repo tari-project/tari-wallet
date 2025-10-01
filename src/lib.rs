@@ -8,7 +8,7 @@ pub mod data_structures;
 pub mod errors;
 pub mod events;
 pub mod extraction;
-pub mod hex_utils;
+// pub mod hex_utils;
 mod key_manager_builder;
 pub mod scanning;
 pub use key_manager_builder::KeyManagerBuilder;
@@ -22,7 +22,7 @@ pub mod wasm;
 
 pub use errors::*;
 pub use extraction::*;
-pub use hex_utils::*;
+// pub use hex_utils::*;
 pub use scanning::*;
 pub use storage::*;
 // Re-export types from transaction components for easier use

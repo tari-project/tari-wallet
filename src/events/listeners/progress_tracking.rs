@@ -676,7 +676,6 @@ impl EventListener for ProgressTrackingListener {
             },
             WalletScanEvent::OutputFound {
                 output_data,
-                block_info,
                 address_info,
                 ..
             } => {
