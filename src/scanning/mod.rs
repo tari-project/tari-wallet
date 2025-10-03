@@ -543,15 +543,12 @@ where KM: TransactionKeyManagerInterface
     pub async fn build(self) -> WalletResult<Box<dyn BlockchainScanner>> {
         match self.scanner_type {
             Some(ScannerType::Mock) => Ok(Box::new(MockBlockchainScanner::new())),
+
+            #[cfg(feature = "grpc")]
             Some(ScannerType::Grpc { url, key_manager }) => {
-                #[cfg(feature = "grpc")]
                 {
                     let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
                     Ok(Box::new(scanner))
-                }
-                #[cfg(not(feature = "grpc"))]
-                {
-                    Err(WalletError::ConfigurationError("gRPC feature not enabled".to_string()))
                 }
             },
             #[cfg(feature = "http")]
