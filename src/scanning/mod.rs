@@ -36,48 +36,20 @@ pub mod grpc_scanner;
 
 // Include HTTP scanner
 #[cfg(feature = "http")]
-pub mod http_scanner;
+pub mod http;
+pub use http::scanner as http_scanner;
 
 // Scanner refactoring modules (for binary refactoring)
 pub mod scan_config;
 
-#[cfg(feature = "storage")]
-pub mod storage_manager;
 
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-pub mod background_writer;
 
 pub mod wallet_scanner;
 
 #[cfg(all(feature = "storage", feature = "http"))]
 pub mod new_wallet_scanner;
 
-pub mod progress;
 
-// Data processing callback interface
-pub mod data_processor;
-
-// Database data processor implementation
-#[cfg(feature = "storage")]
-pub mod database_processor;
-
-// Re-export GRPC scanner types
-// Re-export background writer types for scanner binary operations
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-pub use background_writer::{BackgroundWriter, BackgroundWriterCommand};
-// Re-export data processor types
-pub use data_processor::{
-    BlockData,
-    CompletionData,
-    CompositeDataProcessor,
-    DataProcessor,
-    MemoryDataProcessor,
-    NoOpDataProcessor,
-    ProgressData,
-};
-// Re-export database processor types
-#[cfg(feature = "storage")]
-pub use database_processor::{DatabaseDataProcessor, MemoryStorageProcessor};
 #[cfg(feature = "grpc")]
 pub use grpc_scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
 // Re-export HTTP scanner types
@@ -102,6 +74,7 @@ pub use wallet_scanner::{
 
 // Event emitter module for scanner integration with event system
 pub mod event_emitter;
+mod interface;
 
 // Re-export event emitter types
 #[cfg(feature = "storage")]
@@ -340,174 +313,8 @@ pub struct BlockHeaderInfo {
     pub timestamp: EpochTime,
 }
 
-/// Blockchain scanner trait for scanning UTXOs
-///
-/// This trait provides a lightweight interface that can be implemented by
-/// different backend providers (gRPC, HTTP, etc.) without requiring heavy
-/// dependencies in the core library.
-#[async_trait(?Send)]
-pub trait BlockchainScanner: Send + Sync {
-    /// Scan for wallet outputs in the specified block range
-    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>>;
-
-    /// Get the current chain tip information
-    async fn get_tip_info(&mut self) -> WalletResult<TipInfo>;
-
-    /// Search for specific UTXOs by commitment
-    async fn search_utxos(&mut self, commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>>;
-
-    /// Fetch specific UTXOs by hash
-    async fn fetch_utxos(&mut self, hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>>;
-
-    /// Get blocks by height range
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>>;
-
-    /// Get a single block by height
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>>;
-
-    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>>;
-}
-
-/// Wallet scanner trait for scanning with wallet keys
-///
-/// This trait extends the basic blockchain scanner with wallet-specific
-/// functionality for scanning with key management.
-#[async_trait(?Send)]
-pub trait WalletScanner<KM>: Send + Sync
-where KM: TransactionKeyManagerInterface
-{
-    /// Scan for wallet outputs using wallet keys
-    async fn scan_wallet(&mut self, config: WalletScanConfig<KM>) -> WalletResult<WalletScanResult>;
-
-    /// Scan for wallet outputs with progress reporting
-    async fn scan_wallet_with_progress(
-        &mut self,
-        config: WalletScanConfig<KM>,
-        progress_callback: Option<&LegacyProgressCallback>,
-    ) -> WalletResult<WalletScanResult>;
-
-    /// Get the underlying blockchain scanner
-    fn blockchain_scanner(&mut self) -> &mut dyn BlockchainScanner;
-}
-
-/// Transaction broadcaster
-///
-/// This trait provides a lightweight interface that can be implemented by
-/// different backend providers (gRPC, HTTP, etc.) without requiring heavy
-/// dependencies in the core library.
-#[async_trait(?Send)]
-pub trait TransactionBroadcaster: Send + Sync {
-    /// Submit a transaction to base node
-    async fn submit_transaction(&mut self, transaction: Transaction) -> WalletResult<i32>;
-}
-
-/// Mock implementation for testing
-pub struct MockBlockchainScanner {
-    blocks: Vec<Block>,
-    tip_info: TipInfo,
-}
-
-impl Default for MockBlockchainScanner {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MockBlockchainScanner {
-    /// Create a new mock scanner
-    pub fn new() -> Self {
-        Self {
-            blocks: Vec::new(),
-            tip_info: TipInfo {
-                best_block_height: 1000,
-                best_block_hash: FixedHash::zero(),
-                accumulated_difficulty: "0x19ede5dc5f735cc64e1223f35840".to_owned(),
-                pruned_height: 500,
-                timestamp: 1234567890,
-            },
-        }
-    }
-
-    /// Add a mock block
-    pub fn add_block(&mut self, block: Block) {
-        self.blocks.push(block);
-    }
-
-    /// Set tip info
-    pub fn set_tip_info(&mut self, tip_info: TipInfo) {
-        self.tip_info = tip_info;
-    }
-}
-
-#[async_trait(?Send)]
-impl BlockchainScanner for MockBlockchainScanner {
-    async fn scan_blocks(&mut self, _config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
-        todo!("Implement scan_blocks for MockBlockchainScanner");
-        // DefaultScanningLogic::scan_blocks_with_progress(self, config, None).await
-    }
-
-    async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
-        Ok(self.tip_info.clone())
-    }
-
-    async fn search_utxos(&mut self, _commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
-        // Mock implementation - return empty results
-        Ok(Vec::new())
-    }
-
-    async fn fetch_utxos(&mut self, _hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>> {
-        // Mock implementation - return empty results
-        Ok(Vec::new())
-    }
-
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>> {
-        let mut result = Vec::new();
-        for height in heights {
-            if let Some(block) = self.blocks.iter().find(|b| b.header.height == height) {
-                result.push(block.clone());
-            }
-        }
-        Ok(result)
-    }
-
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
-        Ok(self.blocks.iter().find(|b| b.header.height == height).cloned())
-    }
-
-    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
-        if let Some(block) = self.blocks.iter().find(|b| b.header.height == height) {
-            Ok(Some(BlockHeaderInfo {
-                height: block.header.height,
-                hash: block.header.hash(),
-                timestamp: block.header.timestamp,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-}
 
 /// Builder for creating blockchain scanners
-pub struct BlockchainScannerBuilder<KM> {
-    scanner_type: Option<ScannerType<KM>>,
-    config: Option<ScannerConfig>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ScannerType<KM> {
-    Mock,
-    // Add other scanner types here as needed
-    #[cfg(feature = "grpc")]
-    Grpc {
-        key_manager: KM,
-        url: String,
-    },
-    #[cfg(feature = "http")]
-    Http {
-        key_manager: KM,
-        url: String,
-    },
-}
 
 #[derive(Debug, Clone)]
 pub struct ScannerConfig {
