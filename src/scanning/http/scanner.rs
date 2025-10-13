@@ -371,7 +371,7 @@ where KM: TransactionKeyManagerInterface
                 current_header_hash
             },
         };
-        println!("Starting header hash: {}", current_header_hash);
+        // println!("Starting header hash: {}", current_header_hash);
         let mut all_blocks = Vec::new();
 
         debug!("Starting fetch_block_range from height {} ", start_height);
@@ -380,8 +380,8 @@ where KM: TransactionKeyManagerInterface
             .get_config()
             .and_then(|c| c.batch_size)
             .unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
-        println!("Using limit: {}", limit);
-        println!("Using page: {}", self.current_in_progress.current_page);
+        // println!("Using limit: {}", limit);
+        // println!("Using page: {}", self.current_in_progress.current_page);
         let page = self.current_in_progress.current_page;
         let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
         if sync_response.blocks.is_empty() {
@@ -403,25 +403,25 @@ where KM: TransactionKeyManagerInterface
                     has_next_page = false;
                 }
             }
-            println!("Fetched block at height {}", block.height);
+            // println!("Fetched block at height {}", block.height);
             all_blocks.push(block);
         }
         self.current_in_progress.increment_page();
 
-        println!("Has next page: {}", has_next_page);
+        // println!("Has next page: {}", has_next_page);
         if !has_next_page {
             if self.current_in_progress.is_active() {
-                println!("still active");
+                // println!("still active");
                 // we are done scanning this batch of blocks, we need to request the next header, and we have not
                 // reached some end goal
                 if next_header_to_scan.is_empty() {
-                    println!("no next header");
+                    // println!("no next header");
                     debug!("No next header to scan, ending fetch");
                     more_blocks = false;
                     self.current_in_progress.clear();
                 } else {
                     let next_header_to_scan_hex = next_header_to_scan.to_hex();
-                    println!("next header to scan: {}", next_header_to_scan_hex);
+                    // println!("next header to scan: {}", next_header_to_scan_hex);
                     debug!("Setting next header to scan: {}", next_header_to_scan_hex);
                     // Safeguard against infinite loops if the server returns the same hash
                     if next_header_to_scan_hex == self.current_in_progress.get_header().cloned().unwrap_or_default() {
