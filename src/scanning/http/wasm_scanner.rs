@@ -64,18 +64,20 @@ use web_sys::{window, Request, RequestInit, RequestMode, Response};
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use crate::BlockHeaderInfo;
 use crate::{
+    data_structures::incompleted_scanned_output::{IncompleteScannedOutput, ScanningOutputStruct},
     errors::{WalletError, WalletResult},
-    scanning::{BlockScanResult, ScanConfig, TipInfo},
+    extraction::ExtractionConfig,
+    scanning::{BlockScanResult, BlockchainScanner, ScanConfig, TipInfo},
     UtxoScanResult,
 };
 use std::{
     collections::{HashMap, HashSet},
     time::Instant,
 };
-use crate::http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct};
-use crate::scanning::interface::BlockchainScanner;
+use crate::http::models::{HttpBlockHeader, HttpTipInfoResponse};
 
 /// HTTP client for connecting to Tari base node
+#[cfg(feature = "http")]
 pub struct HttpBlockchainScanner<KM> {
     /// HTTP client for making requests (native targets)
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
@@ -86,7 +88,6 @@ pub struct HttpBlockchainScanner<KM> {
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     timeout: Duration,
     key_manager: KM,
-    current_in_progress_scan: Option<ScanConfig>,
 }
 
 impl<KM> HttpBlockchainScanner<KM>
@@ -94,6 +95,8 @@ where KM: TransactionKeyManagerInterface
 {
     /// Create a new HTTP scanner with the given base URL
     pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        {
             let timeout = Duration::from_secs(30);
             let client = Client::builder().timeout(timeout).build().map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -116,11 +119,48 @@ where KM: TransactionKeyManagerInterface
                 base_url,
                 timeout,
                 key_manager,
-                current_in_progress_scan: None
             })
+        }
+
+        #[cfg(all(feature = "http", target_arch = "wasm32"))]
+        {
+            // For WASM, we don't need to create a persistent client
+            // web-sys creates requests on-demand
+
+            // Test the connection with a simple GET request
+            let test_url = format!("{}/get_tip_info", base_url);
+
+            let opts = RequestInit::new();
+            opts.set_method("GET");
+            opts.set_mode(RequestMode::Cors);
+
+            let request = Request::new_with_str_and_init(&test_url, &opts)?;
+
+            let window = window().ok_or_else(|| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
+            })?;
+
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to connect to {}",
+                    base_url
+                )))
+            })?;
+
+            let _resp: Response = resp_value.dyn_into().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
+            })?;
+
+            Ok(Self { base_url, key_manager })
+        }
     }
 
     /// Create a new HTTP scanner with custom timeout (native only)
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn with_timeout(base_url: String, timeout: Duration, key_manager: KM) -> WalletResult<Self> {
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -142,11 +182,11 @@ where KM: TransactionKeyManagerInterface
             base_url,
             timeout,
             key_manager,
-            current_in_progress_scan: None
         })
     }
 
     /// Get header by height - matches WASM example usage
+    #[cfg(not(target_arch = "wasm32"))]
     async fn get_header_by_height(&self, height: u64) -> WalletResult<HttpHeaderResponse> {
         let url = format!("{}/get_header_by_height", self.base_url);
 
@@ -180,12 +220,78 @@ where KM: TransactionKeyManagerInterface
             Ok(header_response)
     }
 
+    /// Get header by height - matches WASM example usage
+    #[cfg(target_arch = "wasm32")]
+    async fn get_header_by_height(&self, height: u64) -> WalletResult<HttpHeaderResponse> {
+        let url = format!("{}/get_header_by_height", self.base_url);
+
+            let url_with_params = format!("{}?height={}", url, height);
+
+            let opts = RequestInit::new();
+            opts.set_method("GET");
+            opts.set_mode(RequestMode::Cors);
+
+            let request = Request::new_with_str_and_init(&url_with_params, &opts)?;
+            request.headers().set("Accept", "application/json")?;
+
+            let window = window().ok_or_else(|| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
+            })?;
+
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "HTTP request failed",
+                ))
+            })?;
+
+            let response: Response = resp_value.dyn_into().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
+            })?;
+
+            if !response.ok() {
+                return Err(WalletError::ScanningError(
+                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP error: {}",
+                        response.status()
+                    )),
+                ));
+            }
+
+            // Get JSON response
+            let json_promise = response.json().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to get JSON response",
+                ))
+            })?;
+
+            let json_value = JsFuture::from(json_promise).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to parse JSON response",
+                ))
+            })?;
+
+            let header_response: HttpHeaderResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to deserialize response: {}",
+                    e
+                )))
+            })?;
+
+            Ok(header_response)
+    }
+
     /// Sync UTXOs by block - matches WASM example usage
     async fn sync_utxos_by_block(&self, start_header_hash: &str, limit: u64) -> WalletResult<SyncUtxosByBlockResponse> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
         let page = 0u64;
 
-
+        // Native implementation using reqwest
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        {
             let response = self
                 .client
                 .get(&url)
@@ -218,13 +324,80 @@ where KM: TransactionKeyManagerInterface
             })?;
 
             Ok(sync_response)
+        }
 
+        // WASM implementation using web-sys
+        #[cfg(all(feature = "http", target_arch = "wasm32"))]
+        {
+            let url_with_params = format!(
+                "{}?start_header_hash={}&limit={}&page={}",
+                url, start_header_hash, limit, page
+            );
+
+            let opts = RequestInit::new();
+            opts.set_method("GET");
+            opts.set_mode(RequestMode::Cors);
+
+            let request = Request::new_with_str_and_init(&url_with_params, &opts)?;
+            request.headers().set("Accept", "application/json")?;
+
+            let window = window().ok_or_else(|| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
+            })?;
+
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "HTTP request failed",
+                ))
+            })?;
+
+            let response: Response = resp_value.dyn_into().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
+            })?;
+
+            if !response.ok() {
+                return Err(WalletError::ScanningError(
+                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP error: {}",
+                        response.status()
+                    )),
+                ));
+            }
+
+            // Get JSON response
+            let json_promise = response.json().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to get JSON response",
+                ))
+            })?;
+
+            let json_value = JsFuture::from(json_promise).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to parse JSON response",
+                ))
+            })?;
+
+            let sync_response: SyncUtxosByBlockResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to deserialize response: {}",
+                    e
+                )))
+            })?;
+
+            Ok(sync_response)
+        }
     }
 
     async fn get_utxos_by_block(&self, current_header_hash: &str) -> WalletResult<GetUtxosByBlockResponse> {
         let url = format!("{}/get_utxos_by_block", self.base_url);
 
-
+        // Native implementation using reqwest
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        {
             let response = self
                 .client
                 .get(&url)
@@ -253,7 +426,69 @@ where KM: TransactionKeyManagerInterface
             })?;
 
             Ok(sync_response)
+        }
 
+        // WASM implementation using web-sys
+        #[cfg(all(feature = "http", target_arch = "wasm32"))]
+        {
+            let url_with_params = format!("{}?header_hash={}", url, current_header_hash);
+
+            let opts = RequestInit::new();
+            opts.set_method("GET");
+            opts.set_mode(RequestMode::Cors);
+
+            let request = Request::new_with_str_and_init(&url_with_params, &opts)?;
+            request.headers().set("Accept", "application/json")?;
+
+            let window = window().ok_or_else(|| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "No window object available",
+                ))
+            })?;
+
+            let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "HTTP request failed",
+                ))
+            })?;
+
+            let response: Response = resp_value.dyn_into().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid response type",
+                ))
+            })?;
+
+            if !response.ok() {
+                return Err(WalletError::ScanningError(
+                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "HTTP error: {}",
+                        response.status()
+                    )),
+                ));
+            }
+
+            // Get JSON response
+            let json_promise = response.json().map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to get JSON response",
+                ))
+            })?;
+
+            let json_value = JsFuture::from(json_promise).await.map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Failed to parse JSON response",
+                ))
+            })?;
+
+            let sync_response: GetUtxosByBlockResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "Failed to deserialize response: {}",
+                    e
+                )))
+            })?;
+
+            Ok(sync_response)
+        }
     }
 
 
@@ -263,11 +498,17 @@ where KM: TransactionKeyManagerInterface
         start_height: u64,
         end_height: Option<u64>,
     ) -> WalletResult<ScanConfig> {
+        let extraction_config = ExtractionConfig::default();
+
         Ok(ScanConfig {
             start_height,
             end_height,
             batch_size: 100,
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             request_timeout: self.timeout,
+            #[cfg(all(feature = "http", target_arch = "wasm32"))]
+            request_timeout: std::time::Duration::from_secs(30), // Default for WASM
+            extraction_config,
         })
     }
 
@@ -304,6 +545,7 @@ where KM: TransactionKeyManagerInterface
         let max_blocks = (end_height - start_height + 1) as usize;
         let mut is_first_batch = true;
 
+        #[cfg(feature = "tracing")]
         debug!(
             "Starting fetch_block_range from height {} to {} (max {} blocks)",
             start_height, end_height, max_blocks
@@ -349,16 +591,19 @@ where KM: TransactionKeyManagerInterface
             // Check if we have a next header to continue with and haven't reached our limit
             if blocks_collected < max_blocks {
                 if sync_response.next_header_to_scan.is_empty() {
+                    #[cfg(feature = "tracing")]
                     debug!("No more headers to scan, reached end of available data");
                     break;
                 } else {
                     let next_hash = sync_response.next_header_to_scan.to_hex();
                     // Safeguard against infinite loops if the server returns the same hash
                     if next_hash == current_header_hash {
+                        #[cfg(feature = "tracing")]
                         debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
                         break;
                     }
                     current_header_hash = next_hash;
+                    #[cfg(feature = "tracing")]
                     debug!(
                         "Continuing with next header: {} (collected {}/{} blocks)",
                         &current_header_hash[..16],
@@ -369,6 +614,7 @@ where KM: TransactionKeyManagerInterface
             }
         }
 
+        #[cfg(feature = "tracing")]
         debug!(
             "Fetched {} blocks for range {} to {}",
             all_blocks.len(),
@@ -380,28 +626,18 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
+#[cfg(feature = "http")]
 #[async_trait(?Send)]
 impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
-    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
-        match &self.current_in_progress_scan {
-            Some(existing_scan) =>
-                {
-                    debug!(
-                        "Continuing HTTP block scan from height {} to {:?}",
-                        existing_scan.start_height, existing_scan.end_height
-                    );
-                },
-            _ => {
-                debug!(
-                    "Starting HTTP block scan from height {} to {:?}",
-                    config.start_height, config.end_height
-                    );
-            }
-        }
+    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
 
-
+        #[cfg(feature = "tracing")]
+        debug!(
+            "Starting HTTP block scan from height {} to {:?}",
+            config.start_height, config.end_height
+        );
 
         let timer = Instant::now();
         let end_height = match config.end_height {
@@ -630,11 +866,88 @@ where KM: TransactionKeyManagerInterface
         Ok(blocks)
     }
 
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     async fn get_block_by_height(&mut self, _height: u64) -> WalletResult<Option<Block>> {
         // method does not exit
         Ok(None)
     }
 
+    #[cfg(all(feature = "http", target_arch = "wasm32"))]
+    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<BlockInfo>> {
+        let url = format!("{}/base_node/blocks/{}", self.base_url, height);
+
+        let opts = RequestInit::new();
+        opts.set_method("GET");
+        opts.set_mode(RequestMode::Cors);
+
+        let request = Request::new_with_str_and_init(&url, &opts)?;
+        request.headers().set("Accept", "application/json")?;
+
+        let window = window().ok_or_else(|| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "No window object available",
+            ))
+        })?;
+
+        let resp_value = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to fetch block {height}"
+            )))
+        })?;
+
+        let response: Response = resp_value.dyn_into().map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "Invalid response type",
+            ))
+        })?;
+
+        if !response.ok() {
+            if response.status() == 404 {
+                return Ok(None);
+            }
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP {} error fetching block {height}",
+                    response.status()
+                )),
+            ));
+        }
+
+        // Get JSON response
+        let json_promise = response.json().map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "Failed to get JSON response",
+            ))
+        })?;
+
+        let json_value = JsFuture::from(json_promise).await.map_err(|_| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                "Failed to parse JSON response",
+            ))
+        })?;
+
+        let block_response: SingleBlockResponse = serde_wasm_bindgen::from_value(json_value).map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to deserialize block response for height {height}: {e}"
+            )))
+        })?;
+
+        let block = block_response.block;
+        Ok(Some(BlockInfo {
+            height: block.header.height,
+            hash: hex::decode(&block.header.hash).map_err(|_| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Invalid block hash format",
+                ))
+            })?,
+            outputs: block.body.outputs,
+            inputs: Vec::new(),  // HTTP API doesn't provide input details
+            kernels: Vec::new(), // HTTP API doesn't provide kernel details
+            timestamp: block.header.timestamp,
+        }))
+    }
+
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
         use tari_utilities::epoch_time::EpochTime;
 

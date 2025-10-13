@@ -352,7 +352,7 @@ where KM: TransactionKeyManagerInterface
 impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
-    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
         let end_height = config.end_height.unwrap_or(tip_info.best_block_height);
@@ -524,13 +524,7 @@ impl<KM> std::fmt::Debug for GrpcBlockchainScanner<KM> {
     }
 }
 
-// impl<KM> Clone for GrpcBlockchainScanner<KM> {
-//     fn clone(&self) -> Self {
-//         // Note: This creates a new connection, which is expensive
-//         // In practice, you might want to use connection pooling
-//         panic!("GrpcBlockchainScanner cannot be cloned - create a new instance instead");
-//     }
-// }
+
 
 /// Builder for creating GRPC blockchain scanners
 
@@ -587,87 +581,3 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
-// impl Default for GrpcScannerBuilder {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-
-// Empty module when GRPC feature is not enabled
-#[cfg(not(feature = "grpc"))]
-pub struct GrpcBlockchainScanner;
-
-#[cfg(not(feature = "grpc"))]
-impl GrpcBlockchainScanner {
-    pub async fn new(_base_url: String) -> crate::errors::WalletResult<Self> {
-        Err(crate::errors::WalletError::OperationNotSupported(
-            "GRPC feature not enabled".to_string(),
-        ))
-    }
-}
-
-#[cfg(not(feature = "grpc"))]
-pub struct GrpcScannerBuilder;
-
-#[cfg(not(feature = "grpc"))]
-impl GrpcScannerBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub async fn build(self) -> crate::errors::WalletResult<GrpcBlockchainScanner> {
-        Err(crate::errors::WalletError::OperationNotSupported(
-            "GRPC feature not enabled".to_string(),
-        ))
-    }
-}
-
-// #[async_trait(?Send)]
-// impl<KM> WalletScanner<KM> for GrpcBlockchainScanner<KM>
-// where KM: TransactionKeyManagerInterface
-// {
-//     async fn scan_wallet(&mut self, config: WalletScanConfig<KM>) -> WalletResult<WalletScanResult> {
-//         self.scan_wallet_with_progress(config, None).await
-//     }
-//
-//     async fn scan_wallet_with_progress(
-//         &mut self,
-//         config: WalletScanConfig<KM>,
-//         progress_callback: Option<&LegacyProgressCallback>,
-//     ) -> WalletResult<WalletScanResult> {
-//
-//         // Use the default scanning logic with proper wallet key integration
-//         DefaultScanningLogic::scan_wallet_with_progress(self, config, progress_callback).await
-//     }
-//
-//     fn blockchain_scanner(&mut self) -> &mut dyn BlockchainScanner {
-//         self
-//     }
-// }
-
-#[cfg(test)]
-#[cfg(not(feature = "grpc"))]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_grpc_feature_disabled() {
-        let result = GrpcBlockchainScanner::new("http://127.0.0.1:18142".to_string()).await;
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            crate::errors::WalletError::OperationNotSupported(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_grpc_builder_feature_disabled() {
-        let builder = GrpcScannerBuilder::new();
-        let result = builder.build().await;
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            crate::errors::WalletError::OperationNotSupported(_)
-        ));
-    }
-}

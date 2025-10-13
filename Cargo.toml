@@ -2,7 +2,7 @@
 name = "lightweight_wallet_libs"
 version = "0.2.0"
 edition = "2021"
-authors = ["Krakaw"]
+authors = ["The Tari Development Community"]
 description = "Wallet libraries for Tari"
 license = "BSD-3-Clause"
 repository = "https://github.com/Krakaw/tari-wallet"
@@ -174,10 +174,10 @@ http-storage = ["http", "storage"]
 # [[bin]]
 # name = "signing"
 # required-features = ["http"]
-
-[[bin]]
-name = "main"
-required-features = ["storage", "http"]
+#
+#[[bin]]
+#name = "main"
+#required-features = ["storage", "http"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
