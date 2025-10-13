@@ -421,7 +421,7 @@ where KM: TransactionKeyManagerInterface
             }
         }
 
-        debug!("Fetched {} blocks for range {}", all_blocks.len(), start_height,);
+        //debug!("Fetched {} blocks for range {}", all_blocks.len(), start_height,);
 
         Ok(all_blocks)
     }
