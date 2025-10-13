@@ -655,11 +655,11 @@ where KM: TransactionKeyManagerInterface
         // Fetch blocks using the new API
         println!("Fetching blocks from {} to {}", config.start_height, end_height);
         let http_blocks = self.fetch_block_range(config.start_height, end_height).await?;
-        println!(
-            "Fetched {} blocks. Time taken: {:?}",
-            http_blocks.len(),
-            timer.elapsed()
-        );
+        // println!(
+        //     "Fetched {} blocks. Time taken: {:?}",
+        //     http_blocks.len(),
+        //     timer.elapsed()
+        // );
 
         let mut utxos = Vec::new();
 

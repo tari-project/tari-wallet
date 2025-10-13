@@ -488,11 +488,11 @@ where KM: TransactionKeyManagerInterface
 
         let timer = Instant::now();
         let http_blocks = self.fetch_block_range().await?;
-        println!(
-            "Fetched {} blocks. Time taken: {:?}",
-            http_blocks.len(),
-            timer.elapsed()
-        );
+        // println!(
+        //     "Fetched {} blocks. Time taken: {:?}",
+        //     http_blocks.len(),
+        //     timer.elapsed()
+        // );
 
         let mut utxos = Vec::new();
 
