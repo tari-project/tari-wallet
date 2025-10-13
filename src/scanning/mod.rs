@@ -54,8 +54,8 @@ pub struct ScanConfig {
     pub start_height: u64,
     /// Ending block height (optional, if None scans to tip)
     pub end_height: Option<u64>,
-    /// Maximum number of blocks to scan in one request
-    pub batch_size: u64,
+    /// Maximum number of blocks to scan in one request, default 10
+    pub batch_size: Option<u64>,
     /// Timeout for requests
     #[serde(with = "duration_serde")]
     pub request_timeout: Duration,

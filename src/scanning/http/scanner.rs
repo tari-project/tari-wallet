@@ -75,6 +75,8 @@ use std::{
 use crate::http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct};
 use crate::scanning::interface::BlockchainScanner;
 
+const SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT: u64 = 10;
+
 /// HTTP client for connecting to Tari base node
 pub struct HttpBlockchainScanner<KM> {
     /// HTTP client for making requests (native targets)
@@ -86,7 +88,59 @@ pub struct HttpBlockchainScanner<KM> {
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     timeout: Duration,
     key_manager: KM,
-    current_in_progress_scan: Option<ScanConfig>,
+    current_in_progress: InProgressScan,
+}
+
+struct InProgressScan {
+    config: Option<ScanConfig>,
+    header: Option<String>,
+    current_page: u64,
+}
+
+impl InProgressScan{
+    pub fn new(config: ScanConfig) -> Self {
+        Self {
+            config: Some(config),
+            header: None,
+            current_page: 0,
+        }
+    }
+
+    pub fn new_empty() -> Self {
+        Self {
+            config: None,
+            header: None,
+            current_page: 0,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.config = None;
+        self.header = None;
+        self.current_page = 0;
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.config.is_some()
+    }
+
+    pub fn increment_page(&mut self) {
+        self.current_page += 1;
+    }
+
+    pub fn set_next_request(&mut self, header: String) {
+        self.header = Some(header);
+        self.current_page = 0;
+    }
+
+    pub fn get_header(&self) -> Option<&String> {
+        self.header.as_ref()
+    }
+
+    pub fn get_config(&self) -> Option<&ScanConfig> {
+        self.config.as_ref()
+    }
+
 }
 
 impl<KM> HttpBlockchainScanner<KM>
@@ -116,7 +170,7 @@ where KM: TransactionKeyManagerInterface
                 base_url,
                 timeout,
                 key_manager,
-                current_in_progress_scan: None
+                current_in_progress: InProgressScan::new_empty()
             })
     }
 
@@ -142,7 +196,7 @@ where KM: TransactionKeyManagerInterface
             base_url,
             timeout,
             key_manager,
-            current_in_progress_scan: None
+            current_in_progress:  InProgressScan::new_empty()
         })
     }
 
@@ -181,9 +235,8 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Sync UTXOs by block - matches WASM example usage
-    async fn sync_utxos_by_block(&self, start_header_hash: &str, limit: u64) -> WalletResult<SyncUtxosByBlockResponse> {
+    async fn sync_utxos_by_block(&self, start_header_hash: &str, limit: u64, page: u64) -> WalletResult<SyncUtxosByBlockResponse> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
-        let page = 0u64;
 
 
             let response = self
@@ -294,89 +347,113 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Fetch block range using the sync_utxos_by_block endpoint
-    async fn fetch_block_range(&self, start_height: u64, end_height: u64) -> WalletResult<Vec<BlockUtxoInfo>> {
-        // Get the starting header hash
-        let start_header = self.get_header_by_height(start_height).await?;
-        let mut current_header_hash = start_header.hash.to_hex();
+    async fn fetch_block_range(&mut self) -> WalletResult<Vec<BlockUtxoInfo>> {
+        let start_height = self.current_in_progress.get_config().map(|c| c.start_height).unwrap_or(0);
 
+        // Get the starting header hash
+
+        let mut current_header_hash  = match self.current_in_progress.get_header() {
+            Some(h) => h.clone(),
+            _ => {
+                let start_header = self.get_header_by_height(start_height).await?;
+                let current_header_hash = start_header.hash.to_hex();
+                self.current_in_progress.set_next_request(current_header_hash.clone());
+                current_header_hash
+            }
+        };
         let mut all_blocks = Vec::new();
         let mut blocks_collected = 0;
-        let max_blocks = (end_height - start_height + 1) as usize;
-        let mut is_first_batch = true;
+        //let max_blocks = (end_height - start_height + 1) as usize;
 
         debug!(
-            "Starting fetch_block_range from height {} to {} (max {} blocks)",
-            start_height, end_height, max_blocks
+            "Starting fetch_block_range from height {} ",
+            start_height
         );
+        let limit = self.current_in_progress.get_config().and_then(|c| c.batch_size).unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
+        let page = self.current_in_progress.current_page;
+        let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
+        if sync_response.blocks.is_empty() {
+            debug!("No more blocks available from base node");
+            return Ok(Vec::new());
+        }
+        let mut has_next_page = sync_response.has_next_page;
+        let next_header_to_scan = sync_response.next_header_to_scan.clone();
+        let mut blocks_to_process = sync_response.blocks.into_iter();
 
-        while blocks_collected < max_blocks {
-            let remaining_blocks = max_blocks - blocks_collected;
-            let limit = std::cmp::min(remaining_blocks as u64, 100);
-
-            // Use sync_utxos_by_block to get batch of blocks
-            let sync_response = self.sync_utxos_by_block(&current_header_hash, limit).await?;
-
-            if sync_response.blocks.is_empty() {
-                #[cfg(feature = "tracing")]
-                debug!("No more blocks available from base node");
-                break;
-            }
-
-            let mut blocks_to_process = sync_response.blocks.into_iter();
-
-            // The API returns the `start_header_hash` block as the first block in the response.
-            // For subsequent batches, we skip this first block as it was already processed in the previous iteration.
-            if !is_first_batch {
-                blocks_to_process.next();
-            }
-
-            // Add all blocks from this response
-            for block in blocks_to_process {
-                // Only add blocks if their height is within the requested range
-                if block.height >= start_height && block.height <= end_height {
-                    all_blocks.push(block);
-                    blocks_collected += 1;
-                }
-
-                // Stop if we've collected enough blocks
-                if blocks_collected >= max_blocks {
-                    break;
+        // Add all blocks from this response
+        for block in blocks_to_process {
+            if let Some(end_height) = self.current_in_progress.get_config().and_then(|c| c.end_height) {
+                if block.height > end_height {
+                    debug!("Reached end height {}, stopping fetch", end_height);
+                    self.current_in_progress.clear();
+                    has_next_page = false;
                 }
             }
+            all_blocks.push(block);
+            blocks_collected += 1;
+        }
+        self.current_in_progress.increment_page();
 
-            is_first_batch = false;
+        if !has_next_page {
+            if self.current_in_progress.is_active() {
+                // we are done scanning this batch of blocks, we need to request the next header, and we have not reached some end goal
+               if next_header_to_scan.is_empty() {
+                   debug!("No next header to scan, ending fetch");
+                   self.current_in_progress.clear();
+               } else {
 
-            // Check if we have a next header to continue with and haven't reached our limit
-            if blocks_collected < max_blocks {
-                if sync_response.next_header_to_scan.is_empty() {
-                    debug!("No more headers to scan, reached end of available data");
-                    break;
-                } else {
-                    let next_hash = sync_response.next_header_to_scan.to_hex();
-                    // Safeguard against infinite loops if the server returns the same hash
-                    if next_hash == current_header_hash {
-                        debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
-                        break;
-                    }
-                    current_header_hash = next_hash;
-                    debug!(
-                        "Continuing with next header: {} (collected {}/{} blocks)",
-                        &current_header_hash[..16],
-                        blocks_collected,
-                        max_blocks
-                    );
-                }
+                   let next_header_to_scan_hex = next_header_to_scan.to_hex();
+                   debug!("Setting next header to scan: {}", next_header_to_scan_hex);
+                   // Safeguard against infinite loops if the server returns the same hash
+                   if next_header_to_scan == self.current_in_progress.get_header().cloned().unwrap_or_default() {
+                       debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
+                       self.current_in_progress.clear();
+                   } else{
+                   self.current_in_progress.set_next_request(next_header_to_scan_hex);
+                       }
+               }
             }
+
         }
 
         debug!(
-            "Fetched {} blocks for range {} to {}",
+            "Fetched {} blocks for range {}",
             all_blocks.len(),
             start_height,
-            end_height
         );
 
         Ok(all_blocks)
+    }
+
+    pub async fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()>{
+        debug!("String new scan, scanning from: {} to  {:?}",
+            config.start_height, config.end_height
+
+               );
+        if let Some(end_height) = config.end_height {
+
+            let tip_info = self.get_tip_info().await?;
+            if end_height > tip_info.best_block_height {
+                debug!(
+                    "End height is higher than current tip height, will only scan to tip {:?}",
+                    tip_info.best_block_height
+                    );
+            }
+            let adjusted_config = ScanConfig {
+                start_height: config.start_height,
+                end_height: None,
+                batch_size: config.batch_size,
+                request_timeout: config.request_timeout,
+            };
+            self.current_in_progress = Some(adjusted_config);
+            return Ok(());
+        }
+        self.current_in_progress_scan = Some(config.clone());
+        Ok(())
+    }
+
+    pub fn clear_in_progress_scan(&mut self) {
+        self.current_in_progress = None;
     }
 }
 
@@ -385,40 +462,30 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
-        match &self.current_in_progress_scan {
+        if let Some(end_height) = config.end_height{
+            if config.start_height > end_height {
+                return Err(WalletError::OperationNotSupported("start_height cannot be greater than end_height".to_string()));
+            }
+        }
+
+         match &self.current_in_progress_scan {
             Some(existing_scan) =>
                 {
-                    debug!(
-                        "Continuing HTTP block scan from height {} to {:?}",
-                        existing_scan.start_height, existing_scan.end_height
-                    );
+                    if existing_scan == config {
+                        debug!("Resuming existing HTTP block scan from height {} to {:?}", existing_scan.start_height, existing_scan.end_height);
+                    } else {
+                    self.update_scan_config(config).await?;
+                }
                 },
             _ => {
-                debug!(
-                    "Starting HTTP block scan from height {} to {:?}",
-                    config.start_height, config.end_height
-                    );
+                self.update_scan_config(config).await?;
             }
         }
 
 
 
         let timer = Instant::now();
-        let end_height = match config.end_height {
-            Some(height) => height,
-            None => {
-                let tip_info = self.get_tip_info().await?;
-                tip_info.best_block_height
-            },
-        };
-
-        if config.start_height > end_height {
-            return Ok(Vec::new());
-        }
-
-        // Fetch blocks using the new API
-        println!("Fetching blocks from {} to {}", config.start_height, end_height);
-        let http_blocks = self.fetch_block_range(config.start_height, end_height).await?;
+        let http_blocks = self.fetch_block_range().await?;
         println!(
             "Fetched {} blocks. Time taken: {:?}",
             http_blocks.len(),
@@ -491,7 +558,6 @@ where KM: TransactionKeyManagerInterface
             });
         }
 
-        #[cfg(feature = "tracing")]
         debug!(
             "HTTP scan completed, found {} blocks with wallet outputs",
             results.len()
