@@ -506,7 +506,6 @@ where KM: TransactionKeyManagerInterface
                 if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
                     wallet_outputs.push(wallet_output);
                     blocks_with_utxos.insert(header_hash.clone());
-                    continue;
                 }
             }
             let mined_timestamp = http_block.mined_timestamp;

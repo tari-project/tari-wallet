@@ -28,7 +28,6 @@ use crate::{
 };
 
 /// GRPC client for connecting to Tari base node
-
 pub struct GrpcBlockchainScanner<KM> {
     /// GRPC channel to the base node
     client: tari_rpc::base_node_client::BaseNodeClient<Channel>,
@@ -285,7 +284,6 @@ where KM: TransactionKeyManagerInterface
         for output in &outputs {
             if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
                 wallet_outputs.push(wallet_output);
-                continue;
             }
         }
 
@@ -392,7 +390,6 @@ where KM: TransactionKeyManagerInterface
                     for output in tari_block.body.outputs() {
                         if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
                             wallet_outputs.push((output.hash(), wallet_output));
-                            continue;
                         }
                     }
                     let inputs = tari_block.body.inputs().iter().map(|i| i.output_hash()).collect();
@@ -498,7 +495,6 @@ impl<KM> std::fmt::Debug for GrpcBlockchainScanner<KM> {
 }
 
 /// Builder for creating GRPC blockchain scanners
-
 pub struct GrpcScannerBuilder<KM> {
     base_url: Option<String>,
     timeout: Option<Duration>,

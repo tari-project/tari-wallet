@@ -13,7 +13,6 @@ use tari_transaction_components::{
 
 #[derive(Debug, Clone, Default)]
 pub struct KeyManagerBuilder {
-    master_seed: Option<CipherSeed>,
     wallet_type: Option<Arc<WalletType>>,
 }
 
@@ -47,16 +46,5 @@ impl KeyManagerBuilder {
         } else {
             Err(anyhow::anyhow!("Missing field `{}`", any::type_name::<WalletType>()))
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-
-    #[test]
-    fn test_key_manager_builder() {
-        let key_manager = KeyManagerBuilder::default().build();
     }
 }
