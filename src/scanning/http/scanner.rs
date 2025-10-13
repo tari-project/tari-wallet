@@ -34,6 +34,10 @@ use std::time::Duration;
 // WASM targets use web-sys
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
 use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
 #[cfg(feature = "http")]
 use async_trait::async_trait;
@@ -49,8 +53,6 @@ use tari_transaction_components::{
     transaction_components::TransactionOutput,
 };
 use tari_utilities::hex::Hex;
-use crate::scanning::http::models::HttpHeaderResponse;
-
 #[cfg(all(feature = "http", feature = "tracing"))]
 use tracing::debug;
 #[cfg(all(feature = "http", target_arch = "wasm32"))]
@@ -65,15 +67,10 @@ use web_sys::{window, Request, RequestInit, RequestMode, Response};
 use crate::BlockHeaderInfo;
 use crate::{
     errors::{WalletError, WalletResult},
-    scanning::{BlockScanResult, ScanConfig, TipInfo},
+    http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct},
+    scanning::{http::models::HttpHeaderResponse, interface::BlockchainScanner, BlockScanResult, ScanConfig, TipInfo},
     UtxoScanResult,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    time::Instant,
-};
-use crate::http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct};
-use crate::scanning::interface::BlockchainScanner;
 
 const SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT: u64 = 10;
 
@@ -97,7 +94,7 @@ struct InProgressScan {
     current_page: u64,
 }
 
-impl InProgressScan{
+impl InProgressScan {
     pub fn new(config: ScanConfig) -> Self {
         Self {
             config: Some(config),
@@ -140,7 +137,6 @@ impl InProgressScan{
     pub fn get_config(&self) -> Option<&ScanConfig> {
         self.config.as_ref()
     }
-
 }
 
 impl<KM> HttpBlockchainScanner<KM>
@@ -148,30 +144,28 @@ where KM: TransactionKeyManagerInterface
 {
     /// Create a new HTTP scanner with the given base URL
     pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
-            let timeout = Duration::from_secs(30);
-            let client = Client::builder().timeout(timeout).build().map_err(|e| {
-                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Failed to create HTTP client: {e}"
-                )))
-            })?;
+        let timeout = Duration::from_secs(30);
+        let client = Client::builder().timeout(timeout).build().map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to create HTTP client: {e}"
+            )))
+        })?;
 
-            // Test the connection
-            let test_url = format!("{base_url}/get_tip_info");
-            let response = client.get(&test_url).send().await;
-            if response.is_err() {
-                return Err(WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to connect to {base_url}"
-                    )),
-                ));
-            }
-            Ok(Self {
-                client,
-                base_url,
-                timeout,
-                key_manager,
-                current_in_progress: InProgressScan::new_empty()
-            })
+        // Test the connection
+        let test_url = format!("{base_url}/get_tip_info");
+        let response = client.get(&test_url).send().await;
+        if response.is_err() {
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to connect to {base_url}")),
+            ));
+        }
+        Ok(Self {
+            client,
+            base_url,
+            timeout,
+            key_manager,
+            current_in_progress: InProgressScan::new_empty(),
+        })
     }
 
     /// Create a new HTTP scanner with custom timeout (native only)
@@ -196,7 +190,7 @@ where KM: TransactionKeyManagerInterface
             base_url,
             timeout,
             key_manager,
-            current_in_progress:  InProgressScan::new_empty()
+            current_in_progress: InProgressScan::new_empty(),
         })
     }
 
@@ -204,111 +198,111 @@ where KM: TransactionKeyManagerInterface
     async fn get_header_by_height(&self, height: u64) -> WalletResult<HttpHeaderResponse> {
         let url = format!("{}/get_header_by_height", self.base_url);
 
-            let response = self
-                .client
-                .get(&url)
-                .query(&[("height", height)])
-                .send()
-                .await
-                .map_err(|e| {
-                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP request failed: {e}"
-                    )))
-                })?;
-
-            if !response.status().is_success() {
-                return Err(WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP error: {}",
-                        response.status()
-                    )),
-                ));
-            }
-
-            let header_response: HttpHeaderResponse = response.json().await.map_err(|e| {
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("height", height)])
+            .send()
+            .await
+            .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Failed to parse response: {e}"
+                    "HTTP request failed: {e}"
                 )))
             })?;
 
-            Ok(header_response)
+        if !response.status().is_success() {
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP error: {}",
+                    response.status()
+                )),
+            ));
+        }
+
+        let header_response: HttpHeaderResponse = response.json().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to parse response: {e}"
+            )))
+        })?;
+
+        Ok(header_response)
     }
 
     /// Sync UTXOs by block - matches WASM example usage
-    async fn sync_utxos_by_block(&self, start_header_hash: &str, limit: u64, page: u64) -> WalletResult<SyncUtxosByBlockResponse> {
+    async fn sync_utxos_by_block(
+        &self,
+        start_header_hash: &str,
+        limit: u64,
+        page: u64,
+    ) -> WalletResult<SyncUtxosByBlockResponse> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
 
-
-            let response = self
-                .client
-                .get(&url)
-                .query(&[
-                    ("start_header_hash", start_header_hash),
-                    ("limit", &limit.to_string()),
-                    ("page", &page.to_string()),
-                ])
-                .send()
-                .await
-                .map_err(|e| {
-                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP request failed: {e}"
-                    )))
-                })?;
-
-            if !response.status().is_success() {
-                return Err(WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP error: {}",
-                        response.status()
-                    )),
-                ));
-            }
-
-            let sync_response: SyncUtxosByBlockResponse = response.json().await.map_err(|e| {
+        let response = self
+            .client
+            .get(&url)
+            .query(&[
+                ("start_header_hash", start_header_hash),
+                ("limit", &limit.to_string()),
+                ("page", &page.to_string()),
+            ])
+            .send()
+            .await
+            .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Failed to parse response: {e}"
+                    "HTTP request failed: {e}"
                 )))
             })?;
 
-            Ok(sync_response)
+        if !response.status().is_success() {
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP error: {}",
+                    response.status()
+                )),
+            ));
+        }
 
+        let sync_response: SyncUtxosByBlockResponse = response.json().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to parse response: {e}"
+            )))
+        })?;
+
+        Ok(sync_response)
     }
 
     async fn get_utxos_by_block(&self, current_header_hash: &str) -> WalletResult<GetUtxosByBlockResponse> {
         let url = format!("{}/get_utxos_by_block", self.base_url);
 
-
-            let response = self
-                .client
-                .get(&url)
-                .query(&[("header_hash", current_header_hash)])
-                .send()
-                .await
-                .map_err(|e| {
-                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP request failed: {e}"
-                    )))
-                })?;
-
-            if !response.status().is_success() {
-                return Err(WalletError::ScanningError(
-                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP error: {}",
-                        response.status()
-                    )),
-                ));
-            }
-
-            let sync_response: GetUtxosByBlockResponse = response.json().await.map_err(|e| {
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("header_hash", current_header_hash)])
+            .send()
+            .await
+            .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Failed to parse response: {e}"
+                    "HTTP request failed: {e}"
                 )))
             })?;
 
-            Ok(sync_response)
+        if !response.status().is_success() {
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP error: {}",
+                    response.status()
+                )),
+            ));
+        }
 
+        let sync_response: GetUtxosByBlockResponse = response.json().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to parse response: {e}"
+            )))
+        })?;
+
+        Ok(sync_response)
     }
-
 
     /// Create a scan config with wallet keys for block scanning
     pub fn create_scan_config_with_wallet_keys(
@@ -319,7 +313,7 @@ where KM: TransactionKeyManagerInterface
         Ok(ScanConfig {
             start_height,
             end_height,
-            batch_size: 100,
+            batch_size: Some(100),
             request_timeout: self.timeout,
         })
     }
@@ -348,28 +342,41 @@ where KM: TransactionKeyManagerInterface
 
     /// Fetch block range using the sync_utxos_by_block endpoint
     async fn fetch_block_range(&mut self) -> WalletResult<Vec<BlockUtxoInfo>> {
-        let start_height = self.current_in_progress.get_config().map(|c| c.start_height).unwrap_or(0);
+        let start_height = self
+            .current_in_progress
+            .get_config()
+            .map(|c| c.start_height)
+            .unwrap_or(0);
 
         // Get the starting header hash
 
-        let mut current_header_hash  = match self.current_in_progress.get_header() {
+        let current_header_hash = match self.current_in_progress.get_header() {
             Some(h) => h.clone(),
             _ => {
-                let start_header = self.get_header_by_height(start_height).await?;
+                let start_header = match self.get_header_by_height(start_height).await? {
+                    Some(h) => h,
+                    None => {
+                        return Err(WalletError::ScanningError(
+                            crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                                "Failed to get header at height {}",
+                                start_height
+                            )),
+                        ));
+                    },
+                };
                 let current_header_hash = start_header.hash.to_hex();
                 self.current_in_progress.set_next_request(current_header_hash.clone());
                 current_header_hash
-            }
+            },
         };
         let mut all_blocks = Vec::new();
-        let mut blocks_collected = 0;
-        //let max_blocks = (end_height - start_height + 1) as usize;
 
-        debug!(
-            "Starting fetch_block_range from height {} ",
-            start_height
-        );
-        let limit = self.current_in_progress.get_config().and_then(|c| c.batch_size).unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
+        debug!("Starting fetch_block_range from height {} ", start_height);
+        let limit = self
+            .current_in_progress
+            .get_config()
+            .and_then(|c| c.batch_size)
+            .unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
         let page = self.current_in_progress.current_page;
         let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
         if sync_response.blocks.is_empty() {
@@ -378,7 +385,7 @@ where KM: TransactionKeyManagerInterface
         }
         let mut has_next_page = sync_response.has_next_page;
         let next_header_to_scan = sync_response.next_header_to_scan.clone();
-        let mut blocks_to_process = sync_response.blocks.into_iter();
+        let blocks_to_process = sync_response.blocks.into_iter();
 
         // Add all blocks from this response
         for block in blocks_to_process {
@@ -390,54 +397,47 @@ where KM: TransactionKeyManagerInterface
                 }
             }
             all_blocks.push(block);
-            blocks_collected += 1;
         }
         self.current_in_progress.increment_page();
 
         if !has_next_page {
             if self.current_in_progress.is_active() {
-                // we are done scanning this batch of blocks, we need to request the next header, and we have not reached some end goal
-               if next_header_to_scan.is_empty() {
-                   debug!("No next header to scan, ending fetch");
-                   self.current_in_progress.clear();
-               } else {
-
-                   let next_header_to_scan_hex = next_header_to_scan.to_hex();
-                   debug!("Setting next header to scan: {}", next_header_to_scan_hex);
-                   // Safeguard against infinite loops if the server returns the same hash
-                   if next_header_to_scan == self.current_in_progress.get_header().cloned().unwrap_or_default() {
-                       debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
-                       self.current_in_progress.clear();
-                   } else{
-                   self.current_in_progress.set_next_request(next_header_to_scan_hex);
-                       }
-               }
+                // we are done scanning this batch of blocks, we need to request the next header, and we have not
+                // reached some end goal
+                if next_header_to_scan.is_empty() {
+                    debug!("No next header to scan, ending fetch");
+                    self.current_in_progress.clear();
+                } else {
+                    let next_header_to_scan_hex = next_header_to_scan.to_hex();
+                    debug!("Setting next header to scan: {}", next_header_to_scan_hex);
+                    // Safeguard against infinite loops if the server returns the same hash
+                    if next_header_to_scan_hex == self.current_in_progress.get_header().cloned().unwrap_or_default() {
+                        debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
+                        self.current_in_progress.clear();
+                    } else {
+                        self.current_in_progress.set_next_request(next_header_to_scan_hex);
+                    }
+                }
             }
-
         }
 
-        debug!(
-            "Fetched {} blocks for range {}",
-            all_blocks.len(),
-            start_height,
-        );
+        debug!("Fetched {} blocks for range {}", all_blocks.len(), start_height,);
 
         Ok(all_blocks)
     }
 
-    pub async fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()>{
-        debug!("String new scan, scanning from: {} to  {:?}",
+    pub async fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()> {
+        debug!(
+            "String new scan, scanning from: {} to  {:?}",
             config.start_height, config.end_height
-
-               );
+        );
         if let Some(end_height) = config.end_height {
-
             let tip_info = self.get_tip_info().await?;
             if end_height > tip_info.best_block_height {
                 debug!(
                     "End height is higher than current tip height, will only scan to tip {:?}",
                     tip_info.best_block_height
-                    );
+                );
             }
             let adjusted_config = ScanConfig {
                 start_height: config.start_height,
@@ -445,15 +445,15 @@ where KM: TransactionKeyManagerInterface
                 batch_size: config.batch_size,
                 request_timeout: config.request_timeout,
             };
-            self.current_in_progress = Some(adjusted_config);
+            self.current_in_progress = InProgressScan::new(adjusted_config);
             return Ok(());
         }
-        self.current_in_progress_scan = Some(config.clone());
+        self.current_in_progress = InProgressScan::new(config.clone());
         Ok(())
     }
 
     pub fn clear_in_progress_scan(&mut self) {
-        self.current_in_progress = None;
+        self.current_in_progress.clear();
     }
 }
 
@@ -462,27 +462,29 @@ impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
-        if let Some(end_height) = config.end_height{
+        if let Some(end_height) = config.end_height {
             if config.start_height > end_height {
-                return Err(WalletError::OperationNotSupported("start_height cannot be greater than end_height".to_string()));
+                return Err(WalletError::OperationNotSupported(
+                    "start_height cannot be greater than end_height".to_string(),
+                ));
             }
         }
 
-         match &self.current_in_progress_scan {
-            Some(existing_scan) =>
-                {
-                    if existing_scan == config {
-                        debug!("Resuming existing HTTP block scan from height {} to {:?}", existing_scan.start_height, existing_scan.end_height);
-                    } else {
+        match &self.current_in_progress.get_config() {
+            Some(existing_scan) => {
+                if *existing_scan == config {
+                    debug!(
+                        "Resuming existing HTTP block scan from height {} to {:?}",
+                        existing_scan.start_height, existing_scan.end_height
+                    );
+                } else {
                     self.update_scan_config(config).await?;
                 }
-                },
+            },
             _ => {
                 self.update_scan_config(config).await?;
-            }
+            },
         }
-
-
 
         let timer = Instant::now();
         let http_blocks = self.fetch_block_range().await?;

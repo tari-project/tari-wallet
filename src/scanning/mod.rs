@@ -17,38 +17,29 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tari_common_types::types::FixedHash;
-use tari_transaction_components::{
-    transaction_components::{WalletOutput},
-};
+use tari_transaction_components::transaction_components::WalletOutput;
 use tari_utilities::epoch_time::EpochTime;
-
 
 // Include GRPC scanner when the feature is enabled
 #[cfg(feature = "grpc")]
-pub mod grpc_scanner;
+pub mod grpc;
 
 // Include HTTP scanner
 #[cfg(feature = "http")]
 pub mod http;
-pub use http::scanner as http_scanner;
-
-
-
-
-
-
 #[cfg(feature = "grpc")]
-pub use scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
+pub use grpc::scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
+pub use http::scanner as http_scanner;
 // Re-export HTTP scanner types
 #[cfg(feature = "http")]
 pub use http_scanner::HttpBlockchainScanner;
+
 use crate::http::models::IncompleteScannedOutput;
 
 mod interface;
 
-
 /// Configuration for blockchain scanning
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ScanConfig {
     /// Starting block height (wallet birthday)
     pub start_height: u64,
@@ -66,7 +57,7 @@ impl Default for ScanConfig {
         Self {
             start_height: 0,
             end_height: None,
-            batch_size: 100,
+            batch_size: Some(100),
             request_timeout: Duration::from_secs(30),
         }
     }
@@ -107,7 +98,6 @@ mod duration_serde {
         Ok(Duration::from_secs(secs))
     }
 }
-
 
 /// Chain tip information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,8 +155,6 @@ pub struct BlockHeaderInfo {
     pub timestamp: EpochTime,
 }
 
-
-
 #[cfg(test)]
 mod tests {
     #[cfg(not(target_arch = "wasm32"))]
@@ -200,7 +188,6 @@ mod tests {
         assert_eq!(progress.total_value, 1000000);
         assert_eq!(progress.elapsed, Duration::from_secs(10));
     }
-
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]

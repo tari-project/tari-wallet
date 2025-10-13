@@ -17,15 +17,14 @@ use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
-    transaction_components::{Transaction, TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
+    transaction_components::{TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
 };
 use tonic::{transport::Channel, Request};
 
 use crate::{
     errors::{WalletError, WalletResult},
-    scanning::{BlockScanResult, BlockchainScanner, ScanConfig, TipInfo, TransactionBroadcaster},
+    scanning::{interface::BlockchainScanner, BlockScanResult, ScanConfig, TipInfo},
     BlockHeaderInfo,
-    ExtractionConfig,
 };
 
 /// GRPC client for connecting to Tari base node
@@ -111,14 +110,11 @@ where KM: TransactionKeyManagerInterface
         start_height: u64,
         end_height: Option<u64>,
     ) -> WalletResult<ScanConfig> {
-        let extraction_config = ExtractionConfig::default();
-
         Ok(ScanConfig {
             start_height,
             end_height,
-            batch_size: 100,
+            batch_size: Some(100),
             request_timeout: self.timeout,
-            extraction_config,
         })
     }
 
@@ -365,7 +361,7 @@ where KM: TransactionKeyManagerInterface
         let mut current_height = config.start_height;
 
         while current_height <= end_height {
-            let batch_end = std::cmp::min(current_height + config.batch_size - 1, end_height);
+            let batch_end = std::cmp::min(current_height + config.batch_size.unwrap_or_default() - 1, end_height);
             let heights: Vec<u64> = (current_height..=batch_end).collect();
             // Get blocks for this batch
             let request = tari_rpc::GetBlocksRequest { heights };
@@ -492,29 +488,6 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
-#[async_trait(?Send)]
-impl<KM> TransactionBroadcaster for GrpcBlockchainScanner<KM>
-where KM: TransactionKeyManagerInterface
-{
-    async fn submit_transaction(&mut self, transaction: Transaction) -> WalletResult<i32> {
-        let request: tari_rpc::SubmitTransactionRequest = tari_rpc::SubmitTransactionRequest {
-            transaction: Some(
-                tari_rpc::Transaction::try_from(transaction.clone())
-                    .map_err(|e| WalletError::GrpcError(e.to_string()))?,
-            ),
-        };
-        let response = self
-            .client
-            .clone()
-            .submit_transaction(request)
-            .await
-            .map_err(|e| WalletError::GrpcError(e.to_string()))?
-            .into_inner();
-
-        Ok(response.result)
-    }
-}
-
 impl<KM> std::fmt::Debug for GrpcBlockchainScanner<KM> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GrpcBlockchainScanner")
@@ -523,8 +496,6 @@ impl<KM> std::fmt::Debug for GrpcBlockchainScanner<KM> {
             .finish()
     }
 }
-
-
 
 /// Builder for creating GRPC blockchain scanners
 
@@ -580,4 +551,3 @@ where KM: TransactionKeyManagerInterface
         }
     }
 }
-

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::transaction_components::TransactionOutput;
+
 use crate::{BlockHeaderInfo, BlockScanResult, ScanConfig, TipInfo, WalletResult};
 
 /// Blockchain scanner trait for scanning UTXOs

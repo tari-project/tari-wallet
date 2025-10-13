@@ -1,9 +1,4 @@
-
-
-
 use serde::{Deserialize, Serialize};
-
-
 use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, FixedHash};
 use tari_crypto::compressed_key::CompressedKey;
 use tari_transaction_components::{
@@ -15,7 +10,6 @@ use tari_transaction_components::{
 use tari_utilities::ByteArray;
 
 use crate::WalletError;
-
 
 /// HTTP API tip info response - matches the actual API structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +62,6 @@ pub struct HttpBlockBody {
     pub outputs: Vec<TransactionOutput>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncompleteScannedOutput {
     pub output_hash: FixedHash,
@@ -110,7 +103,7 @@ impl IncompleteScannedOutput {
             output,
             key_manager,
         )
-            .await
+        .await
         {
             Ok(wo) => Ok(Some(wo)),
             Err(_e) => Ok(None),
