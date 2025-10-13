@@ -80,6 +80,11 @@ impl ScanConfig {
         self.end_height = Some(end_height);
         self
     }
+
+    pub fn with_batch_size(mut self, batch_size: u64) -> Self {
+        self.batch_size = Some(batch_size);
+        self
+    }
 }
 
 // Helper module for Duration serialization
