@@ -353,9 +353,11 @@ where KM: TransactionKeyManagerInterface
         let current_header_hash = match self.current_in_progress.get_header() {
             Some(h) => h.clone(),
             _ => {
+                println!("Fetching header at height {}", start_height);
                 let start_header = match self.get_header_by_height(start_height).await? {
                     Some(h) => h,
                     None => {
+                        println!("hello from error");
                         return Err(WalletError::ScanningError(
                             crate::errors::ScanningError::blockchain_connection_failed(&format!(
                                 "Failed to get header at height {}",
@@ -369,6 +371,7 @@ where KM: TransactionKeyManagerInterface
                 current_header_hash
             },
         };
+        println!("Starting header hash: {}", current_header_hash);
         let mut all_blocks = Vec::new();
 
         debug!("Starting fetch_block_range from height {} ", start_height);
@@ -377,6 +380,8 @@ where KM: TransactionKeyManagerInterface
             .get_config()
             .and_then(|c| c.batch_size)
             .unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
+        println!("Using limit: {}", limit);
+        println!("Using page: {}", self.current_in_progress.current_page);
         let page = self.current_in_progress.current_page;
         let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
         if sync_response.blocks.is_empty() {
@@ -396,6 +401,7 @@ where KM: TransactionKeyManagerInterface
                     has_next_page = false;
                 }
             }
+            println!("Fetched block at height {}", block.height);
             all_blocks.push(block);
         }
         self.current_in_progress.increment_page();
