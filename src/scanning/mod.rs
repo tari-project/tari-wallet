@@ -160,4 +160,3 @@ pub struct BlockHeaderInfo {
     /// Timestamp
     pub timestamp: EpochTime,
 }
-

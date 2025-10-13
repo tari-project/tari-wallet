@@ -12,7 +12,7 @@ use crate::{BlockHeaderInfo, BlockScanResult, ScanConfig, TipInfo, WalletResult}
 #[async_trait(?Send)]
 pub trait BlockchainScanner: Send + Sync {
     /// Scan for wallet outputs in the specified block range
-    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<Vec<BlockScanResult>>;
+    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)>;
     /// Get the current chain tip information
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo>;
 

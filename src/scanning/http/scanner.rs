@@ -341,7 +341,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Fetch block range using the sync_utxos_by_block endpoint
-    async fn fetch_block_range(&mut self) -> WalletResult<Vec<BlockUtxoInfo>> {
+    async fn fetch_block_range(&mut self) -> WalletResult<(Vec<BlockUtxoInfo>, bool)> {
         let start_height = self
             .current_in_progress
             .get_config()
@@ -349,7 +349,7 @@ where KM: TransactionKeyManagerInterface
             .unwrap_or(0);
 
         // Get the starting header hash
-
+        let mut more_blocks = true;
         let current_header_hash = match self.current_in_progress.get_header() {
             Some(h) => h.clone(),
             _ => {
@@ -386,7 +386,7 @@ where KM: TransactionKeyManagerInterface
         let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
         if sync_response.blocks.is_empty() {
             debug!("No more blocks available from base node");
-            return Ok(Vec::new());
+            return Ok((Vec::new(), false));
         }
         let mut has_next_page = sync_response.has_next_page;
         let next_header_to_scan = sync_response.next_header_to_scan.clone();
@@ -396,8 +396,10 @@ where KM: TransactionKeyManagerInterface
         for block in blocks_to_process {
             if let Some(end_height) = self.current_in_progress.get_config().and_then(|c| c.end_height) {
                 if block.height > end_height {
+                    println!("end height reached");
                     debug!("Reached end height {}, stopping fetch", end_height);
                     self.current_in_progress.clear();
+                    more_blocks = false;
                     has_next_page = false;
                 }
             }
@@ -406,19 +408,25 @@ where KM: TransactionKeyManagerInterface
         }
         self.current_in_progress.increment_page();
 
+        println!("Has next page: {}", has_next_page);
         if !has_next_page {
             if self.current_in_progress.is_active() {
+                println!("still active");
                 // we are done scanning this batch of blocks, we need to request the next header, and we have not
                 // reached some end goal
                 if next_header_to_scan.is_empty() {
+                    println!("no next header");
                     debug!("No next header to scan, ending fetch");
+                    more_blocks = false;
                     self.current_in_progress.clear();
                 } else {
                     let next_header_to_scan_hex = next_header_to_scan.to_hex();
+                    println!("next header to scan: {}", next_header_to_scan_hex);
                     debug!("Setting next header to scan: {}", next_header_to_scan_hex);
                     // Safeguard against infinite loops if the server returns the same hash
                     if next_header_to_scan_hex == self.current_in_progress.get_header().cloned().unwrap_or_default() {
                         debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
+                        more_blocks = false;
                         self.current_in_progress.clear();
                     } else {
                         self.current_in_progress.set_next_request(next_header_to_scan_hex);
@@ -427,9 +435,9 @@ where KM: TransactionKeyManagerInterface
             }
         }
 
-        //debug!("Fetched {} blocks for range {}", all_blocks.len(), start_height,);
+        // debug!("Fetched {} blocks for range {}", all_blocks.len(), start_height,);
 
-        Ok(all_blocks)
+        Ok((all_blocks, more_blocks))
     }
 
     pub async fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()> {
@@ -467,7 +475,7 @@ where KM: TransactionKeyManagerInterface
 impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
-    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
         if let Some(end_height) = config.end_height {
             if config.start_height > end_height {
                 return Err(WalletError::OperationNotSupported(
@@ -493,7 +501,7 @@ where KM: TransactionKeyManagerInterface
         }
 
         let timer = Instant::now();
-        let http_blocks = self.fetch_block_range().await?;
+        let (http_blocks, more_blocks) = self.fetch_block_range().await?;
         // println!(
         //     "Fetched {} blocks. Time taken: {:?}",
         //     http_blocks.len(),
@@ -569,7 +577,7 @@ where KM: TransactionKeyManagerInterface
             "HTTP scan completed, found {} blocks with wallet outputs",
             results.len()
         );
-        Ok(results)
+        Ok((results, more_blocks))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {

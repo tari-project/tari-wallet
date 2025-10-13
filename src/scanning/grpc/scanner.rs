@@ -346,13 +346,13 @@ where KM: TransactionKeyManagerInterface
 impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
-    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
         let end_height = config.end_height.unwrap_or(tip_info.best_block_height);
 
         if config.start_height > end_height {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), false));
         }
 
         let mut results = Vec::new();
@@ -408,7 +408,7 @@ where KM: TransactionKeyManagerInterface
             current_height = batch_end + 1;
         }
 
-        Ok(results)
+        Ok((results, false))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {

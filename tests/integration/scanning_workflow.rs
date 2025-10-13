@@ -60,13 +60,16 @@ impl TestBlockchainScanner {
 
 #[async_trait(?Send)]
 impl BlockchainScanner for TestBlockchainScanner {
-    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
         // Simulate network latency
         if self.latency_ms > 0 {
             tokio::time::sleep(Duration::from_millis(self.latency_ms)).await;
         }
 
-        DefaultScanningLogic::scan_blocks_with_progress(self, config, None).await
+        let result = DefaultScanningLogic::scan_blocks_with_progress(self, config, None)
+            .await
+            .unwrap();
+        Ok((result, false))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {

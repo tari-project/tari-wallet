@@ -631,7 +631,7 @@ where KM: TransactionKeyManagerInterface
 impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
-    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
 
         #[cfg(feature = "tracing")]
         debug!(
@@ -649,7 +649,7 @@ where KM: TransactionKeyManagerInterface
         };
 
         if config.start_height > end_height {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), false));
         }
 
         // Fetch blocks using the new API
@@ -732,7 +732,7 @@ where KM: TransactionKeyManagerInterface
             "HTTP scan completed, found {} blocks with wallet outputs",
             results.len()
         );
-        Ok(results)
+        Ok((results, false))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
