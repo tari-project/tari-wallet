@@ -37,6 +37,7 @@ pub use http_scanner::HttpBlockchainScanner;
 use crate::http::models::IncompleteScannedOutput;
 
 mod interface;
+pub use interface::BlockchainScanner;
 
 /// Configuration for blockchain scanning
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
