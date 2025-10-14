@@ -174,7 +174,6 @@ struct InProgressScan {
 
 impl InProgressScan {
     pub fn new(config: ScanConfig) -> Self {
-        dbg!("nde");
         Self {
             config: Some(config),
             header: None,

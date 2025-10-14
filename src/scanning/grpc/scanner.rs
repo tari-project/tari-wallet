@@ -343,14 +343,9 @@ where KM: TransactionKeyManagerInterface
             "String new scan, scanning from: {} to  {:?}",
             config.start_height, config.end_height
         );
-        dbg!("hi");
         if let Some(end_height) = config.end_height {
-
-            dbg!("hi2");
             let tip_info = self.get_tip_info().await?;
             if end_height > tip_info.best_block_height {
-
-                dbg!("hi3");
                 debug!(
                     "End height is higher than current tip height, will only scan to tip {:?}",
                     tip_info.best_block_height
@@ -379,8 +374,6 @@ impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
-        dbg!(config);
-        dbg!(&self.current_in_progress);
         if let Some(end_height) = config.end_height {
             if config.start_height > end_height {
                 return Err(WalletError::OperationNotSupported(
@@ -411,13 +404,12 @@ where KM: TransactionKeyManagerInterface
             config.end_height.unwrap_or(tip_info.best_block_height),
             tip_info.best_block_height,
         );
-        dbg!(end_height);
-dbg!(self.current_in_progress.page());
+
         let batch_end = std::cmp::min(
             config.start_height + ((self.current_in_progress.page() + 1) * config.batch_size.unwrap_or(10)) - 1,
             end_height,
         );
-        dbg!(batch_end);
+
         let mut results = Vec::new();
         let mut current_height =
             config.start_height + (self.current_in_progress.page() * config.batch_size.unwrap_or(10));
@@ -474,10 +466,6 @@ dbg!(self.current_in_progress.page());
         }
         results.extend(batch_results);
         self.current_in_progress.increment_page();
-
-        dbg!(self.current_in_progress.page());
-        dbg!(&self.current_in_progress);
-
         Ok((results, (current_height < end_height)))
     }
 
