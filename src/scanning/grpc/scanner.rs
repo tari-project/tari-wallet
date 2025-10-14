@@ -469,7 +469,7 @@ where KM: TransactionKeyManagerInterface
         results.extend(batch_results);
         self.current_in_progress.increment_page();
 
-        Ok((results, (current_height < batch_end)))
+        Ok((results, (current_height < end_height)))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
