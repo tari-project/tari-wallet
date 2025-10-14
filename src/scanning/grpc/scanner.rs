@@ -400,13 +400,12 @@ where KM: TransactionKeyManagerInterface
 
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
-        dbg!(&tip_info);
         let end_height = std::cmp::min(
             config.end_height.unwrap_or(tip_info.best_block_height),
             tip_info.best_block_height,
         );
         dbg!(end_height);
-
+dbg!(self.current_in_progress.page());
         let batch_end = std::cmp::min(
             config.start_height + ((self.current_in_progress.page() + 1) * config.batch_size.unwrap_or(10)) - 1,
             end_height,
