@@ -468,6 +468,8 @@ dbg!(self.current_in_progress.page());
         results.extend(batch_results);
         self.current_in_progress.increment_page();
 
+        dbg!(self.current_in_progress.page());
+
         Ok((results, (current_height < end_height)))
     }
 

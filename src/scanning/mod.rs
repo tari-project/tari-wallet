@@ -202,7 +202,7 @@ impl InProgressScan {
         self.config.is_some()
     }
 
-    pub const fn increment_page(&mut self) {
+    pub fn increment_page(&mut self) {
         self.current_page += 1;
     }
 
