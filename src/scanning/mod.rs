@@ -160,3 +160,58 @@ pub struct BlockHeaderInfo {
     /// Timestamp
     pub timestamp: EpochTime,
 }
+
+struct InProgressScan {
+    config: Option<ScanConfig>,
+    header: Option<String>,
+    current_page: u64,
+}
+
+impl InProgressScan {
+    pub fn new(config: ScanConfig) -> Self {
+        Self {
+            config: Some(config),
+            header: None,
+            current_page: 0,
+        }
+    }
+
+    pub fn new_empty() -> Self {
+        Self {
+            config: None,
+            header: None,
+            current_page: 0,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.config = None;
+        self.header = None;
+        self.current_page = 0;
+    }
+
+    pub fn page(&self) -> u64 {
+        self.current_page
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.config.is_some()
+    }
+
+    pub fn increment_page(&mut self) {
+        self.current_page += 1;
+    }
+
+    pub fn set_next_request(&mut self, header: String) {
+        self.header = Some(header);
+        self.current_page = 0;
+    }
+
+    pub fn get_header(&self) -> Option<&String> {
+        self.header.as_ref()
+    }
+
+    pub fn get_config(&self) -> Option<&ScanConfig> {
+        self.config.as_ref()
+    }
+}

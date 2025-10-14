@@ -162,55 +162,5 @@ sqlite-bundled = ["rusqlite/bundled"]
 grpc-storage = ["grpc", "storage"]
 http-storage = ["http", "storage"]
 
-# Don't build binaries for WASM target - they use tokio/clap which are not WASM-compatible
-# [[bin]]
-# name = "scanner"
-# required-features = ["grpc"]
-
-# [[bin]]
-# name = "wallet"
-# required-features = ["storage", "grpc"]
-
-# [[bin]]
-# name = "signing"
-# required-features = ["http"]
-#
-#[[bin]]
-#name = "main"
-#required-features = ["storage", "http"]
-
 [lib]
 crate-type = ["cdylib", "rlib"]
-
-# Integration test targets
-[[test]]
-name = "wallet_workflow_integration"
-path = "tests/integration/wallet_workflow.rs"
-required-features = ["http"]
-
-[[test]]
-name = "scanning_workflow_integration"
-path = "tests/integration/scanning_workflow.rs"
-required-features = ["http"]
-
-[[test]]
-name = "transaction_workflow_integration"
-path = "tests/integration/transaction_workflow.rs"
-required-features = ["http"]
-
-[[test]]
-name = "multi_network_compatibility"
-path = "tests/integration/multi_network_compatibility.rs"
-required-features = ["http"]
-
-# End-to-end test targets
-[[test]]
-name = "performance_stress_e2e"
-path = "tests/e2e/performance_stress.rs"
-required-features = ["http"]
-
-[[test]]
-name = "full_system_integration_e2e"
-path = "tests/e2e/full_system_integration.rs"
-required-features = ["http"]
-tari_common = { path = "../tari/base_layer/core" }

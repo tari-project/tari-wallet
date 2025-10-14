@@ -1,7 +1,6 @@
 use std::{any, sync::Arc};
 
 use tari_common_types::{
-    seeds::cipher_seed::CipherSeed,
     types::CompressedPublicKey,
     wallet_types::{ProvidedKeysWallet, WalletType},
 };

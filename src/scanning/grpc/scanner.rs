@@ -20,10 +20,11 @@ use tari_transaction_components::{
     transaction_components::{TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
 };
 use tonic::{transport::Channel, Request};
+use tracing::debug;
 
 use crate::{
     errors::{WalletError, WalletResult},
-    scanning::{interface::BlockchainScanner, BlockScanResult, ScanConfig, TipInfo},
+    scanning::{interface::BlockchainScanner, BlockScanResult, InProgressScan, ScanConfig, TipInfo},
     BlockHeaderInfo,
 };
 
@@ -37,6 +38,7 @@ pub struct GrpcBlockchainScanner<KM> {
     base_url: String,
     /// key manager used for the keys
     pub key_manager: KM,
+    current_in_progress: InProgressScan,
 }
 
 impl<KM> GrpcBlockchainScanner<KM>
@@ -70,6 +72,7 @@ where KM: TransactionKeyManagerInterface
             timeout,
             base_url,
             key_manager,
+            current_in_progress: InProgressScan::new_empty(),
         })
     }
 
@@ -100,6 +103,7 @@ where KM: TransactionKeyManagerInterface
             timeout,
             base_url,
             key_manager,
+            current_in_progress: InProgressScan::new_empty(),
         })
     }
 
@@ -340,6 +344,36 @@ where KM: TransactionKeyManagerInterface
             timestamp: metadata.map(|m| m.timestamp).unwrap_or(0),
         }
     }
+
+    pub async fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()> {
+        debug!(
+            "String new scan, scanning from: {} to  {:?}",
+            config.start_height, config.end_height
+        );
+        if let Some(end_height) = config.end_height {
+            let tip_info = self.get_tip_info().await?;
+            if end_height > tip_info.best_block_height {
+                debug!(
+                    "End height is higher than current tip height, will only scan to tip {:?}",
+                    tip_info.best_block_height
+                );
+            }
+            let adjusted_config = ScanConfig {
+                start_height: config.start_height,
+                end_height: None,
+                batch_size: config.batch_size,
+                request_timeout: config.request_timeout,
+            };
+            self.current_in_progress = InProgressScan::new(adjusted_config);
+            return Ok(());
+        }
+        self.current_in_progress = InProgressScan::new(config.clone());
+        Ok(())
+    }
+
+    pub fn clear_in_progress_scan(&mut self) {
+        self.current_in_progress.clear();
+    }
 }
 
 #[async_trait(?Send)]
@@ -347,68 +381,93 @@ impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
+        if let Some(end_height) = config.end_height {
+            if config.start_height > end_height {
+                return Err(WalletError::OperationNotSupported(
+                    "start_height cannot be greater than end_height".to_string(),
+                ));
+            }
+        }
+
+        match &self.current_in_progress.get_config() {
+            Some(existing_scan) => {
+                if *existing_scan == config {
+                    debug!(
+                        "Resuming existing grpc block scan from height {} to {:?}",
+                        existing_scan.start_height, existing_scan.end_height
+                    );
+                } else {
+                    self.update_scan_config(config).await?;
+                }
+            },
+            _ => {
+                self.update_scan_config(config).await?;
+            },
+        }
+
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
-        let end_height = config.end_height.unwrap_or(tip_info.best_block_height);
+        let end_height = std::cmp::min(
+            config.end_height.unwrap_or(tip_info.best_block_height),
+            tip_info.best_block_height,
+        );
 
-        if config.start_height > end_height {
-            return Ok((Vec::new(), false));
-        }
-
+        let batch_end = std::cmp::min(
+            config.start_height + (self.current_in_progress.page() * config.batch_size.unwrap_or(10)),
+            end_height,
+        );
         let mut results = Vec::new();
-        let mut current_height = config.start_height;
-
-        while current_height <= end_height {
-            let batch_end = std::cmp::min(current_height + config.batch_size.unwrap_or_default() - 1, end_height);
-            let heights: Vec<u64> = (current_height..=batch_end).collect();
-            // Get blocks for this batch
-            let request = tari_rpc::GetBlocksRequest { heights };
-
-            let mut stream = self
-                .client
-                .clone()
-                .get_blocks(Request::new(request))
-                .await
-                .map_err(|e| {
-                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )))
-                })?
-                .into_inner();
-
-            let mut batch_results = Vec::new();
-            while let Some(grpc_block) = stream.message().await.map_err(|e| {
+        let mut current_height =
+            config.start_height + (self.current_in_progress.page() * config.batch_size.unwrap_or(10));
+        let heights: Vec<u64> = (current_height..=batch_end).collect();
+        let request = tari_rpc::GetBlocksRequest { heights };
+        let mut stream = self
+            .client
+            .clone()
+            .get_blocks(Request::new(request))
+            .await
+            .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {e}"
+                    "GRPC error: {e}"
                 )))
-            })? {
-                if let Some(block) = grpc_block.block {
-                    let tari_block: Block = block.try_into()?;
-                    let mut wallet_outputs = Vec::new();
+            })?
+            .into_inner();
+        let mut batch_results = Vec::new();
+        while let Some(grpc_block) = stream.message().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
+        })? {
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                current_height = tari_block.header.height;
+                let mut wallet_outputs = Vec::new();
 
-                    // Process outputs without debug output - let caller decide what to log
-                    for output in tari_block.body.outputs() {
-                        if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
-                            wallet_outputs.push((output.hash(), wallet_output));
-                        }
+                // Process outputs without debug output - let caller decide what to log
+                for output in tari_block.body.outputs() {
+                    if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
+                        wallet_outputs.push((output.hash(), wallet_output));
                     }
-                    let inputs = tari_block.body.inputs().iter().map(|i| i.output_hash()).collect();
+                }
+                let inputs = tari_block.body.inputs().iter().map(|i| i.output_hash()).collect();
 
-                    batch_results.push(BlockScanResult {
-                        height: tari_block.header.height,
-                        block_hash: tari_block.hash(),
-                        wallet_outputs,
-                        inputs,
-                        mined_timestamp: tari_block.header.timestamp.as_u64(),
-                    });
+                batch_results.push(BlockScanResult {
+                    height: tari_block.header.height,
+                    block_hash: tari_block.hash(),
+                    wallet_outputs,
+                    inputs,
+                    mined_timestamp: tari_block.header.timestamp.as_u64(),
+                });
+                if current_height >= batch_end {
+                    self.current_in_progress.clear();
+                    break;
                 }
             }
-
-            results.extend(batch_results);
-            current_height = batch_end + 1;
         }
+        results.extend(batch_results);
+        self.current_in_progress.increment_page();
 
-        Ok((results, false))
+        Ok((results, !(current_height >= batch_end)))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
