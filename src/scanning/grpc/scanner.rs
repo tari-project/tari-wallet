@@ -400,15 +400,18 @@ where KM: TransactionKeyManagerInterface
 
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
+        dbg!(&tip_info);
         let end_height = std::cmp::min(
             config.end_height.unwrap_or(tip_info.best_block_height),
             tip_info.best_block_height,
         );
+        dbg!(end_height);
 
         let batch_end = std::cmp::min(
             config.start_height + (self.current_in_progress.page() * config.batch_size.unwrap_or(10)),
             end_height,
         );
+        dbg!(batch_end);
         let mut results = Vec::new();
         let mut current_height =
             config.start_height + (self.current_in_progress.page() * config.batch_size.unwrap_or(10));
@@ -432,6 +435,7 @@ where KM: TransactionKeyManagerInterface
             )))
         })? {
             if let Some(block) = grpc_block.block {
+                println!("got block at height {}", block.header.as_ref().map_or(0, |h| h.height));
                 let tari_block: Block = block.try_into()?;
                 current_height = tari_block.header.height;
                 let mut wallet_outputs = Vec::new();
