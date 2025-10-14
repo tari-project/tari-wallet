@@ -165,6 +165,7 @@ pub struct BlockHeaderInfo {
     pub timestamp: EpochTime,
 }
 
+#[derive(Debug, Clone)]
 struct InProgressScan {
     config: Option<ScanConfig>,
     header: Option<String>,

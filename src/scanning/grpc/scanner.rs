@@ -374,6 +374,8 @@ impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
+        dbg!(config);
+        dbg!(&self.current_in_progress);
         if let Some(end_height) = config.end_height {
             if config.start_height > end_height {
                 return Err(WalletError::OperationNotSupported(
