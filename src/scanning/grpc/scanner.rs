@@ -408,7 +408,7 @@ where KM: TransactionKeyManagerInterface
         dbg!(end_height);
 
         let batch_end = std::cmp::min(
-            config.start_height + (self.current_in_progress.page() * config.batch_size.unwrap_or(10)),
+            config.start_height + ((self.current_in_progress.page() + 1) * config.batch_size.unwrap_or(10)) - 1,
             end_height,
         );
         dbg!(batch_end);
