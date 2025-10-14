@@ -173,7 +173,7 @@ struct InProgressScan {
 }
 
 impl InProgressScan {
-    pub fn new(config: ScanConfig) -> Self {
+    pub const fn new(config: ScanConfig) -> Self {
         Self {
             config: Some(config),
             header: None,
@@ -203,7 +203,7 @@ impl InProgressScan {
         self.config.is_some()
     }
 
-    pub fn increment_page(&mut self) {
+    pub const fn increment_page(&mut self) {
         self.current_page += 1;
     }
 

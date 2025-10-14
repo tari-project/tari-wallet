@@ -433,7 +433,6 @@ where KM: TransactionKeyManagerInterface
             )))
         })? {
             if let Some(block) = grpc_block.block {
-                println!("got block at height {}", block.header.as_ref().map_or(0, |h| h.height));
                 let tari_block: Block = block.try_into()?;
                 current_height = tari_block.header.height;
                 let mut wallet_outputs = Vec::new();
