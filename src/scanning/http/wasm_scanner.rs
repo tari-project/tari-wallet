@@ -725,7 +725,6 @@ where KM: TransactionKeyManagerInterface
                 "Failed to read response body: {e}"
             )))
         })?;
-        dbg!(&body);
 
         let header_response: HttpBlockHeader = serde_json::from_str(&body).map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
