@@ -173,7 +173,8 @@ struct InProgressScan {
 }
 
 impl InProgressScan {
-    pub const fn new(config: ScanConfig) -> Self {
+    pub fn new(config: ScanConfig) -> Self {
+        dbg!("nde");
         Self {
             config: Some(config),
             header: None,

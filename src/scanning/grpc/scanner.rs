@@ -343,9 +343,14 @@ where KM: TransactionKeyManagerInterface
             "String new scan, scanning from: {} to  {:?}",
             config.start_height, config.end_height
         );
+        dbg!("hi");
         if let Some(end_height) = config.end_height {
+
+            dbg!("hi2");
             let tip_info = self.get_tip_info().await?;
             if end_height > tip_info.best_block_height {
+
+                dbg!("hi3");
                 debug!(
                     "End height is higher than current tip height, will only scan to tip {:?}",
                     tip_info.best_block_height
