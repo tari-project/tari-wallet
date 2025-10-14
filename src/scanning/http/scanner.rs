@@ -1,6 +1,6 @@
 //! HTTP-based blockchain scanner implementation
 //!
-//! This module provides an HTTP implementation of the BlockchainScanner trait
+//! This module provides an HTTP implementation of the `BlockchainScanner` trait
 //! that connects to a Tari base node via HTTP API to scan for wallet outputs.
 
 // Native targets use reqwest
@@ -175,7 +175,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Create a scan config with wallet keys for block scanning
-    pub fn create_scan_config_with_wallet_keys(
+    pub const fn create_scan_config_with_wallet_keys(
         &self,
         start_height: u64,
         end_height: Option<u64>,
@@ -193,7 +193,7 @@ where KM: TransactionKeyManagerInterface
         &self,
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
-        let (commitment_mask, value, memo) = match self
+        let Some((commitment_mask, value, memo)) = self
             .key_manager
             .try_output_key_recovery(
                 &output.commitment,
@@ -201,44 +201,36 @@ where KM: TransactionKeyManagerInterface
                 &output.sender_offset_public_key,
             )
             .await?
-        {
-            Some(value) => value,
-            None => return Ok(None),
+        else {
+            return Ok(None);
         };
 
         let output = IncompleteScannedOutput::new(output, value, commitment_mask, memo)?;
         Ok(Some(output))
     }
 
-    /// Fetch block range using the sync_utxos_by_block endpoint
+    /// Fetch block range using the `sync_utxos_by_block` endpoint
+    #[allow(clippy::cognitive_complexity)]
     async fn fetch_block_range(&mut self) -> WalletResult<(Vec<BlockUtxoInfo>, bool)> {
-        let start_height = self
-            .current_in_progress
-            .get_config()
-            .map(|c| c.start_height)
-            .unwrap_or(0);
+        let start_height = self.current_in_progress.get_config().map_or(0, |c| c.start_height);
 
         // Get the starting header hash
         let mut more_blocks = true;
-        let current_header_hash = match self.current_in_progress.get_header() {
-            Some(h) => h.clone(),
-            _ => {
-                let start_header = match self.get_header_by_height(start_height).await? {
-                    Some(h) => h,
-                    None => {
-                        return Err(WalletError::ScanningError(
-                            crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                                "Failed to get header at height {}",
-                                start_height
-                            )),
-                        ));
-                    },
-                };
-                let current_header_hash = start_header.hash.to_hex();
-                self.current_in_progress.set_next_request(current_header_hash.clone());
-                current_header_hash
-            },
+        let current_header_hash = if let Some(h) = self.current_in_progress.get_header() {
+            h.clone()
+        } else {
+            let Some(start_header) = self.get_header_by_height(start_height).await? else {
+                return Err(WalletError::ScanningError(
+                    crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                        "Failed to get header at height {start_height}"
+                    )),
+                ));
+            };
+            let current_header_hash = start_header.hash.to_hex();
+            self.current_in_progress.set_next_request(current_header_hash.clone());
+            current_header_hash
         };
+
         let mut all_blocks = Vec::new();
 
         debug!("Starting fetch_block_range from height {} ", start_height);
@@ -271,25 +263,23 @@ where KM: TransactionKeyManagerInterface
         }
         self.current_in_progress.increment_page();
 
-        if !has_next_page {
-            if self.current_in_progress.is_active() {
-                // we are done scanning this batch of blocks, we need to request the next header, and we have not
-                // reached some end goal
-                if next_header_to_scan.is_empty() {
-                    debug!("No next header to scan, ending fetch");
+        if !has_next_page && self.current_in_progress.is_active() {
+            // we are done scanning this batch of blocks, we need to request the next header, and we have not
+            // reached some end goal
+            if next_header_to_scan.is_empty() {
+                debug!("No next header to scan, ending fetch");
+                more_blocks = false;
+                self.current_in_progress.clear();
+            } else {
+                let next_header_to_scan_hex = next_header_to_scan.to_hex();
+                debug!("Setting next header to scan: {}", next_header_to_scan_hex);
+                // Safeguard against infinite loops if the server returns the same hash
+                if next_header_to_scan_hex == self.current_in_progress.get_header().cloned().unwrap_or_default() {
+                    debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
                     more_blocks = false;
                     self.current_in_progress.clear();
                 } else {
-                    let next_header_to_scan_hex = next_header_to_scan.to_hex();
-                    debug!("Setting next header to scan: {}", next_header_to_scan_hex);
-                    // Safeguard against infinite loops if the server returns the same hash
-                    if next_header_to_scan_hex == self.current_in_progress.get_header().cloned().unwrap_or_default() {
-                        debug!("Next header is the same as the current one, stopping to prevent infinite loop.");
-                        more_blocks = false;
-                        self.current_in_progress.clear();
-                    } else {
-                        self.current_in_progress.set_next_request(next_header_to_scan_hex);
-                    }
+                    self.current_in_progress.set_next_request(next_header_to_scan_hex);
                 }
             }
         }
@@ -373,7 +363,7 @@ where KM: TransactionKeyManagerInterface
                 let scanned_output = output.clone().try_into()?;
                 if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
                     wallet_outputs.push(wallet_output);
-                    blocks_with_utxos.insert(header_hash.clone());
+                    blocks_with_utxos.insert(header_hash);
                 }
             }
             let mined_timestamp = http_block.mined_timestamp;
@@ -410,8 +400,8 @@ where KM: TransactionKeyManagerInterface
                     .iter()
                     .position(|o| *o.encrypted_data() == output.encrypted_data)
                 {
-                    let tx_output = block_response.outputs[index].clone();
-                    let output_hash = output.output_hash.clone();
+                    let tx_output = block_response.outputs.get(index).expect("should exist").clone();
+                    let output_hash = output.output_hash;
                     // Attempt to convert to wallet output
                     if let Some(wallet_output) = output.to_wallet_output(tx_output, &self.key_manager).await? {
                         wallet_outputs.push((output_hash, wallet_output));

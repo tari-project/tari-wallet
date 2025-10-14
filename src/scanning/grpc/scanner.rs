@@ -1,6 +1,6 @@
 //! GRPC-based blockchain scanner implementation
 //!
-//! This module provides a GRPC implementation of the BlockchainScanner trait
+//! This module provides a GRPC implementation of the `BlockchainScanner` trait
 //! that connects to a Tari base node via GRPC to scan for wallet outputs.
 //!
 //! ## Wallet Key Integration
@@ -34,8 +34,6 @@ pub struct GrpcBlockchainScanner<KM> {
     client: tari_rpc::base_node_client::BaseNodeClient<Channel>,
     /// Connection timeout
     timeout: Duration,
-    /// Base URL for the GRPC connection
-    base_url: String,
     /// key manager used for the keys
     pub key_manager: KM,
     current_in_progress: InProgressScan,
@@ -70,7 +68,6 @@ where KM: TransactionKeyManagerInterface
         Ok(Self {
             client,
             timeout,
-            base_url,
             key_manager,
             current_in_progress: InProgressScan::new_empty(),
         })
@@ -101,14 +98,13 @@ where KM: TransactionKeyManagerInterface
         Ok(Self {
             client,
             timeout,
-            base_url,
             key_manager,
             current_in_progress: InProgressScan::new_empty(),
         })
     }
 
     /// Create a scan config with wallet keys for block scanning
-    pub fn create_scan_config_with_wallet_keys(
+    pub const fn create_scan_config_with_wallet_keys(
         &self,
         start_height: u64,
         end_height: Option<u64>,
@@ -123,7 +119,7 @@ where KM: TransactionKeyManagerInterface
 
     /// Scan for regular recoverable outputs using encrypted data decryption
     pub async fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        let (commitment_mask, value, memo) = match self
+        let Some((commitment_mask, value, memo)) = self
             .key_manager
             .try_output_key_recovery(
                 &output.commitment,
@@ -131,14 +127,11 @@ where KM: TransactionKeyManagerInterface
                 &output.sender_offset_public_key,
             )
             .await?
-        {
-            Some(value) => value,
-            None => return Ok(None),
+        else {
+            return Ok(None);
         };
-        match WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await {
-            Ok(wallet_output) => Ok(Some(wallet_output)),
-            Err(_) => Ok(None),
-        }
+        (WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await)
+            .map_or_else(|_| Ok(None), |wallet_output| Ok(Some(wallet_output)))
     }
 
     /// Get all outputs from a specific block
@@ -334,14 +327,14 @@ where KM: TransactionKeyManagerInterface
         let metadata = grpc_tip.metadata.as_ref();
 
         TipInfo {
-            best_block_height: metadata.map(|m| m.best_block_height).unwrap_or(0),
+            best_block_height: metadata.map_or(0, |m| m.best_block_height),
             best_block_hash: FixedHash::try_from(metadata.map(|m| m.best_block_hash.clone()).unwrap_or_default())
                 .unwrap_or_default(),
             accumulated_difficulty: metadata
                 .map(|m| U512::from_big_endian(&m.accumulated_difficulty).to_string())
                 .unwrap_or_default(),
-            pruned_height: metadata.map(|m| m.pruned_height).unwrap_or(0),
-            timestamp: metadata.map(|m| m.timestamp).unwrap_or(0),
+            pruned_height: metadata.map_or(0, |m| m.pruned_height),
+            timestamp: metadata.map_or(0, |m| m.timestamp),
         }
     }
 
@@ -449,7 +442,12 @@ where KM: TransactionKeyManagerInterface
                         wallet_outputs.push((output.hash(), wallet_output));
                     }
                 }
-                let inputs = tari_block.body.inputs().iter().map(|i| i.output_hash()).collect();
+                let inputs = tari_block
+                    .body
+                    .inputs()
+                    .iter()
+                    .map(tari_transaction_components::transaction_components::TransactionInput::output_hash)
+                    .collect();
 
                 batch_results.push(BlockScanResult {
                     height: tari_block.header.height,
@@ -467,7 +465,7 @@ where KM: TransactionKeyManagerInterface
         results.extend(batch_results);
         self.current_in_progress.increment_page();
 
-        Ok((results, !(current_height >= batch_end)))
+        Ok((results, (current_height < batch_end)))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
@@ -544,15 +542,6 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
-impl<KM> std::fmt::Debug for GrpcBlockchainScanner<KM> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GrpcBlockchainScanner")
-            .field("base_url", &self.base_url)
-            .field("timeout", &self.timeout)
-            .finish()
-    }
-}
-
 /// Builder for creating GRPC blockchain scanners
 pub struct GrpcScannerBuilder<KM> {
     base_url: Option<String>,
@@ -560,11 +549,19 @@ pub struct GrpcScannerBuilder<KM> {
     key_manager: Option<KM>,
 }
 
+impl<KM> Default for GrpcScannerBuilder<KM>
+where KM: TransactionKeyManagerInterface
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<KM> GrpcScannerBuilder<KM>
 where KM: TransactionKeyManagerInterface
 {
     /// Create a new builder
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             base_url: None,
             timeout: None,
@@ -573,18 +570,21 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Set the base URL for the GRPC connection
+    #[must_use]
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = Some(base_url);
         self
     }
 
     /// Set the timeout for GRPC operations
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+    #[must_use]
+    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
     /// Set the key manager for wallet key integration
+    #[must_use]
     pub fn with_key_manager(mut self, key_manager: KM) -> Self {
         self.key_manager = Some(key_manager);
         self

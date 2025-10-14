@@ -16,6 +16,7 @@ pub struct KeyManagerBuilder {
 }
 
 impl KeyManagerBuilder {
+    #[must_use]
     pub fn with_view_key_and_spend_key(
         mut self,
         view_key: RistrettoSecretKey,

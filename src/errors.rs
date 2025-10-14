@@ -591,25 +591,25 @@ pub enum EncryptionError {
 // Conversion implementations for external error types
 impl From<hex::FromHexError> for SerializationError {
     fn from(err: hex::FromHexError) -> Self {
-        SerializationError::HexDecodingError(err.to_string())
+        Self::HexDecodingError(err.to_string())
     }
 }
 
 impl From<std::io::Error> for SerializationError {
     fn from(err: std::io::Error) -> Self {
-        SerializationError::BufferOverflow(err.to_string())
+        Self::BufferOverflow(err.to_string())
     }
 }
 
 impl From<String> for WalletError {
     fn from(err: String) -> Self {
-        WalletError::InternalError(err)
+        Self::InternalError(err)
     }
 }
 
 impl From<&str> for WalletError {
     fn from(err: &str) -> Self {
-        WalletError::InternalError(err.to_string())
+        Self::InternalError(err.to_string())
     }
 }
 
@@ -621,7 +621,7 @@ impl From<wasm_bindgen::JsValue> for WalletError {
         } else {
             format!("{:?}", err)
         };
-        WalletError::NetworkError(format!("WASM error: {}", message))
+        Self::NetworkError(format!("WASM error: {}", message))
     }
 }
 
@@ -639,12 +639,12 @@ impl DataStructureError {
     }
 
     /// Create a data too large error
-    pub fn data_too_large(max: usize, actual: usize) -> Self {
+    pub const fn data_too_large(max: usize, actual: usize) -> Self {
         Self::DataTooLarge { max, actual }
     }
 
     /// Create a data too small error
-    pub fn data_too_small(min: usize, actual: usize) -> Self {
+    pub const fn data_too_small(min: usize, actual: usize) -> Self {
         Self::DataTooSmall { min, actual }
     }
 
@@ -684,32 +684,32 @@ impl SerializationError {
 impl ValidationError {
     /// Create a range proof validation error
     pub fn range_proof_validation_failed(details: &str) -> Self {
-        ValidationError::RangeProofValidationFailed(details.to_string())
+        Self::RangeProofValidationFailed(details.to_string())
     }
 
     /// Create a signature validation error
     pub fn signature_validation_failed(details: &str) -> Self {
-        ValidationError::SignatureValidationFailed(details.to_string())
+        Self::SignatureValidationFailed(details.to_string())
     }
 
     /// Create a metadata signature validation error
     pub fn metadata_signature_validation_failed(details: &str) -> Self {
-        ValidationError::MetadataSignatureValidationFailed(details.to_string())
+        Self::MetadataSignatureValidationFailed(details.to_string())
     }
 
     /// Create a script signature validation error
     pub fn script_signature_validation_failed(details: &str) -> Self {
-        ValidationError::ScriptSignatureValidationFailed(details.to_string())
+        Self::ScriptSignatureValidationFailed(details.to_string())
     }
 
     /// Create a commitment validation error
     pub fn commitment_validation_failed(details: &str) -> Self {
-        ValidationError::CommitmentValidationFailed(details.to_string())
+        Self::CommitmentValidationFailed(details.to_string())
     }
 
     /// Create a minimum value promise validation error
     pub fn minimum_value_promise_validation_failed(details: &str) -> Self {
-        ValidationError::MinimumValuePromiseValidationFailed(details.to_string())
+        Self::MinimumValuePromiseValidationFailed(details.to_string())
     }
 }
 
@@ -740,7 +740,7 @@ impl KeyManagementError {
     }
 
     /// Create an invalid word count error
-    pub fn invalid_word_count(expected: usize, actual: usize) -> Self {
+    pub const fn invalid_word_count(expected: usize, actual: usize) -> Self {
         Self::InvalidWordCount { expected, actual }
     }
 
@@ -753,12 +753,12 @@ impl KeyManagementError {
     }
 
     /// Create an invalid seed checksum error
-    pub fn invalid_seed_checksum() -> Self {
+    pub const fn invalid_seed_checksum() -> Self {
         Self::InvalidSeedChecksum
     }
 
     /// Create an empty seed phrase error
-    pub fn empty_seed_phrase() -> Self {
+    pub const fn empty_seed_phrase() -> Self {
         Self::EmptySeedPhrase
     }
 
@@ -825,7 +825,7 @@ impl KeyManagementError {
     }
 
     /// Create a derivation path too deep error
-    pub fn derivation_path_too_deep(depth: usize, max_depth: usize) -> Self {
+    pub const fn derivation_path_too_deep(depth: usize, max_depth: usize) -> Self {
         Self::DerivationPathTooDeep { depth, max_depth }
     }
 
@@ -839,46 +839,46 @@ impl KeyManagementError {
 
     // === CipherSeed Error Convenience Methods ===
 
-    /// Create an unsupported CipherSeed version error
-    pub fn unsupported_cipher_seed_version(version: u8, supported_versions: Vec<u8>) -> Self {
+    /// Create an unsupported `CipherSeed` version error
+    pub const fn unsupported_cipher_seed_version(version: u8, supported_versions: Vec<u8>) -> Self {
         Self::UnsupportedCipherSeedVersion {
             version,
             supported_versions,
         }
     }
 
-    /// Create a CipherSeed encryption failed error
+    /// Create a `CipherSeed` encryption failed error
     pub fn cipher_seed_encryption_failed(reason: &str) -> Self {
         Self::CipherSeedEncryptionFailed {
             reason: reason.to_string(),
         }
     }
 
-    /// Create a CipherSeed decryption failed error
+    /// Create a `CipherSeed` decryption failed error
     pub fn cipher_seed_decryption_failed(reason: &str) -> Self {
         Self::CipherSeedDecryptionFailed {
             reason: reason.to_string(),
         }
     }
 
-    /// Create an invalid CipherSeed format error
+    /// Create an invalid `CipherSeed` format error
     pub fn invalid_cipher_seed_format(details: &str) -> Self {
         Self::InvalidCipherSeedFormat {
             details: details.to_string(),
         }
     }
 
-    /// Create a CipherSeed MAC verification failed error
-    pub fn cipher_seed_mac_verification_failed() -> Self {
+    /// Create a `CipherSeed` MAC verification failed error
+    pub const fn cipher_seed_mac_verification_failed() -> Self {
         Self::CipherSeedMacVerificationFailed
     }
 
-    /// Create an invalid CipherSeed birthday error
-    pub fn invalid_cipher_seed_birthday(birthday: u16) -> Self {
+    /// Create an invalid `CipherSeed` birthday error
+    pub const fn invalid_cipher_seed_birthday(birthday: u16) -> Self {
         Self::InvalidCipherSeedBirthday { birthday }
     }
 
-    /// Create a CipherSeed entropy error
+    /// Create a `CipherSeed` entropy error
     pub fn cipher_seed_entropy_error(details: &str) -> Self {
         Self::CipherSeedEntropyError {
             details: details.to_string(),
@@ -888,12 +888,12 @@ impl KeyManagementError {
     // === Passphrase Error Convenience Methods ===
 
     /// Create a missing required passphrase error
-    pub fn missing_required_passphrase() -> Self {
+    pub const fn missing_required_passphrase() -> Self {
         Self::MissingRequiredPassphrase
     }
 
     /// Create an invalid passphrase error
-    pub fn invalid_passphrase() -> Self {
+    pub const fn invalid_passphrase() -> Self {
         Self::InvalidPassphrase
     }
 
@@ -975,7 +975,7 @@ impl KeyManagementError {
     // === Helper Methods for Error Analysis ===
 
     /// Check if this is a recoverable error (user can potentially fix)
-    pub fn is_recoverable(&self) -> bool {
+    pub const fn is_recoverable(&self) -> bool {
         matches!(
             self,
             Self::UnknownWord { .. } |
@@ -990,7 +990,7 @@ impl KeyManagementError {
     }
 
     /// Check if this is a critical error (requires immediate attention)
-    pub fn is_critical(&self) -> bool {
+    pub const fn is_critical(&self) -> bool {
         matches!(
             self,
             Self::MasterKeyDerivationFailed { .. } |
@@ -1019,14 +1019,15 @@ impl KeyManagementError {
                 Some("This wallet was created with a passphrase. Please provide the correct passphrase.".to_string())
             },
             Self::InvalidPassphrase => Some("Check that the passphrase is correct and try again.".to_string()),
-            Self::InvalidSeedPhraseFormat { suggestion, .. } => Some(suggestion.clone()),
-            Self::SeedValidationFailed { suggestion, .. } => Some(suggestion.clone()),
+            Self::InvalidSeedPhraseFormat { suggestion, .. } | Self::SeedValidationFailed { suggestion, .. } => {
+                Some(suggestion.clone())
+            },
             _ => None,
         }
     }
 
     /// Get the error category for this error
-    pub fn category(&self) -> &'static str {
+    pub const fn category(&self) -> &'static str {
         match self {
             Self::UnknownWord { .. } |
             Self::InvalidWordCount { .. } |

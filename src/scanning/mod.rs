@@ -65,23 +65,27 @@ impl Default for ScanConfig {
 }
 
 impl ScanConfig {
-    pub fn with_start_height(mut self, start_height: u64) -> Self {
+    #[must_use]
+    pub const fn with_start_height(mut self, start_height: u64) -> Self {
         self.start_height = start_height;
         self
     }
 
-    pub fn with_end_height(mut self, end_height: u64) -> Self {
+    #[must_use]
+    pub const fn with_end_height(mut self, end_height: u64) -> Self {
         self.end_height = Some(end_height);
         self
     }
 
-    pub fn with_start_end_heights(mut self, start_height: u64, end_height: u64) -> Self {
+    #[must_use]
+    pub const fn with_start_end_heights(mut self, start_height: u64, end_height: u64) -> Self {
         self.start_height = start_height;
         self.end_height = Some(end_height);
         self
     }
 
-    pub fn with_batch_size(mut self, batch_size: u64) -> Self {
+    #[must_use]
+    pub const fn with_batch_size(mut self, batch_size: u64) -> Self {
         self.batch_size = Some(batch_size);
         self
     }
@@ -168,7 +172,7 @@ struct InProgressScan {
 }
 
 impl InProgressScan {
-    pub fn new(config: ScanConfig) -> Self {
+    pub const fn new(config: ScanConfig) -> Self {
         Self {
             config: Some(config),
             header: None,
@@ -176,7 +180,7 @@ impl InProgressScan {
         }
     }
 
-    pub fn new_empty() -> Self {
+    pub const fn new_empty() -> Self {
         Self {
             config: None,
             header: None,
@@ -190,15 +194,15 @@ impl InProgressScan {
         self.current_page = 0;
     }
 
-    pub fn page(&self) -> u64 {
+    pub const fn page(&self) -> u64 {
         self.current_page
     }
 
-    pub fn is_active(&self) -> bool {
+    pub const fn is_active(&self) -> bool {
         self.config.is_some()
     }
 
-    pub fn increment_page(&mut self) {
+    pub const fn increment_page(&mut self) {
         self.current_page += 1;
     }
 
@@ -207,11 +211,11 @@ impl InProgressScan {
         self.current_page = 0;
     }
 
-    pub fn get_header(&self) -> Option<&String> {
+    pub const fn get_header(&self) -> Option<&String> {
         self.header.as_ref()
     }
 
-    pub fn get_config(&self) -> Option<&ScanConfig> {
+    pub const fn get_config(&self) -> Option<&ScanConfig> {
         self.config.as_ref()
     }
 }
