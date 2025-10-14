@@ -466,7 +466,7 @@ dbg!(self.current_in_progress.page());
                     inputs,
                     mined_timestamp: tari_block.header.timestamp.as_u64(),
                 });
-                if current_height >= batch_end {
+                if current_height >= end_height {
                     self.current_in_progress.clear();
                     break;
                 }
@@ -476,6 +476,7 @@ dbg!(self.current_in_progress.page());
         self.current_in_progress.increment_page();
 
         dbg!(self.current_in_progress.page());
+        dbg!(&self.current_in_progress);
 
         Ok((results, (current_height < end_height)))
     }
