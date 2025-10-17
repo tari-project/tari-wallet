@@ -588,13 +588,6 @@ pub enum EncryptionError {
     EncryptionFinalizationError(String),
 }
 
-// Conversion implementations for external error types
-impl From<hex::FromHexError> for SerializationError {
-    fn from(err: hex::FromHexError) -> Self {
-        Self::HexDecodingError(err.to_string())
-    }
-}
-
 impl From<std::io::Error> for SerializationError {
     fn from(err: std::io::Error) -> Self {
         Self::BufferOverflow(err.to_string())
