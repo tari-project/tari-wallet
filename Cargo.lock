@@ -1590,7 +1590,11 @@ dependencies = [
 [[package]]
 name = "minotari_app_grpc"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "argon2",
  "base64 0.13.1",
@@ -1619,7 +1623,11 @@ dependencies = [
 [[package]]
 name = "minotari_ledger_wallet_common"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "bs58 0.5.1",
 ]
@@ -2868,7 +2876,11 @@ dependencies = [
 [[package]]
 name = "tari_common"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -2885,13 +2897,39 @@ dependencies = [
  "structopt",
  "tari_features",
  "tempfile",
+<<<<<<< HEAD
  "thiserror 2.0.16",
+=======
+ "thiserror 1.0.69",
+ "toml 0.5.11",
+]
+
+[[package]]
+name = "tari_common_sqlite"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "diesel",
+ "diesel_migrations",
+ "lazy_static",
+ "log",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tari_utilities",
+ "thiserror 1.0.69",
+ "tokio",
+>>>>>>> origin/development
 ]
 
 [[package]]
 name = "tari_common_types"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "argon2",
  "base64 0.21.7",
@@ -2926,6 +2964,163 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "tari_comms"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitflags 2.9.4",
+ "blake2",
+ "bytes 1.10.1",
+ "chrono",
+ "cidr",
+ "data-encoding",
+ "derivative",
+ "diesel",
+ "diesel_migrations",
+ "digest",
+ "futures",
+ "local-ip-address",
+ "log",
+ "multiaddr",
+ "nom",
+ "once_cell",
+ "pin-project 1.1.10",
+ "prost 0.13.5",
+ "rand 0.8.5",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha3",
+ "snow",
+ "tari_common",
+ "tari_common_sqlite",
+ "tari_crypto",
+ "tari_shutdown",
+ "tari_storage",
+ "tari_utilities",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tokio-util 0.6.10",
+ "tower 0.4.13",
+ "tracing",
+ "yamux",
+ "zeroize",
+]
+
+[[package]]
+name = "tari_comms_dht"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "anyhow",
+ "bitflags 2.9.4",
+ "blake2",
+ "chacha20 0.7.3",
+ "chacha20poly1305",
+ "chrono",
+ "diesel",
+ "diesel_migrations",
+ "digest",
+ "futures",
+ "futures-util",
+ "log",
+ "pin-project 0.4.30",
+ "prost 0.13.5",
+ "rand 0.8.5",
+ "serde",
+ "tari_common",
+ "tari_common_sqlite",
+ "tari_comms",
+ "tari_comms_rpc_macros",
+ "tari_crypto",
+ "tari_shutdown",
+ "tari_utilities",
+ "thiserror 1.0.69",
+ "tokio",
+ "tower 0.4.13",
+ "zeroize",
+]
+
+[[package]]
+name = "tari_comms_rpc_macros"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "tari_core"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "blake2",
+ "borsh",
+ "chacha20poly1305",
+ "chrono",
+ "digest",
+ "dirs-next",
+ "fs2",
+ "futures",
+ "hex",
+ "hickory-proto",
+ "integer-encoding",
+ "jmt",
+ "lmdb-zero",
+ "log",
+ "monero",
+ "once_cell",
+ "primitive-types",
+ "prost 0.13.5",
+ "rand 0.8.5",
+ "randomx-rs",
+ "serde",
+ "serde_json",
+ "serde_valid",
+ "sha2",
+ "sha3",
+ "strum_macros",
+ "tari-tiny-keccak",
+ "tari_common",
+ "tari_common_sqlite",
+ "tari_common_types",
+ "tari_comms",
+ "tari_comms_dht",
+ "tari_comms_rpc_macros",
+ "tari_crypto",
+ "tari_features",
+ "tari_hashing",
+ "tari_max_size",
+ "tari_mmr",
+ "tari_node_components",
+ "tari_p2p",
+ "tari_script",
+ "tari_service_framework",
+ "tari_shutdown",
+ "tari_sidechain",
+ "tari_storage",
+ "tari_test_utils",
+ "tari_transaction_components",
+ "tari_transaction_key_manager",
+ "tari_utilities",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+>>>>>>> origin/development
 name = "tari_crypto"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2951,12 +3146,20 @@ dependencies = [
 [[package]]
 name = "tari_features"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 
 [[package]]
 name = "tari_hashing"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "blake2",
  "borsh",
@@ -2967,7 +3170,11 @@ dependencies = [
 [[package]]
 name = "tari_jellyfish"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "borsh",
  "digest",
@@ -2981,18 +3188,44 @@ dependencies = [
 [[package]]
 name = "tari_max_size"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "borsh",
  "serde",
  "tari_utilities",
+<<<<<<< HEAD
  "thiserror 2.0.16",
+=======
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "tari_mmr"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "borsh",
+ "digest",
+ "log",
+ "serde",
+ "tari_crypto",
+ "tari_utilities",
+ "thiserror 1.0.69",
+>>>>>>> origin/development
 ]
 
 [[package]]
 name = "tari_node_components"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "blake2",
  "borsh",
@@ -3006,13 +3239,47 @@ dependencies = [
  "tari_hashing",
  "tari_transaction_components",
  "tari_utilities",
+<<<<<<< HEAD
  "thiserror 2.0.16",
+=======
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "tari_p2p"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "anyhow",
+ "futures",
+ "hickory-proto",
+ "hickory-resolver",
+ "log",
+ "prost 0.13.5",
+ "rand 0.8.5",
+ "serde",
+ "tari_common",
+ "tari_common_sqlite",
+ "tari_comms",
+ "tari_comms_dht",
+ "tari_service_framework",
+ "tari_shutdown",
+ "tari_utilities",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tower 0.4.13",
+>>>>>>> origin/development
 ]
 
 [[package]]
 name = "tari_script"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "blake2",
  "borsh",
@@ -3030,7 +3297,11 @@ dependencies = [
 [[package]]
 name = "tari_service_framework"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3045,7 +3316,11 @@ dependencies = [
 [[package]]
 name = "tari_shutdown"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "futures",
 ]
@@ -3053,7 +3328,11 @@ dependencies = [
 [[package]]
 name = "tari_sidechain"
 version = "5.1.0-rc.1"
+<<<<<<< HEAD
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "borsh",
  "hex",
@@ -3068,9 +3347,40 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "tari_transaction_components"
 version = "5.1.0-rc.1"
 source = "git+https://github.com/stringhandler/tari/?rev=6430bfffb53af71d80535243eec9165534af2b41#6430bfffb53af71d80535243eec9165534af2b41"
+=======
+name = "tari_storage"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "bincode",
+ "lmdb-zero",
+ "log",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "tari_test_utils"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "futures",
+ "rand 0.8.5",
+ "tari_comms",
+ "tari_shutdown",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "tari_transaction_components"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+>>>>>>> origin/development
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3115,6 +3425,29 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "tari_transaction_key_manager"
+version = "5.1.0-rc.1"
+source = "git+https://github.com/stringhandler/tari/?rev=a682bcdb8ebc2d6362ed9b004c99fc35e6fed908#a682bcdb8ebc2d6362ed9b004c99fc35e6fed908"
+dependencies = [
+ "async-trait",
+ "chacha20poly1305",
+ "chrono",
+ "diesel",
+ "diesel_migrations",
+ "log",
+ "rand 0.8.5",
+ "tari_common_sqlite",
+ "tari_common_types",
+ "tari_transaction_components",
+ "tari_utilities",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+>>>>>>> origin/development
 name = "tari_utilities"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

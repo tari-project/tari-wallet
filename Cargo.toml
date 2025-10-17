@@ -22,6 +22,7 @@ serde_json = "1.0"
 thiserror = "1.0"
 
 # === Tari Ecosystem Dependencies ===
+<<<<<<< HEAD
 tari_common = { git = "https://github.com/stringhandler/tari/", rev = "6430bfffb53af71d80535243eec9165534af2b41" }
 tari_common_types = { git = "https://github.com/stringhandler/tari/", rev = "6430bfffb53af71d80535243eec9165534af2b41" }
 tari_crypto = { version = "0.22.1", features = ["borsh"] }
@@ -30,6 +31,16 @@ tari_script = { git = "https://github.com/stringhandler/tari/", rev = "6430bfffb
 tari_transaction_components = { git = "https://github.com/stringhandler/tari/", rev = "6430bfffb53af71d80535243eec9165534af2b41" }
 minotari_app_grpc = { git = "https://github.com/stringhandler/tari/", rev = "6430bfffb53af71d80535243eec9165534af2b41", optional = true, default-features = false }
 tari_node_components = { git = "https://github.com/stringhandler/tari/", rev = "6430bfffb53af71d80535243eec9165534af2b41" }
+=======
+tari_common = { git = "https://github.com/stringhandler/tari/", rev = "a682bcdb8ebc2d6362ed9b004c99fc35e6fed908" }
+tari_common_types = { git = "https://github.com/stringhandler/tari/", rev = "a682bcdb8ebc2d6362ed9b004c99fc35e6fed908" }
+tari_crypto = { version = "0.22.1", features = ["borsh"] }
+tari_utilities = { version = "0.8", features = ["std"] }
+tari_script = { git = "https://github.com/stringhandler/tari/", rev = "a682bcdb8ebc2d6362ed9b004c99fc35e6fed908" }
+tari_transaction_components = { git = "https://github.com/stringhandler/tari/", rev = "a682bcdb8ebc2d6362ed9b004c99fc35e6fed908" }
+minotari_app_grpc = { git = "https://github.com/stringhandler/tari/", rev = "a682bcdb8ebc2d6362ed9b004c99fc35e6fed908", optional = true }
+tari_node_components = { git = "https://github.com/stringhandler/tari/", rev = "a682bcdb8ebc2d6362ed9b004c99fc35e6fed908" }
+>>>>>>> origin/development
 
 
 # === Encoding & Utilities ===
