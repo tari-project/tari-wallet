@@ -6,10 +6,12 @@
 // Native targets use reqwest
 use std::{
     collections::{HashMap, HashSet},
+    sync::RwLock,
     time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use reqwest::Client;
 use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
@@ -41,13 +43,14 @@ pub struct HttpBlockchainScanner<KM> {
     timeout: Duration,
     key_manager: KM,
     current_in_progress: InProgressScan,
+    number_processing_threads: usize,
 }
 
 impl<KM> HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     /// Create a new HTTP scanner with the given base URL
-    pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
+    pub async fn new(base_url: String, key_manager: KM, number_processing_threads: usize) -> WalletResult<Self> {
         let timeout = Duration::from_secs(30);
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -69,11 +72,17 @@ where KM: TransactionKeyManagerInterface
             timeout,
             key_manager,
             current_in_progress: InProgressScan::new_empty(),
+            number_processing_threads,
         })
     }
 
     /// Create a new HTTP scanner with custom timeout (native only)
-    pub async fn with_timeout(base_url: String, timeout: Duration, key_manager: KM) -> WalletResult<Self> {
+    pub async fn with_timeout(
+        base_url: String,
+        timeout: Duration,
+        key_manager: KM,
+        number_processing_threads: usize,
+    ) -> WalletResult<Self> {
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to create HTTP client: {e}"
@@ -95,6 +104,7 @@ where KM: TransactionKeyManagerInterface
             timeout,
             key_manager,
             current_in_progress: InProgressScan::new_empty(),
+            number_processing_threads,
         })
     }
 
@@ -331,56 +341,98 @@ where KM: TransactionKeyManagerInterface
                 self.update_scan_config(config).await?;
             },
         }
-
         let timer = Instant::now();
         let (http_blocks, more_blocks) = self.fetch_block_range().await?;
 
-        let mut utxos = Vec::new();
+        let utxos = RwLock::new(Vec::new());
+        let blocks_with_utxos = RwLock::new(HashSet::new());
+        let errors = RwLock::new(Vec::new());
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.number_processing_threads)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            http_blocks.into_par_iter().for_each(|http_block| {
+                let mut wallet_outputs = Vec::new();
 
-        let mut blocks_with_utxos = HashSet::new();
-        for http_block in http_blocks {
-            let mut wallet_outputs = Vec::new();
-
-            let header_hash = FixedHash::try_from(http_block.header_hash.clone())
-                .map_err(|e| WalletError::ConversionError(e.to_string()))?;
-            for output in &http_block.outputs {
-                let scanned_output = output.clone().try_into()?;
-                if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
-                    wallet_outputs.push(wallet_output);
-                    blocks_with_utxos.insert(header_hash);
+                let header_hash = match FixedHash::try_from(http_block.header_hash.clone()) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        errors
+                            .write()
+                            .expect("write lock should not be poisoned")
+                            .push(WalletError::ConversionError(e.to_string()));
+                        return;
+                    },
+                };
+                for output in &http_block.outputs {
+                    let scanned_output = match output.clone().try_into() {
+                        Ok(o) => o,
+                        Err(e) => {
+                            errors.write().expect("write lock should not be poisoned").push(e);
+                            continue;
+                        },
+                    };
+                    match futures::executor::block_on(self.scan_for_recoverable_output(&scanned_output)) {
+                        Ok(Some(wallet_output)) => {
+                            wallet_outputs.push(wallet_output);
+                            blocks_with_utxos
+                                .write()
+                                .expect("write lock should not be poisoned")
+                                .insert(header_hash);
+                        },
+                        Ok(None) => {},
+                        Err(e) => {
+                            errors.write().expect("write lock should not be poisoned").push(e);
+                        },
+                    }
                 }
-            }
-            let mined_timestamp = http_block.mined_timestamp;
-            utxos.push(UtxoScanResult {
-                height: http_block.height,
-                block_hash: header_hash,
-                wallet_outputs,
-                inputs: http_block
-                    .inputs
-                    .into_iter()
-                    .map(|i| FixedHash::try_from(i).unwrap_or_default())
-                    .collect(),
-                mined_timestamp,
+                let mined_timestamp = http_block.mined_timestamp;
+                utxos
+                    .write()
+                    .expect("write lock should not be poisoned")
+                    .push(UtxoScanResult {
+                        height: http_block.height,
+                        block_hash: header_hash,
+                        wallet_outputs,
+                        inputs: http_block
+                            .inputs
+                            .into_iter()
+                            .map(|i| FixedHash::try_from(i).unwrap_or_default())
+                            .collect(),
+                        mined_timestamp,
+                    });
             });
+        });
+        if let Some(e) = errors.read().expect("read lock should not be poisoned").first() {
+            return Err(e.clone());
         }
-        let mut results = Vec::new();
+        let results = RwLock::new(Vec::new());
         // fetch all the unique blocks we need before processing
         let mut block_data = HashMap::new();
-        for block_hash in blocks_with_utxos {
+        for block_hash in blocks_with_utxos.into_inner().expect("lock should not be poisoned") {
             let block_response = self.get_utxos_by_block(&block_hash.to_hex()).await?;
             block_data.insert(block_hash, block_response);
         }
-        for block in utxos {
-            let mut wallet_outputs = Vec::new();
+        let utxos = utxos.into_inner().expect("lock should not be poisoned");
+        pool.install(|| {
+            utxos.par_iter().for_each(|block| {
+                let mut wallet_outputs = Vec::new();
 
-            // Block should always be present as we fetched them above
-            if !block.wallet_outputs.is_empty() {
-                let block_response = block_data.get(&block.block_hash).ok_or_else(|| {
-                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                        "Block data missing for output",
-                    ))
-                })?;
-                for output in block.wallet_outputs {
+                // Block should always be present as we fetched them above
+                let block_response =
+                    match block_data.get(&block.block_hash) {
+                        Some(b) => b,
+                        None => {
+                            errors.write().expect("write lock should not be poisoned").push(
+                                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                                    "Block data missing for output",
+                                )),
+                            );
+                            return;
+                        },
+                    };
+                for output in &block.wallet_outputs {
                     if let Some(index) = block_response
                         .outputs
                         .iter()
@@ -389,21 +441,33 @@ where KM: TransactionKeyManagerInterface
                         let tx_output = block_response.outputs.get(index).expect("should exist").clone();
                         let output_hash = output.output_hash;
                         // Attempt to convert to wallet output
-                        if let Some(wallet_output) = output.to_wallet_output(tx_output, &self.key_manager).await? {
-                            wallet_outputs.push((output_hash, wallet_output));
+                        match futures::executor::block_on(output.to_wallet_output(tx_output, &self.key_manager)) {
+                            Ok(Some(wallet_output)) => {
+                                wallet_outputs.push((output_hash, wallet_output));
+                            },
+                            Ok(None) => {},
+                            Err(e) => {
+                                errors.write().expect("Write lock should not be poisoned").push(e);
+                            },
                         }
                     }
                 }
-            }
-            results.push(BlockScanResult {
-                height: block.height,
-                block_hash: block.block_hash,
-                wallet_outputs,
-                inputs: block.inputs,
-                mined_timestamp: block.mined_timestamp,
+                results
+                    .write()
+                    .expect("lock should not be poisoned")
+                    .push(BlockScanResult {
+                        height: block.height,
+                        block_hash: block.block_hash,
+                        wallet_outputs,
+                        inputs: block.inputs.clone(),
+                        mined_timestamp: block.mined_timestamp,
+                    });
             });
+        });
+        if let Some(e) = errors.read().expect("read lock should not be poisoned").first() {
+            return Err(e.clone());
         }
-
+        let results = results.into_inner().expect("Lock should not be poisoned");
         debug!(
             "HTTP scan completed, found {} blocks with wallet outputs in {}s",
             results.len(),

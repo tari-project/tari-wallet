@@ -36,7 +36,7 @@ primitive-types = { version = "0.12", features = ["serde"] } # U256, H256, etc.
 # === WebAssembly Support ===
 wasm-bindgen = "0.2"
 # === Parallel Processing ===
-rayon = { version = "1.8", optional = true }
+rayon = { version = "1.11"}
 
 # === Async & Concurrency ===
 async-trait = "0.1"
@@ -51,6 +51,7 @@ tonic = { version = "0.13", features = ["tls-ring", "prost"], optional = true }
 # === CLI Tools ===
 
 anyhow = "1.0.99"
+futures = "0.3.31"
 
 # === Platform-Specific Dependencies ===
 # Native targets (non-WASM) - Full reqwest with all features
@@ -85,7 +86,6 @@ wasm-bindgen-futures = { version = "0.4", optional = true }
 [features]
 default = ["http"]
 grpc = [
-    "rayon",
     "tonic",
     "tracing",
     "tracing-subscriber",
