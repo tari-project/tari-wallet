@@ -15,139 +15,42 @@
 
 use std::time::Duration;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tari_common_types::types::FixedHash;
-use tari_node_components::blocks::Block;
-use tari_transaction_components::{
-    key_manager::TransactionKeyManagerInterface,
-    transaction_components::{Transaction, TransactionOutput, WalletOutput},
-};
+use tari_transaction_components::transaction_components::WalletOutput;
 use tari_utilities::epoch_time::EpochTime;
-
-use crate::{
-    errors::{WalletError, WalletResult},
-    extraction::ExtractionConfig,
-};
 
 // Include GRPC scanner when the feature is enabled
 #[cfg(feature = "grpc")]
-pub mod grpc_scanner;
+pub mod grpc;
 
 // Include HTTP scanner
 #[cfg(feature = "http")]
-pub mod http_scanner;
-
-// Scanner refactoring modules (for binary refactoring)
-pub mod scan_config;
-
-#[cfg(feature = "storage")]
-pub mod storage_manager;
-
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-pub mod background_writer;
-
-pub mod wallet_scanner;
-
-#[cfg(all(feature = "storage", feature = "http"))]
-pub mod new_wallet_scanner;
-
-pub mod progress;
-
-// Data processing callback interface
-pub mod data_processor;
-
-// Database data processor implementation
-#[cfg(feature = "storage")]
-pub mod database_processor;
-
-// Re-export GRPC scanner types
-// Re-export background writer types for scanner binary operations
-#[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
-pub use background_writer::{BackgroundWriter, BackgroundWriterCommand};
-// Re-export data processor types
-pub use data_processor::{
-    BlockData,
-    CompletionData,
-    CompositeDataProcessor,
-    DataProcessor,
-    MemoryDataProcessor,
-    NoOpDataProcessor,
-    ProgressData,
-};
-// Re-export database processor types
-#[cfg(feature = "storage")]
-pub use database_processor::{DatabaseDataProcessor, MemoryStorageProcessor};
+pub mod http;
 #[cfg(feature = "grpc")]
-pub use grpc_scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
+pub use grpc::scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
+pub use http::scanner as http_scanner;
 // Re-export HTTP scanner types
 #[cfg(feature = "http")]
 pub use http_scanner::HttpBlockchainScanner;
-// Re-export progress tracking types for scanner binary operations
-pub use progress::{ProgressCallback, ProgressConfig, ProgressInfo, ProgressTracker};
-// Re-export configuration types for scanner binary operations
-pub use scan_config::{BinaryScanConfig, OutputFormat};
-// Re-export storage manager types for scanner binary operations
-#[cfg(feature = "storage")]
-pub use storage_manager::ScannerStorage;
-pub use wallet_scanner::{
-    RetryConfig,
-    ScanMetadata,
-    ScanResult,
-    ScannerBuilder,
-    ScannerConfigError,
-    WalletScanner as WalletScannerStruct,
-    WalletScannerConfig,
-};
 
-// Event emitter module for scanner integration with event system
-pub mod event_emitter;
+use crate::http::models::IncompleteScannedOutput;
 
-// Re-export event emitter types
-#[cfg(feature = "storage")]
-pub use event_emitter::create_database_event_emitter;
-pub use event_emitter::{
-    create_address_info_from_transaction,
-    create_block_info_from_block,
-    create_default_event_emitter,
-    ScanEventEmitter,
-};
-
-use crate::data_structures::incompleted_scanned_output::IncompleteScannedOutput;
-
-/// Legacy progress callback for scanning operations (for compatibility)
-pub type LegacyProgressCallback = Box<dyn Fn(ScanProgress) + Send + Sync>;
-
-/// Scanning progress information
-#[derive(Debug, Clone)]
-pub struct ScanProgress {
-    /// Current block height being scanned
-    pub current_height: u64,
-    /// Target block height to scan to
-    pub target_height: u64,
-    /// Number of outputs found so far
-    pub outputs_found: u64,
-    /// Total value of outputs found so far (in MicroMinotari)
-    pub total_value: u64,
-    /// Time elapsed since scan started
-    pub elapsed: Duration,
-}
+mod interface;
+pub use interface::BlockchainScanner;
 
 /// Configuration for blockchain scanning
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ScanConfig {
     /// Starting block height (wallet birthday)
     pub start_height: u64,
     /// Ending block height (optional, if None scans to tip)
     pub end_height: Option<u64>,
-    /// Maximum number of blocks to scan in one request
-    pub batch_size: u64,
+    /// Maximum number of blocks to scan in one request, default 10
+    pub batch_size: Option<u64>,
     /// Timeout for requests
     #[serde(with = "duration_serde")]
     pub request_timeout: Duration,
-    /// Extraction configuration (excluded from serialization for security)
-    #[serde(skip)]
-    pub extraction_config: ExtractionConfig,
 }
 
 impl Default for ScanConfig {
@@ -155,27 +58,35 @@ impl Default for ScanConfig {
         Self {
             start_height: 0,
             end_height: None,
-            batch_size: 100,
+            batch_size: Some(100),
             request_timeout: Duration::from_secs(30),
-            extraction_config: ExtractionConfig::default(),
         }
     }
 }
 
 impl ScanConfig {
-    pub fn with_start_height(mut self, start_height: u64) -> Self {
+    #[must_use]
+    pub const fn with_start_height(mut self, start_height: u64) -> Self {
         self.start_height = start_height;
         self
     }
 
-    pub fn with_end_height(mut self, end_height: u64) -> Self {
+    #[must_use]
+    pub const fn with_end_height(mut self, end_height: u64) -> Self {
         self.end_height = Some(end_height);
         self
     }
 
-    pub fn with_start_end_heights(mut self, start_height: u64, end_height: u64) -> Self {
+    #[must_use]
+    pub const fn with_start_end_heights(mut self, start_height: u64, end_height: u64) -> Self {
         self.start_height = start_height;
         self.end_height = Some(end_height);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_batch_size(mut self, batch_size: u64) -> Self {
+        self.batch_size = Some(batch_size);
         self
     }
 }
@@ -196,92 +107,6 @@ mod duration_serde {
         let secs = u64::deserialize(deserializer)?;
         Ok(Duration::from_secs(secs))
     }
-}
-
-impl ScanConfig {
-    /// Create a new scan config with a progress callback
-    pub fn with_progress_callback(self, callback: LegacyProgressCallback) -> ScanConfigWithCallback {
-        ScanConfigWithCallback {
-            config: self,
-            progress_callback: Some(callback),
-        }
-    }
-}
-
-/// Scan config with progress callback (not Debug/Clone)
-pub struct ScanConfigWithCallback {
-    pub config: ScanConfig,
-    pub progress_callback: Option<LegacyProgressCallback>,
-}
-
-/// Configuration for wallet-specific scanning
-pub struct WalletScanConfig<KM> {
-    /// Base scan configuration
-    pub scan_config: ScanConfig,
-    /// Key manager for wallet key derivation
-    pub key_manager: KM,
-    /// Maximum number of addresses to scan per account
-    pub max_addresses_per_account: u32,
-}
-
-impl<KM> WalletScanConfig<KM>
-where KM: TransactionKeyManagerInterface
-{
-    /// Create a new wallet scan config
-    pub fn new(start_height: u64, key_manager: KM) -> Self {
-        Self {
-            scan_config: ScanConfig {
-                start_height,
-                end_height: None,
-                batch_size: 100,
-                request_timeout: Duration::from_secs(30),
-                extraction_config: ExtractionConfig::default(),
-            },
-            key_manager,
-            max_addresses_per_account: 1000,
-        }
-    }
-
-    /// Set maximum addresses per account
-    pub fn with_max_addresses_per_account(mut self, max: u32) -> Self {
-        self.max_addresses_per_account = max;
-        self
-    }
-
-    /// Set the end height
-    pub fn with_end_height(mut self, end_height: u64) -> Self {
-        self.scan_config.end_height = Some(end_height);
-        self
-    }
-
-    /// Set the batch size
-    pub fn with_batch_size(mut self, batch_size: u64) -> Self {
-        self.scan_config.batch_size = batch_size;
-        self
-    }
-
-    /// Set the request timeout
-    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
-        self.scan_config.request_timeout = timeout;
-        self
-    }
-}
-
-/// Result of a wallet scan operation
-#[derive(Debug, Clone)]
-pub struct WalletScanResult {
-    /// Block scan results
-    pub block_results: Vec<BlockScanResult>,
-    /// Total wallet outputs found
-    pub total_wallet_outputs: u64,
-    /// Total value found (in MicroMinotari)
-    pub total_value: u64,
-    /// Number of addresses scanned
-    pub addresses_scanned: u64,
-    /// Number of accounts scanned
-    pub accounts_scanned: u64,
-    /// Scan duration
-    pub scan_duration: Duration,
 }
 
 /// Chain tip information
@@ -340,296 +165,58 @@ pub struct BlockHeaderInfo {
     pub timestamp: EpochTime,
 }
 
-/// Blockchain scanner trait for scanning UTXOs
-///
-/// This trait provides a lightweight interface that can be implemented by
-/// different backend providers (gRPC, HTTP, etc.) without requiring heavy
-/// dependencies in the core library.
-#[async_trait(?Send)]
-pub trait BlockchainScanner: Send + Sync {
-    /// Scan for wallet outputs in the specified block range
-    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>>;
-
-    /// Get the current chain tip information
-    async fn get_tip_info(&mut self) -> WalletResult<TipInfo>;
-
-    /// Search for specific UTXOs by commitment
-    async fn search_utxos(&mut self, commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>>;
-
-    /// Fetch specific UTXOs by hash
-    async fn fetch_utxos(&mut self, hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>>;
-
-    /// Get blocks by height range
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>>;
-
-    /// Get a single block by height
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>>;
-
-    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>>;
-}
-
-/// Wallet scanner trait for scanning with wallet keys
-///
-/// This trait extends the basic blockchain scanner with wallet-specific
-/// functionality for scanning with key management.
-#[async_trait(?Send)]
-pub trait WalletScanner<KM>: Send + Sync
-where KM: TransactionKeyManagerInterface
-{
-    /// Scan for wallet outputs using wallet keys
-    async fn scan_wallet(&mut self, config: WalletScanConfig<KM>) -> WalletResult<WalletScanResult>;
-
-    /// Scan for wallet outputs with progress reporting
-    async fn scan_wallet_with_progress(
-        &mut self,
-        config: WalletScanConfig<KM>,
-        progress_callback: Option<&LegacyProgressCallback>,
-    ) -> WalletResult<WalletScanResult>;
-
-    /// Get the underlying blockchain scanner
-    fn blockchain_scanner(&mut self) -> &mut dyn BlockchainScanner;
-}
-
-/// Transaction broadcaster
-///
-/// This trait provides a lightweight interface that can be implemented by
-/// different backend providers (gRPC, HTTP, etc.) without requiring heavy
-/// dependencies in the core library.
-#[async_trait(?Send)]
-pub trait TransactionBroadcaster: Send + Sync {
-    /// Submit a transaction to base node
-    async fn submit_transaction(&mut self, transaction: Transaction) -> WalletResult<i32>;
-}
-
-/// Mock implementation for testing
-pub struct MockBlockchainScanner {
-    blocks: Vec<Block>,
-    tip_info: TipInfo,
-}
-
-impl Default for MockBlockchainScanner {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MockBlockchainScanner {
-    /// Create a new mock scanner
-    pub fn new() -> Self {
-        Self {
-            blocks: Vec::new(),
-            tip_info: TipInfo {
-                best_block_height: 1000,
-                best_block_hash: FixedHash::zero(),
-                accumulated_difficulty: "0x19ede5dc5f735cc64e1223f35840".to_owned(),
-                pruned_height: 500,
-                timestamp: 1234567890,
-            },
-        }
-    }
-
-    /// Add a mock block
-    pub fn add_block(&mut self, block: Block) {
-        self.blocks.push(block);
-    }
-
-    /// Set tip info
-    pub fn set_tip_info(&mut self, tip_info: TipInfo) {
-        self.tip_info = tip_info;
-    }
-}
-
-#[async_trait(?Send)]
-impl BlockchainScanner for MockBlockchainScanner {
-    async fn scan_blocks(&mut self, _config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
-        todo!("Implement scan_blocks for MockBlockchainScanner");
-        // DefaultScanningLogic::scan_blocks_with_progress(self, config, None).await
-    }
-
-    async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
-        Ok(self.tip_info.clone())
-    }
-
-    async fn search_utxos(&mut self, _commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
-        // Mock implementation - return empty results
-        Ok(Vec::new())
-    }
-
-    async fn fetch_utxos(&mut self, _hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>> {
-        // Mock implementation - return empty results
-        Ok(Vec::new())
-    }
-
-    async fn get_blocks_by_heights(&mut self, heights: Vec<u64>) -> WalletResult<Vec<Block>> {
-        let mut result = Vec::new();
-        for height in heights {
-            if let Some(block) = self.blocks.iter().find(|b| b.header.height == height) {
-                result.push(block.clone());
-            }
-        }
-        Ok(result)
-    }
-
-    async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>> {
-        Ok(self.blocks.iter().find(|b| b.header.height == height).cloned())
-    }
-
-    async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
-        if let Some(block) = self.blocks.iter().find(|b| b.header.height == height) {
-            Ok(Some(BlockHeaderInfo {
-                height: block.header.height,
-                hash: block.header.hash(),
-                timestamp: block.header.timestamp,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-/// Builder for creating blockchain scanners
-pub struct BlockchainScannerBuilder<KM> {
-    scanner_type: Option<ScannerType<KM>>,
-    config: Option<ScannerConfig>,
-}
-
 #[derive(Debug, Clone)]
-pub enum ScannerType<KM> {
-    Mock,
-    // Add other scanner types here as needed
-    #[cfg(feature = "grpc")]
-    Grpc {
-        key_manager: KM,
-        url: String,
-    },
-    #[cfg(feature = "http")]
-    Http {
-        key_manager: KM,
-        url: String,
-    },
+struct InProgressScan {
+    config: Option<ScanConfig>,
+    header: Option<String>,
+    current_page: u64,
 }
 
-#[derive(Debug, Clone)]
-pub struct ScannerConfig {
-    pub base_url: String,
-    pub timeout: Duration,
-    pub retry_attempts: u32,
-}
-
-impl<KM> BlockchainScannerBuilder<KM>
-where KM: TransactionKeyManagerInterface
-{
-    /// Create a new builder
-    pub fn new() -> Self {
+impl InProgressScan {
+    pub const fn new(config: ScanConfig) -> Self {
         Self {
-            scanner_type: None,
+            config: Some(config),
+            header: None,
+            current_page: 0,
+        }
+    }
+
+    pub const fn new_empty() -> Self {
+        Self {
             config: None,
+            header: None,
+            current_page: 0,
         }
     }
 
-    /// Set the scanner type
-    pub fn with_type(mut self, scanner_type: ScannerType<KM>) -> Self {
-        self.scanner_type = Some(scanner_type);
-        self
+    pub fn clear(&mut self) {
+        self.config = None;
+        self.header = None;
+        self.current_page = 0;
     }
 
-    /// Set the scanner configuration
-    pub fn with_config(mut self, config: ScannerConfig) -> Self {
-        self.config = Some(config);
-        self
+    pub const fn page(&self) -> u64 {
+        self.current_page
     }
 
-    /// Build the scanner
-    pub async fn build(self) -> WalletResult<Box<dyn BlockchainScanner>> {
-        match self.scanner_type {
-            Some(ScannerType::Mock) => Ok(Box::new(MockBlockchainScanner::new())),
-
-            #[cfg(feature = "grpc")]
-            Some(ScannerType::Grpc { url, key_manager }) => {
-                {
-                    let scanner = GrpcBlockchainScanner::new(url, key_manager).await?;
-                    Ok(Box::new(scanner))
-                }
-            },
-            #[cfg(feature = "http")]
-            Some(ScannerType::Http { .. }) => {
-                unimplemented!()
-            },
-            None => Err(WalletError::ConfigurationError(
-                "Scanner type not specified".to_string(),
-            )),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(not(target_arch = "wasm32"))]
-    use super::*;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_scan_config_default() {
-        let config = ScanConfig::default();
-        assert_eq!(config.start_height, 0);
-        assert_eq!(config.end_height, None);
-        assert_eq!(config.batch_size, 100);
-        assert_eq!(config.request_timeout, Duration::from_secs(30));
-        assert!(config.extraction_config.enable_key_derivation);
+    pub const fn is_active(&self) -> bool {
+        self.config.is_some()
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_scan_progress() {
-        let progress = ScanProgress {
-            current_height: 1000,
-            target_height: 2000,
-            outputs_found: 5,
-            total_value: 1000000,
-            elapsed: Duration::from_secs(10),
-        };
-
-        assert_eq!(progress.current_height, 1000);
-        assert_eq!(progress.target_height, 2000);
-        assert_eq!(progress.outputs_found, 5);
-        assert_eq!(progress.total_value, 1000000);
-        assert_eq!(progress.elapsed, Duration::from_secs(10));
+    pub const fn increment_page(&mut self) {
+        self.current_page += 1;
     }
 
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_tip_info() {
-        let tip_info = TipInfo {
-            best_block_height: 1000,
-            best_block_hash: FixedHash::new([1u8; 32]),
-            accumulated_difficulty: "5678".to_string(),
-            pruned_height: 500,
-            timestamp: 1234567890,
-        };
-
-        assert_eq!(tip_info.best_block_height, 1000);
-        assert_eq!(tip_info.best_block_hash, vec![1, 2, 3, 4]);
-        assert_eq!(tip_info.accumulated_difficulty, "5678");
-        assert_eq!(tip_info.pruned_height, 500);
-        assert_eq!(tip_info.timestamp, 1234567890);
+    pub fn set_next_request(&mut self, header: String) {
+        self.header = Some(header);
+        self.current_page = 0;
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_mock_scanner() {
-        let mut scanner = MockBlockchainScanner::new();
-        let tip_info = scanner.get_tip_info().await.unwrap();
-        assert_eq!(tip_info.best_block_height, 1000);
+    pub const fn get_header(&self) -> Option<&String> {
+        self.header.as_ref()
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_scanner_builder() {
-        let builder = BlockchainScannerBuilder::new().with_type(ScannerType::Mock);
-
-        let mut scanner = builder.build().await.unwrap();
-        let tip_info = scanner.get_tip_info().await.unwrap();
-        assert_eq!(tip_info.best_block_height, 1000);
+    pub const fn get_config(&self) -> Option<&ScanConfig> {
+        self.config.as_ref()
     }
 }

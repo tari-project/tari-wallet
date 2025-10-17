@@ -1,6 +1,6 @@
 //! GRPC-based blockchain scanner implementation
 //!
-//! This module provides a GRPC implementation of the BlockchainScanner trait
+//! This module provides a GRPC implementation of the `BlockchainScanner` trait
 //! that connects to a Tari base node via GRPC to scan for wallet outputs.
 //!
 //! ## Wallet Key Integration
@@ -17,28 +17,26 @@ use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
-    transaction_components::{Transaction, TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
+    transaction_components::{TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
 };
 use tonic::{transport::Channel, Request};
+use tracing::debug;
 
 use crate::{
     errors::{WalletError, WalletResult},
-    scanning::{BlockScanResult, BlockchainScanner, ScanConfig, TipInfo, TransactionBroadcaster},
+    scanning::{interface::BlockchainScanner, BlockScanResult, InProgressScan, ScanConfig, TipInfo},
     BlockHeaderInfo,
-    ExtractionConfig,
 };
 
 /// GRPC client for connecting to Tari base node
-
 pub struct GrpcBlockchainScanner<KM> {
     /// GRPC channel to the base node
     client: tari_rpc::base_node_client::BaseNodeClient<Channel>,
     /// Connection timeout
     timeout: Duration,
-    /// Base URL for the GRPC connection
-    base_url: String,
     /// key manager used for the keys
     pub key_manager: KM,
+    current_in_progress: InProgressScan,
 }
 
 impl<KM> GrpcBlockchainScanner<KM>
@@ -70,8 +68,8 @@ where KM: TransactionKeyManagerInterface
         Ok(Self {
             client,
             timeout,
-            base_url,
             key_manager,
+            current_in_progress: InProgressScan::new_empty(),
         })
     }
 
@@ -100,31 +98,28 @@ where KM: TransactionKeyManagerInterface
         Ok(Self {
             client,
             timeout,
-            base_url,
             key_manager,
+            current_in_progress: InProgressScan::new_empty(),
         })
     }
 
     /// Create a scan config with wallet keys for block scanning
-    pub fn create_scan_config_with_wallet_keys(
+    pub const fn create_scan_config_with_wallet_keys(
         &self,
         start_height: u64,
         end_height: Option<u64>,
     ) -> WalletResult<ScanConfig> {
-        let extraction_config = ExtractionConfig::default();
-
         Ok(ScanConfig {
             start_height,
             end_height,
-            batch_size: 100,
+            batch_size: Some(100),
             request_timeout: self.timeout,
-            extraction_config,
         })
     }
 
     /// Scan for regular recoverable outputs using encrypted data decryption
     pub async fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        let (commitment_mask, value, memo) = match self
+        let Some((commitment_mask, value, memo)) = self
             .key_manager
             .try_output_key_recovery(
                 &output.commitment,
@@ -132,14 +127,11 @@ where KM: TransactionKeyManagerInterface
                 &output.sender_offset_public_key,
             )
             .await?
-        {
-            Some(value) => value,
-            None => return Ok(None),
+        else {
+            return Ok(None);
         };
-        match WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await {
-            Ok(wallet_output) => Ok(Some(wallet_output)),
-            Err(_) => Ok(None),
-        }
+        (WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await)
+            .map_or_else(|_| Ok(None), |wallet_output| Ok(Some(wallet_output)))
     }
 
     /// Get all outputs from a specific block
@@ -289,7 +281,6 @@ where KM: TransactionKeyManagerInterface
         for output in &outputs {
             if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
                 wallet_outputs.push(wallet_output);
-                continue;
             }
         }
 
@@ -336,15 +327,45 @@ where KM: TransactionKeyManagerInterface
         let metadata = grpc_tip.metadata.as_ref();
 
         TipInfo {
-            best_block_height: metadata.map(|m| m.best_block_height).unwrap_or(0),
+            best_block_height: metadata.map_or(0, |m| m.best_block_height),
             best_block_hash: FixedHash::try_from(metadata.map(|m| m.best_block_hash.clone()).unwrap_or_default())
                 .unwrap_or_default(),
             accumulated_difficulty: metadata
                 .map(|m| U512::from_big_endian(&m.accumulated_difficulty).to_string())
                 .unwrap_or_default(),
-            pruned_height: metadata.map(|m| m.pruned_height).unwrap_or(0),
-            timestamp: metadata.map(|m| m.timestamp).unwrap_or(0),
+            pruned_height: metadata.map_or(0, |m| m.pruned_height),
+            timestamp: metadata.map_or(0, |m| m.timestamp),
         }
+    }
+
+    pub async fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()> {
+        debug!(
+            "String new scan, scanning from: {} to  {:?}",
+            config.start_height, config.end_height
+        );
+        if let Some(end_height) = config.end_height {
+            let tip_info = self.get_tip_info().await?;
+            if end_height > tip_info.best_block_height {
+                debug!(
+                    "End height is higher than current tip height, will only scan to tip {:?}",
+                    tip_info.best_block_height
+                );
+            }
+            let adjusted_config = ScanConfig {
+                start_height: config.start_height,
+                end_height: None,
+                batch_size: config.batch_size,
+                request_timeout: config.request_timeout,
+            };
+            self.current_in_progress = InProgressScan::new(adjusted_config);
+            return Ok(());
+        }
+        self.current_in_progress = InProgressScan::new(config.clone());
+        Ok(())
+    }
+
+    pub fn clear_in_progress_scan(&mut self) {
+        self.current_in_progress.clear();
     }
 }
 
@@ -352,70 +373,99 @@ where KM: TransactionKeyManagerInterface
 impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
-    async fn scan_blocks(&mut self, config: ScanConfig) -> WalletResult<Vec<BlockScanResult>> {
+    async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
+        if let Some(end_height) = config.end_height {
+            if config.start_height > end_height {
+                return Err(WalletError::OperationNotSupported(
+                    "start_height cannot be greater than end_height".to_string(),
+                ));
+            }
+        }
+
+        match &self.current_in_progress.get_config() {
+            Some(existing_scan) => {
+                if *existing_scan == config {
+                    debug!(
+                        "Resuming existing grpc block scan from height {} to {:?}",
+                        existing_scan.start_height, existing_scan.end_height
+                    );
+                } else {
+                    self.update_scan_config(config).await?;
+                }
+            },
+            _ => {
+                self.update_scan_config(config).await?;
+            },
+        }
+
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
-        let end_height = config.end_height.unwrap_or(tip_info.best_block_height);
+        let end_height = std::cmp::min(
+            config.end_height.unwrap_or(tip_info.best_block_height),
+            tip_info.best_block_height,
+        );
 
-        if config.start_height > end_height {
-            return Ok(Vec::new());
-        }
+        let batch_end = std::cmp::min(
+            config.start_height + ((self.current_in_progress.page() + 1) * config.batch_size.unwrap_or(10)) - 1,
+            end_height,
+        );
 
         let mut results = Vec::new();
-        let mut current_height = config.start_height;
-
-        while current_height <= end_height {
-            let batch_end = std::cmp::min(current_height + config.batch_size - 1, end_height);
-            let heights: Vec<u64> = (current_height..=batch_end).collect();
-            // Get blocks for this batch
-            let request = tari_rpc::GetBlocksRequest { heights };
-
-            let mut stream = self
-                .client
-                .clone()
-                .get_blocks(Request::new(request))
-                .await
-                .map_err(|e| {
-                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {e}"
-                    )))
-                })?
-                .into_inner();
-
-            let mut batch_results = Vec::new();
-            while let Some(grpc_block) = stream.message().await.map_err(|e| {
+        let mut current_height =
+            config.start_height + (self.current_in_progress.page() * config.batch_size.unwrap_or(10));
+        let heights: Vec<u64> = (current_height..=batch_end).collect();
+        let request = tari_rpc::GetBlocksRequest { heights };
+        let mut stream = self
+            .client
+            .clone()
+            .get_blocks(Request::new(request))
+            .await
+            .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {e}"
+                    "GRPC error: {e}"
                 )))
-            })? {
-                if let Some(block) = grpc_block.block {
-                    let tari_block: Block = block.try_into()?;
-                    let mut wallet_outputs = Vec::new();
+            })?
+            .into_inner();
+        let mut batch_results = Vec::new();
+        while let Some(grpc_block) = stream.message().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Stream error: {e}"
+            )))
+        })? {
+            if let Some(block) = grpc_block.block {
+                let tari_block: Block = block.try_into()?;
+                current_height = tari_block.header.height;
+                let mut wallet_outputs = Vec::new();
 
-                    // Process outputs without debug output - let caller decide what to log
-                    for output in tari_block.body.outputs() {
-                        if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
-                            wallet_outputs.push((output.hash(), wallet_output));
-                            continue;
-                        }
+                // Process outputs without debug output - let caller decide what to log
+                for output in tari_block.body.outputs() {
+                    if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
+                        wallet_outputs.push((output.hash(), wallet_output));
                     }
-                    let inputs = tari_block.body.inputs().iter().map(|i| i.output_hash()).collect();
+                }
+                let inputs = tari_block
+                    .body
+                    .inputs()
+                    .iter()
+                    .map(tari_transaction_components::transaction_components::TransactionInput::output_hash)
+                    .collect();
 
-                    batch_results.push(BlockScanResult {
-                        height: tari_block.header.height,
-                        block_hash: tari_block.hash(),
-                        wallet_outputs,
-                        inputs,
-                        mined_timestamp: tari_block.header.timestamp.as_u64(),
-                    });
+                batch_results.push(BlockScanResult {
+                    height: tari_block.header.height,
+                    block_hash: tari_block.hash(),
+                    wallet_outputs,
+                    inputs,
+                    mined_timestamp: tari_block.header.timestamp.as_u64(),
+                });
+                if current_height >= end_height {
+                    self.current_in_progress.clear();
+                    break;
                 }
             }
-
-            results.extend(batch_results);
-            current_height = batch_end + 1;
         }
-
-        Ok(results)
+        results.extend(batch_results);
+        self.current_in_progress.increment_page();
+        Ok((results, (current_height < end_height)))
     }
 
     async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
@@ -492,59 +542,26 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
-#[async_trait(?Send)]
-impl<KM> TransactionBroadcaster for GrpcBlockchainScanner<KM>
-where KM: TransactionKeyManagerInterface
-{
-    async fn submit_transaction(&mut self, transaction: Transaction) -> WalletResult<i32> {
-        let request: tari_rpc::SubmitTransactionRequest = tari_rpc::SubmitTransactionRequest {
-            transaction: Some(
-                tari_rpc::Transaction::try_from(transaction.clone())
-                    .map_err(|e| WalletError::GrpcError(e.to_string()))?,
-            ),
-        };
-        let response = self
-            .client
-            .clone()
-            .submit_transaction(request)
-            .await
-            .map_err(|e| WalletError::GrpcError(e.to_string()))?
-            .into_inner();
-
-        Ok(response.result)
-    }
-}
-
-impl<KM> std::fmt::Debug for GrpcBlockchainScanner<KM> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GrpcBlockchainScanner")
-            .field("base_url", &self.base_url)
-            .field("timeout", &self.timeout)
-            .finish()
-    }
-}
-
-// impl<KM> Clone for GrpcBlockchainScanner<KM> {
-//     fn clone(&self) -> Self {
-//         // Note: This creates a new connection, which is expensive
-//         // In practice, you might want to use connection pooling
-//         panic!("GrpcBlockchainScanner cannot be cloned - create a new instance instead");
-//     }
-// }
-
 /// Builder for creating GRPC blockchain scanners
-
 pub struct GrpcScannerBuilder<KM> {
     base_url: Option<String>,
     timeout: Option<Duration>,
     key_manager: Option<KM>,
 }
 
+impl<KM> Default for GrpcScannerBuilder<KM>
+where KM: TransactionKeyManagerInterface
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<KM> GrpcScannerBuilder<KM>
 where KM: TransactionKeyManagerInterface
 {
     /// Create a new builder
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             base_url: None,
             timeout: None,
@@ -553,18 +570,21 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Set the base URL for the GRPC connection
+    #[must_use]
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = Some(base_url);
         self
     }
 
     /// Set the timeout for GRPC operations
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+    #[must_use]
+    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
     /// Set the key manager for wallet key integration
+    #[must_use]
     pub fn with_key_manager(mut self, key_manager: KM) -> Self {
         self.key_manager = Some(key_manager);
         self
@@ -584,90 +604,5 @@ where KM: TransactionKeyManagerInterface
             Some(timeout) => GrpcBlockchainScanner::with_timeout(base_url, timeout, key_manager).await,
             None => GrpcBlockchainScanner::new(base_url, key_manager).await,
         }
-    }
-}
-
-// impl Default for GrpcScannerBuilder {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-
-// Empty module when GRPC feature is not enabled
-#[cfg(not(feature = "grpc"))]
-pub struct GrpcBlockchainScanner;
-
-#[cfg(not(feature = "grpc"))]
-impl GrpcBlockchainScanner {
-    pub async fn new(_base_url: String) -> crate::errors::WalletResult<Self> {
-        Err(crate::errors::WalletError::OperationNotSupported(
-            "GRPC feature not enabled".to_string(),
-        ))
-    }
-}
-
-#[cfg(not(feature = "grpc"))]
-pub struct GrpcScannerBuilder;
-
-#[cfg(not(feature = "grpc"))]
-impl GrpcScannerBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub async fn build(self) -> crate::errors::WalletResult<GrpcBlockchainScanner> {
-        Err(crate::errors::WalletError::OperationNotSupported(
-            "GRPC feature not enabled".to_string(),
-        ))
-    }
-}
-
-// #[async_trait(?Send)]
-// impl<KM> WalletScanner<KM> for GrpcBlockchainScanner<KM>
-// where KM: TransactionKeyManagerInterface
-// {
-//     async fn scan_wallet(&mut self, config: WalletScanConfig<KM>) -> WalletResult<WalletScanResult> {
-//         self.scan_wallet_with_progress(config, None).await
-//     }
-//
-//     async fn scan_wallet_with_progress(
-//         &mut self,
-//         config: WalletScanConfig<KM>,
-//         progress_callback: Option<&LegacyProgressCallback>,
-//     ) -> WalletResult<WalletScanResult> {
-//
-//         // Use the default scanning logic with proper wallet key integration
-//         DefaultScanningLogic::scan_wallet_with_progress(self, config, progress_callback).await
-//     }
-//
-//     fn blockchain_scanner(&mut self) -> &mut dyn BlockchainScanner {
-//         self
-//     }
-// }
-
-#[cfg(test)]
-#[cfg(not(feature = "grpc"))]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_grpc_feature_disabled() {
-        let result = GrpcBlockchainScanner::new("http://127.0.0.1:18142".to_string()).await;
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            crate::errors::WalletError::OperationNotSupported(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_grpc_builder_feature_disabled() {
-        let builder = GrpcScannerBuilder::new();
-        let result = builder.build().await;
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            crate::errors::WalletError::OperationNotSupported(_)
-        ));
     }
 }

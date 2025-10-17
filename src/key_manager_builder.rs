@@ -1,7 +1,6 @@
 use std::{any, sync::Arc};
 
 use tari_common_types::{
-    seeds::cipher_seed::CipherSeed,
     types::CompressedPublicKey,
     wallet_types::{ProvidedKeysWallet, WalletType},
 };
@@ -13,11 +12,11 @@ use tari_transaction_components::{
 
 #[derive(Debug, Clone, Default)]
 pub struct KeyManagerBuilder {
-    master_seed: Option<CipherSeed>,
     wallet_type: Option<Arc<WalletType>>,
 }
 
 impl KeyManagerBuilder {
+    #[must_use]
     pub fn with_view_key_and_spend_key(
         mut self,
         view_key: RistrettoSecretKey,
@@ -47,16 +46,5 @@ impl KeyManagerBuilder {
         } else {
             Err(anyhow::anyhow!("Missing field `{}`", any::type_name::<WalletType>()))
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-
-    #[test]
-    fn test_key_manager_builder() {
-        let key_manager = KeyManagerBuilder::default().build();
     }
 }
