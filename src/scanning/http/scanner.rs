@@ -239,7 +239,7 @@ where KM: TransactionKeyManagerInterface
             .get_config()
             .and_then(|c| c.batch_size)
             .unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
-        let page = self.current_in_progress.current_page;
+        let page = self.current_in_progress.page();
         let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
         if sync_response.blocks.is_empty() {
             debug!("No more blocks available from base node");
@@ -294,23 +294,6 @@ where KM: TransactionKeyManagerInterface
             "String new scan, scanning from: {} to  {:?}",
             config.start_height, config.end_height
         );
-        if let Some(end_height) = config.end_height {
-            let tip_info = self.get_tip_info().await?;
-            if end_height > tip_info.best_block_height {
-                debug!(
-                    "End height is higher than current tip height, will only scan to tip {:?}",
-                    tip_info.best_block_height
-                );
-            }
-            let adjusted_config = ScanConfig {
-                start_height: config.start_height,
-                end_height: None,
-                batch_size: config.batch_size,
-                request_timeout: config.request_timeout,
-            };
-            self.current_in_progress = InProgressScan::new(adjusted_config);
-            return Ok(());
-        }
         self.current_in_progress = InProgressScan::new(config.clone());
         Ok(())
     }
@@ -358,7 +341,7 @@ where KM: TransactionKeyManagerInterface
         for http_block in http_blocks {
             let mut wallet_outputs = Vec::new();
 
-            let header_hash = FixedHash::try_from(http_block.header_hash.clone()).unwrap_or_default();
+            let header_hash = FixedHash::try_from(http_block.header_hash.clone()).map_err(|e| WalletError::ConversionError(e.to_string()))?;
             for output in &http_block.outputs {
                 let scanned_output = output.clone().try_into()?;
                 if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
@@ -388,13 +371,15 @@ where KM: TransactionKeyManagerInterface
         }
         for block in utxos {
             let mut wallet_outputs = Vec::new();
+
+            // Block should always be present as we fetched them above
+            let block_response = block_data.get(&block.block_hash).ok_or_else(|| {
+                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                    "Block data missing for output",
+                ))
+            })?;
             for output in block.wallet_outputs {
-                // Block should always be present as we fetched them above
-                let block_response = block_data.get(&block.block_hash).ok_or_else(|| {
-                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                        "Block data missing for output",
-                    ))
-                })?;
+
                 if let Some(index) = block_response
                     .outputs
                     .iter()
@@ -452,7 +437,7 @@ where KM: TransactionKeyManagerInterface
 
         Ok(TipInfo {
             best_block_height: tip_response.metadata.best_block_height,
-            best_block_hash: FixedHash::try_from(tip_response.metadata.best_block_hash).unwrap_or_default(),
+            best_block_hash: FixedHash::try_from(tip_response.metadata.best_block_hash).map_err(|e| WalletError::ConversionError(e.to_string()))?,
             accumulated_difficulty: tip_response.metadata.accumulated_difficulty,
             pruned_height: tip_response.metadata.pruned_height,
             timestamp: tip_response.metadata.timestamp,
@@ -529,7 +514,7 @@ where KM: TransactionKeyManagerInterface
 
         Ok(Some(BlockHeaderInfo {
             height: header_response.height,
-            hash: FixedHash::try_from(header_response.hash).unwrap_or_default(),
+            hash: FixedHash::try_from(header_response.hash).map_err(|e| WalletError::ConversionError(e.to_string()))?,
             timestamp: EpochTime::from(header_response.timestamp),
         }))
     }
