@@ -419,36 +419,38 @@ where KM: TransactionKeyManagerInterface
             utxos.par_iter().for_each(|block| {
                 let mut wallet_outputs = Vec::new();
 
-                // Block should always be present as we fetched them above
-                let block_response =
-                    match block_data.get(&block.block_hash) {
-                        Some(b) => b,
-                        None => {
-                            errors.write().expect("write lock should not be poisoned").push(
-                                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                                    "Block data missing for output",
-                                )),
-                            );
-                            return;
-                        },
-                    };
-                for output in &block.wallet_outputs {
-                    if let Some(index) = block_response
-                        .outputs
-                        .iter()
-                        .position(|o| *o.encrypted_data() == output.encrypted_data)
-                    {
-                        let tx_output = block_response.outputs.get(index).expect("should exist").clone();
-                        let output_hash = output.output_hash;
-                        // Attempt to convert to wallet output
-                        match futures::executor::block_on(output.to_wallet_output(tx_output, &self.key_manager)) {
-                            Ok(Some(wallet_output)) => {
-                                wallet_outputs.push((output_hash, wallet_output));
+                if !block.wallet_outputs.is_empty() {
+                    // Block should always be present as we fetched them above
+                    let block_response =
+                        match block_data.get(&block.block_hash) {
+                            Some(b) => b,
+                            None => {
+                                errors.write().expect("write lock should not be poisoned").push(
+                                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                                        "Block data missing for output",
+                                    )),
+                                );
+                                return;
                             },
-                            Ok(None) => {},
-                            Err(e) => {
-                                errors.write().expect("Write lock should not be poisoned").push(e);
-                            },
+                        };
+                    for output in &block.wallet_outputs {
+                        if let Some(index) = block_response
+                            .outputs
+                            .iter()
+                            .position(|o| *o.encrypted_data() == output.encrypted_data)
+                        {
+                            let tx_output = block_response.outputs.get(index).expect("should exist").clone();
+                            let output_hash = output.output_hash;
+                            // Attempt to convert to wallet output
+                            match futures::executor::block_on(output.to_wallet_output(tx_output, &self.key_manager)) {
+                                Ok(Some(wallet_output)) => {
+                                    wallet_outputs.push((output_hash, wallet_output));
+                                },
+                                Ok(None) => {},
+                                Err(e) => {
+                                    errors.write().expect("Write lock should not be poisoned").push(e);
+                                },
+                            }
                         }
                     }
                 }
