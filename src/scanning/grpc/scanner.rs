@@ -8,11 +8,12 @@
 //! The GRPC scanner supports wallet key integration for identifying outputs that belong
 //! to a specific wallet.
 
-use std::time::Duration;
+use std::{sync::RwLock, time::Duration};
 
 use async_trait::async_trait;
 use minotari_app_grpc::tari_rpc;
 use primitive_types::U512;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
@@ -27,7 +28,6 @@ use crate::{
     scanning::{interface::BlockchainScanner, BlockScanResult, InProgressScan, ScanConfig, TipInfo},
     BlockHeaderInfo,
 };
-
 /// GRPC client for connecting to Tari base node
 pub struct GrpcBlockchainScanner<KM> {
     /// GRPC channel to the base node
@@ -37,13 +37,14 @@ pub struct GrpcBlockchainScanner<KM> {
     /// key manager used for the keys
     pub key_manager: KM,
     current_in_progress: InProgressScan,
+    number_processing_threads: usize,
 }
 
 impl<KM> GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     /// Create a new GRPC scanner with the given base URL
-    pub async fn new(base_url: String, key_manager: KM) -> WalletResult<Self> {
+    pub async fn new(base_url: String, key_manager: KM, number_processing_threads: usize) -> WalletResult<Self> {
         let timeout = Duration::from_secs(30);
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
@@ -70,11 +71,17 @@ where KM: TransactionKeyManagerInterface
             timeout,
             key_manager,
             current_in_progress: InProgressScan::new_empty(),
+            number_processing_threads,
         })
     }
 
     /// Create a new GRPC scanner with custom timeout
-    pub async fn with_timeout(base_url: String, timeout: Duration, key_manager: KM) -> WalletResult<Self> {
+    pub async fn with_timeout(
+        base_url: String,
+        timeout: Duration,
+        key_manager: KM,
+        number_processing_threads: usize,
+    ) -> WalletResult<Self> {
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -100,6 +107,7 @@ where KM: TransactionKeyManagerInterface
             timeout,
             key_manager,
             current_in_progress: InProgressScan::new_empty(),
+            number_processing_threads,
         })
     }
 
@@ -427,6 +435,11 @@ where KM: TransactionKeyManagerInterface
             })?
             .into_inner();
         let mut batch_results = Vec::new();
+        let errors = RwLock::new(Vec::new());
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.number_processing_threads)
+            .build()
+            .map_err(|e| WalletError::ConfigurationError(format!("Failed to build thread pool: {}", e)))?;
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Stream error: {e}"
@@ -435,14 +448,25 @@ where KM: TransactionKeyManagerInterface
             if let Some(block) = grpc_block.block {
                 let tari_block: Block = block.try_into()?;
                 current_height = tari_block.header.height;
-                let mut wallet_outputs = Vec::new();
+                let wallet_outputs = RwLock::new(Vec::new());
 
-                // Process outputs without debug output - let caller decide what to log
-                for output in tari_block.body.outputs() {
-                    if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
-                        wallet_outputs.push((output.hash(), wallet_output));
-                    }
-                }
+                pool.install(|| {
+                    tari_block.body.outputs().par_iter().for_each(|output| {
+                        match futures::executor::block_on(self.scan_for_recoverable_output(output)) {
+                            Ok(Some(wallet_output)) => {
+                                wallet_outputs
+                                    .write()
+                                    .expect("wallet_outputs lock poisoned")
+                                    .push((output.hash(), wallet_output));
+                            },
+                            Ok(None) => {},
+                            Err(e) => {
+                                errors.write().expect("wallet_outputs lock poisoned").push(e);
+                            },
+                        }
+                    })
+                });
+
                 let inputs = tari_block
                     .body
                     .inputs()
@@ -453,7 +477,7 @@ where KM: TransactionKeyManagerInterface
                 batch_results.push(BlockScanResult {
                     height: tari_block.header.height,
                     block_hash: tari_block.hash(),
-                    wallet_outputs,
+                    wallet_outputs: wallet_outputs.into_inner().expect("wallet_outputs lock poisoned"),
                     inputs,
                     mined_timestamp: tari_block.header.timestamp.as_u64(),
                 });
@@ -547,6 +571,7 @@ pub struct GrpcScannerBuilder<KM> {
     base_url: Option<String>,
     timeout: Option<Duration>,
     key_manager: Option<KM>,
+    number_processing_threads: usize,
 }
 
 impl<KM> Default for GrpcScannerBuilder<KM>
@@ -566,6 +591,7 @@ where KM: TransactionKeyManagerInterface
             base_url: None,
             timeout: None,
             key_manager: None,
+            number_processing_threads: 8,
         }
     }
 
@@ -580,6 +606,12 @@ where KM: TransactionKeyManagerInterface
     #[must_use]
     pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_processing_threads(mut self, number_processing_threads: usize) -> Self {
+        self.number_processing_threads = number_processing_threads;
         self
     }
 
@@ -601,8 +633,11 @@ where KM: TransactionKeyManagerInterface
             .ok_or_else(|| WalletError::ConfigurationError("Key manager not specified".to_string()))?;
 
         match self.timeout {
-            Some(timeout) => GrpcBlockchainScanner::with_timeout(base_url, timeout, key_manager).await,
-            None => GrpcBlockchainScanner::new(base_url, key_manager).await,
+            Some(timeout) => {
+                GrpcBlockchainScanner::with_timeout(base_url, timeout, key_manager, self.number_processing_threads)
+                    .await
+            },
+            None => GrpcBlockchainScanner::new(base_url, key_manager, self.number_processing_threads).await,
         }
     }
 }

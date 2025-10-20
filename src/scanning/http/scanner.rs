@@ -350,7 +350,7 @@ where KM: TransactionKeyManagerInterface
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.number_processing_threads)
             .build()
-            .unwrap();
+            .map_err(|e| WalletError::ConfigurationError(format!("Failed to build thread pool: {}", e)))?;
         pool.install(|| {
             http_blocks.into_par_iter().for_each(|http_block| {
                 let mut wallet_outputs = Vec::new();
