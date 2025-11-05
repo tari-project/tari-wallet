@@ -91,7 +91,7 @@ impl IncompleteScannedOutput {
         })
     }
 
-    pub async fn to_wallet_output<KM: TransactionKeyManagerInterface>(
+    pub fn to_wallet_output<KM: TransactionKeyManagerInterface>(
         &self,
         output: TransactionOutput,
         key_manager: &KM,
@@ -103,7 +103,6 @@ impl IncompleteScannedOutput {
             output,
             key_manager,
         )
-        .await
         {
             Ok(wo) => Ok(Some(wo)),
             Err(_e) => Ok(None),

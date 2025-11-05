@@ -126,7 +126,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Scan for regular recoverable outputs using encrypted data decryption
-    pub async fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
+    pub fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
         let Some((commitment_mask, value, memo)) = self
             .key_manager
             .try_output_key_recovery(
@@ -134,11 +134,11 @@ where KM: TransactionKeyManagerInterface
                 &output.encrypted_data,
                 &output.sender_offset_public_key,
             )
-            .await?
+            ?
         else {
             return Ok(None);
         };
-        (WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager).await)
+        (WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager))
             .map_or_else(|_| Ok(None), |wallet_output| Ok(Some(wallet_output)))
     }
 
@@ -287,7 +287,7 @@ where KM: TransactionKeyManagerInterface
 
         // Process each output
         for output in &outputs {
-            if let Some(wallet_output) = self.scan_for_recoverable_output(output).await? {
+            if let Some(wallet_output) = self.scan_for_recoverable_output(output)? {
                 wallet_outputs.push(wallet_output);
             }
         }
@@ -452,7 +452,7 @@ where KM: TransactionKeyManagerInterface
 
                 pool.install(|| {
                     tari_block.body.outputs().par_iter().for_each(|output| {
-                        match futures::executor::block_on(self.scan_for_recoverable_output(output)) {
+                        match self.scan_for_recoverable_output(output) {
                             Ok(Some(wallet_output)) => {
                                 wallet_outputs
                                     .write()

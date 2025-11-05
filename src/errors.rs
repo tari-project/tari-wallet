@@ -1,4 +1,5 @@
 use tari_script::ScriptError;
+use tari_transaction_components::key_manager::error::KeyManagerError;
 use tari_transaction_components::transaction_components::TransactionError;
 use thiserror::Error;
 
@@ -41,6 +42,8 @@ pub enum WalletError {
     TransactionError(#[from] TransactionError),
     #[error("Script error: {0}")]
     ScriptError(#[from] ScriptError),
+    #[error("Key Manager error: {0}")]
+    KeyManagerError(#[from] KeyManagerError),
 }
 
 /// Errors related to UTXO scanning operations
