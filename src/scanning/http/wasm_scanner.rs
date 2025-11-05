@@ -303,7 +303,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Scan for regular recoverable outputs using encrypted data decryption
-    async fn scan_for_recoverable_output(
+    fn scan_for_recoverable_output(
         &self,
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
@@ -313,8 +313,7 @@ where KM: TransactionKeyManagerInterface
                 &output.commitment,
                 &output.encrypted_data,
                 &output.sender_offset_public_key,
-            )
-            .await?
+            )?
         {
             Some(value) => value,
             None => return Ok(None),
@@ -424,7 +423,7 @@ where KM: TransactionKeyManagerInterface
             let header_hash = FixedHash::try_from(http_block.header_hash.clone()).unwrap_or_default();
             for output in &http_block.outputs {
                 let scanned_output = output.clone().try_into()?;
-                if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output).await? {
+                if let Some(wallet_output) = self.scan_for_recoverable_output(&scanned_output)? {
                     wallet_outputs.push(wallet_output);
                     blocks_with_utxos.insert(header_hash.clone());
                     continue;
