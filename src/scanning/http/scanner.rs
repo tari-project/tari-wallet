@@ -13,19 +13,26 @@ use std::{
 use async_trait::async_trait;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use reqwest::Client;
-use tari_common_types::types::FixedHash;
+use tari_common_types::types::{CompressedCommitment, FixedHash};
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
     rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponse},
-    transaction_components::TransactionOutput,
+    transaction_components::{MemoField, TransactionOutput},
+    MicroMinotari,
 };
-use tari_utilities::hex::Hex;
+use tari_utilities::{hex::Hex, ByteArray};
 use tracing::debug;
 
 use crate::{
     errors::{WalletError, WalletResult},
-    http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct},
+    http::models::{
+        HttpBlockHeader,
+        HttpMempoolResponse,
+        HttpTipInfoResponse,
+        IncompleteScannedOutput,
+        ScanningOutputStruct,
+    },
     scanning::{interface::BlockchainScanner, BlockScanResult, InProgressScan, ScanConfig, TipInfo},
     BlockHeaderInfo,
     UtxoScanResult,
@@ -203,13 +210,11 @@ where KM: TransactionKeyManagerInterface
         &self,
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
-        let Some((commitment_mask, value, memo)) = self
-            .key_manager
-            .try_output_key_recovery(
-                &output.commitment,
-                &output.encrypted_data,
-                &output.sender_offset_public_key,
-            )?
+        let Some((commitment_mask, value, memo)) = self.key_manager.try_output_key_recovery(
+            &output.commitment,
+            &output.encrypted_data,
+            &output.sender_offset_public_key,
+        )?
         else {
             return Ok(None);
         };
@@ -420,18 +425,17 @@ where KM: TransactionKeyManagerInterface
 
                 if !block.wallet_outputs.is_empty() {
                     // Block should always be present as we fetched them above
-                    let block_response =
-                        match block_data.get(&block.block_hash) {
-                            Some(b) => b,
-                            None => {
-                                errors.write().expect("write lock should not be poisoned").push(
-                                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                                        "Block data missing for output",
-                                    )),
-                                );
-                                return;
-                            },
-                        };
+                    let block_response = match block_data.get(&block.block_hash) {
+                        Some(b) => b,
+                        None => {
+                            errors.write().expect("write lock should not be poisoned").push(
+                                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                                    "Block data missing for output",
+                                )),
+                            );
+                            return;
+                        },
+                    };
                     for output in &block.wallet_outputs {
                         if let Some(index) = block_response
                             .outputs
@@ -585,5 +589,110 @@ where KM: TransactionKeyManagerInterface
             hash: FixedHash::try_from(header_response.hash).map_err(|e| WalletError::ConversionError(e.to_string()))?,
             timestamp: EpochTime::from(header_response.timestamp),
         }))
+    }
+
+    /// Scan the mempool for wallet outputs
+    /// Returns a tuple of (wallet outputs, spent input hashes)
+    async fn scan_mempool(
+        &mut self,
+    ) -> WalletResult<(Vec<(TransactionOutput, MicroMinotari, MemoField)>, Vec<FixedHash>)> {
+        let url = format!("{}/get_mempool_transactions", self.base_url);
+
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "HTTP request failed: {e}"
+            )))
+        })?;
+
+        if !response.status().is_success() {
+            return Err(WalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                    "HTTP error: {}",
+                    response.status()
+                )),
+            ));
+        }
+
+        let response_text = response.text().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to read response body: {e}"
+            )))
+        })?;
+        let mempool_response: HttpMempoolResponse = serde_json::from_str(&response_text).map_err(|e| {
+            // dbg!(&response_text);
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to parse mempool response: {e}"
+            )))
+        })?;
+
+        let wallet_outputs = RwLock::new(Vec::new());
+        let errors = RwLock::new(Vec::new());
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.number_processing_threads)
+            .build()
+            .map_err(|e| WalletError::ConfigurationError(format!("Failed to build thread pool: {}", e)))?;
+
+        // For now just include all the spent inputs from all transactions
+        let spent_inputs: Vec<FixedHash> = mempool_response
+            .transactions
+            .iter()
+            .flat_map(|tx| tx.input_hashes.iter())
+            .map(|input| FixedHash::from_hex(input))
+            .collect::<Result<_, _>>()
+            .map_err(|e| WalletError::ConversionError(e.to_string()))?;
+
+        pool.install(|| {
+            mempool_response.transactions.into_par_iter().for_each(|tx| {
+                for output in &tx.outputs {
+                    let output_hash = output.hash();
+                    let commitment = output.commitment.clone();
+                    let encrypted_data = output.encrypted_data.clone();
+
+                    let sender_offset_public_key = output.sender_offset_public_key.clone();
+                    match self.scan_for_recoverable_output(&ScanningOutputStruct {
+                        min_info: tari_transaction_components::rpc::models::MinimalUtxoSyncInfo {
+                            output_hash: output_hash.to_vec(),
+                            commitment: commitment.to_vec(),
+                            encrypted_data: encrypted_data.to_byte_vec(),
+                            sender_offset_public_key: sender_offset_public_key.to_vec(),
+                        },
+                        commitment: commitment.clone(),
+                        encrypted_data: encrypted_data.clone(),
+                        sender_offset_public_key: sender_offset_public_key.clone(),
+                    }) {
+                        Ok(Some(incomplete_output)) => {
+                            let value = incomplete_output.value;
+                            let memo = incomplete_output.memo.clone();
+
+                            wallet_outputs
+                                .write()
+                                .expect("write lock should not be poisoned")
+                                .push((output.clone(), value, memo));
+                        },
+                        Ok(None) => {},
+                        Err(e) => {
+                            errors.write().expect("write lock should not be poisoned").push(e);
+                        },
+                    }
+                }
+            });
+        });
+
+        if let Some(e) = errors.read().expect("read lock should not be poisoned").first() {
+            return Err(e.clone());
+        }
+
+        // for tx in &mempool_response.transactions {
+        // for spent_input in &tx.spent_inputs {
+        // Check if there are any outputs with those hashes
+        // debug!("Mempool spent input: {}", spent_input.to_hex());
+        // }
+        // }
+
+        Ok((
+            wallet_outputs.into_inner().expect("lock should not be poisoned"),
+            spent_inputs,
+        ))
     }
 }

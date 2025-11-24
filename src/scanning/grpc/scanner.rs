@@ -18,7 +18,8 @@ use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
-    transaction_components::{TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
+    transaction_components::{MemoField, TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
+    MicroMinotari,
 };
 use tonic::{transport::Channel, Request};
 use tracing::debug;
@@ -127,14 +128,11 @@ where KM: TransactionKeyManagerInterface
 
     /// Scan for regular recoverable outputs using encrypted data decryption
     pub fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        let Some((commitment_mask, value, memo)) = self
-            .key_manager
-            .try_output_key_recovery(
-                &output.commitment,
-                &output.encrypted_data,
-                &output.sender_offset_public_key,
-            )
-            ?
+        let Some((commitment_mask, value, memo)) = self.key_manager.try_output_key_recovery(
+            &output.commitment,
+            &output.encrypted_data,
+            &output.sender_offset_public_key,
+        )?
         else {
             return Ok(None);
         };
@@ -563,6 +561,15 @@ where KM: TransactionKeyManagerInterface
         } else {
             Ok(None)
         }
+    }
+
+    async fn scan_mempool(
+        &mut self,
+    ) -> WalletResult<(Vec<(TransactionOutput, MicroMinotari, MemoField)>, Vec<FixedHash>)> {
+        // This endpoint is not implemented for GRPC scanner yet
+        Err(WalletError::ScanningError(
+            crate::errors::ScanningError::blockchain_connection_failed("scan_mempool not implemented for GRPC scanner"),
+        ))
     }
 }
 

@@ -62,6 +62,19 @@ pub struct HttpBlockBody {
     pub outputs: Vec<TransactionOutput>,
 }
 
+/// HTTP API mempool response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpMempoolResponse {
+    pub transactions: Vec<HttpMempoolTransaction>,
+}
+
+/// HTTP API mempool transaction structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpMempoolTransaction {
+    pub input_hashes: Vec<String>,
+    pub outputs: Vec<TransactionOutput>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncompleteScannedOutput {
     pub output_hash: FixedHash,
@@ -102,8 +115,7 @@ impl IncompleteScannedOutput {
             self.memo.clone(),
             output,
             key_manager,
-        )
-        {
+        ) {
             Ok(wo) => Ok(Some(wo)),
             Err(_e) => Ok(None),
         }

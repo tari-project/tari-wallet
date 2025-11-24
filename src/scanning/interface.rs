@@ -1,6 +1,10 @@
 use async_trait::async_trait;
+use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
-use tari_transaction_components::transaction_components::TransactionOutput;
+use tari_transaction_components::{
+    transaction_components::{MemoField, TransactionOutput},
+    MicroMinotari,
+};
 
 use crate::{BlockHeaderInfo, BlockScanResult, ScanConfig, TipInfo, WalletResult};
 
@@ -29,4 +33,9 @@ pub trait BlockchainScanner: Send + Sync {
     async fn get_block_by_height(&mut self, height: u64) -> WalletResult<Option<Block>>;
 
     async fn get_header_by_height(&mut self, height: u64) -> WalletResult<Option<BlockHeaderInfo>>;
+
+    /// Scan the mempool for wallet outputs
+    async fn scan_mempool(
+        &mut self,
+    ) -> WalletResult<(Vec<(TransactionOutput, MicroMinotari, MemoField)>, Vec<FixedHash>)>;
 }
