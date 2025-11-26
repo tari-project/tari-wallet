@@ -1,6 +1,5 @@
 use tari_script::ScriptError;
-use tari_transaction_components::key_manager::error::KeyManagerError;
-use tari_transaction_components::transaction_components::TransactionError;
+use tari_transaction_components::{key_manager::error::KeyManagerError, transaction_components::TransactionError};
 use thiserror::Error;
 
 /// Main error type for the lightweight wallet library

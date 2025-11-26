@@ -127,14 +127,11 @@ where KM: TransactionKeyManagerInterface
 
     /// Scan for regular recoverable outputs using encrypted data decryption
     pub fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        let Some((commitment_mask, value, memo)) = self
-            .key_manager
-            .try_output_key_recovery(
-                &output.commitment,
-                &output.encrypted_data,
-                &output.sender_offset_public_key,
-            )
-            ?
+        let Some((commitment_mask, value, memo)) = self.key_manager.try_output_key_recovery(
+            &output.commitment,
+            &output.encrypted_data,
+            &output.sender_offset_public_key,
+        )?
         else {
             return Ok(None);
         };
@@ -489,6 +486,7 @@ where KM: TransactionKeyManagerInterface
         }
         results.extend(batch_results);
         self.current_in_progress.increment_page();
+        results.sort_by(|a, b| a.height.cmp(&b.height));
         Ok((results, (current_height < end_height)))
     }
 

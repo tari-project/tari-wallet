@@ -102,8 +102,7 @@ impl IncompleteScannedOutput {
             self.memo.clone(),
             output,
             key_manager,
-        )
-        {
+        ) {
             Ok(wo) => Ok(Some(wo)),
             Err(_e) => Ok(None),
         }

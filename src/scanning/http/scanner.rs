@@ -31,7 +31,7 @@ use crate::{
     UtxoScanResult,
 };
 
-const SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT: u64 = 10;
+const SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT: u64 = 50;
 
 /// HTTP client for connecting to Tari base node
 pub struct HttpBlockchainScanner<KM> {
@@ -193,7 +193,7 @@ where KM: TransactionKeyManagerInterface
         Ok(ScanConfig {
             start_height,
             end_height,
-            batch_size: Some(100),
+            batch_size: Some(50),
             request_timeout: self.timeout,
         })
     }
@@ -203,13 +203,11 @@ where KM: TransactionKeyManagerInterface
         &self,
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
-        let Some((commitment_mask, value, memo)) = self
-            .key_manager
-            .try_output_key_recovery(
-                &output.commitment,
-                &output.encrypted_data,
-                &output.sender_offset_public_key,
-            )?
+        let Some((commitment_mask, value, memo)) = self.key_manager.try_output_key_recovery(
+            &output.commitment,
+            &output.encrypted_data,
+            &output.sender_offset_public_key,
+        )?
         else {
             return Ok(None);
         };
@@ -420,18 +418,17 @@ where KM: TransactionKeyManagerInterface
 
                 if !block.wallet_outputs.is_empty() {
                     // Block should always be present as we fetched them above
-                    let block_response =
-                        match block_data.get(&block.block_hash) {
-                            Some(b) => b,
-                            None => {
-                                errors.write().expect("write lock should not be poisoned").push(
-                                    WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
-                                        "Block data missing for output",
-                                    )),
-                                );
-                                return;
-                            },
-                        };
+                    let block_response = match block_data.get(&block.block_hash) {
+                        Some(b) => b,
+                        None => {
+                            errors.write().expect("write lock should not be poisoned").push(
+                                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                                    "Block data missing for output",
+                                )),
+                            );
+                            return;
+                        },
+                    };
                     for output in &block.wallet_outputs {
                         if let Some(index) = block_response
                             .outputs
@@ -468,7 +465,8 @@ where KM: TransactionKeyManagerInterface
         if let Some(e) = errors.read().expect("read lock should not be poisoned").first() {
             return Err(e.clone());
         }
-        let results = results.into_inner().expect("Lock should not be poisoned");
+        let mut results = results.into_inner().expect("Lock should not be poisoned");
+        results.sort_by(|a, b| a.height.cmp(&b.height));
         debug!(
             "HTTP scan completed, found {} blocks with wallet outputs in {}s",
             results.len(),

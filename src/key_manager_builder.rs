@@ -1,11 +1,9 @@
-
-
-use tari_common_types::{
-    types::CompressedPublicKey,
-};
+use tari_common_types::types::CompressedPublicKey;
 use tari_crypto::ristretto::RistrettoSecretKey;
-use tari_transaction_components::key_manager::KeyManager;
-use tari_transaction_components::key_manager::wallet_types::{ViewWallet, WalletType};
+use tari_transaction_components::key_manager::{
+    wallet_types::{ViewWallet, WalletType},
+    KeyManager,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct KeyManagerBuilder {
@@ -27,8 +25,8 @@ impl KeyManagerBuilder {
 
     pub fn try_build(self) -> Result<KeyManager, anyhow::Error> {
         if let Some(wallet_type) = self.wallet_type {
-           Ok(KeyManager::new(wallet_type)?)
-        } else{
+            Ok(KeyManager::new(wallet_type)?)
+        } else {
             Ok(KeyManager::new_random()?)
         }
     }
