@@ -13,3 +13,4 @@ cobertura.xml
 lcov.info
 node_modules/
 data/
+.claude/

@@ -21,7 +21,7 @@ use tari_transaction_components::{
     transaction_components::TransactionOutput,
 };
 use tari_utilities::hex::Hex;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
     errors::{WalletError, WalletResult},
@@ -62,6 +62,11 @@ where KM: TransactionKeyManagerInterface
         let test_url = format!("{base_url}/get_tip_info");
         let response = client.get(&test_url).send().await;
         if response.is_err() {
+            let body = match response {
+                Ok(resp) => resp.text().await.unwrap_or_default(),
+                Err(_) => "".to_string(),
+            };
+            warn!("Connection test failed, response body: {}", body);
             return Err(WalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to connect to {base_url}")),
             ));
@@ -93,6 +98,11 @@ where KM: TransactionKeyManagerInterface
         let test_url = format!("{base_url}/get_tip_info");
         let response = client.get(&test_url).send().await;
         if response.is_err() {
+            let body = match response {
+                Ok(resp) => resp.text().await.unwrap_or_default(),
+                Err(_) => "".to_string(),
+            };
+            warn!("Connection test failed, response body: {}", body);
             return Err(WalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to connect to {base_url}")),
             ));
@@ -134,11 +144,11 @@ where KM: TransactionKeyManagerInterface
             })?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
@@ -167,15 +177,21 @@ where KM: TransactionKeyManagerInterface
             })?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
-        let sync_response: GetUtxosByBlockResponse = response.json().await.map_err(|e| {
+        let body_text = response.text().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to read response body: {e}"
+            )))
+        })?;
+        let sync_response: GetUtxosByBlockResponse = serde_json::from_str(&body_text).map_err(|e| {
+            warn!("Failed to parse response body: {}", body_text);
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to parse response: {e}"
             )))
@@ -486,15 +502,22 @@ where KM: TransactionKeyManagerInterface
         })?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
-        let tip_response: HttpTipInfoResponse = response.json().await.map_err(|e| {
+        let body_text = response.text().await.map_err(|e| {
+            WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
+                "Failed to read response body: {e}"
+            )))
+        })?;
+
+        let tip_response: HttpTipInfoResponse = serde_json::from_str(&body_text).map_err(|e| {
+            warn!("Failed to parse response body: {}", body_text);
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to parse response: {e}"
             )))
@@ -558,11 +581,11 @@ where KM: TransactionKeyManagerInterface
             if response.status() == 404 {
                 return Ok(None);
             }
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
@@ -573,6 +596,7 @@ where KM: TransactionKeyManagerInterface
         })?;
 
         let header_response: HttpBlockHeader = serde_json::from_str(&body).map_err(|e| {
+            warn!("Failed to parse response body: {}", body);
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to parse response: {e}"
             )))
