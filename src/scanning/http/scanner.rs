@@ -144,13 +144,11 @@ where KM: TransactionKeyManagerInterface
             })?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
@@ -179,13 +177,11 @@ where KM: TransactionKeyManagerInterface
             })?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
@@ -506,13 +502,11 @@ where KM: TransactionKeyManagerInterface
         })?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
@@ -587,13 +581,11 @@ where KM: TransactionKeyManagerInterface
             if response.status() == 404 {
                 return Ok(None);
             }
+            let status = response.status();
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "HTTP error: {}",
-                    response.status()
-                )),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
             ));
         }
 
