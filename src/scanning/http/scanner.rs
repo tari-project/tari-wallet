@@ -17,7 +17,7 @@ use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
-    rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponse},
+    rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponseV0,SyncUtxosByBlockResponseV1},
     transaction_components::TransactionOutput,
 };
 use tari_utilities::hex::Hex;
@@ -124,9 +124,9 @@ where KM: TransactionKeyManagerInterface
         start_header_hash: &str,
         limit: u64,
         page: u64,
-    ) -> WalletResult<SyncUtxosByBlockResponse> {
+    ) -> WalletResult<SyncUtxosByBlockResponseV0> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
-
+        let version = 1;
         let response = self
             .client
             .get(&url)
@@ -134,6 +134,7 @@ where KM: TransactionKeyManagerInterface
                 ("start_header_hash", start_header_hash),
                 ("limit", &limit.to_string()),
                 ("page", &page.to_string()),
+                ("version", &version.to_string()),
             ])
             .send()
             .await
@@ -152,11 +153,13 @@ where KM: TransactionKeyManagerInterface
             ));
         }
 
-        let sync_response: SyncUtxosByBlockResponse = response.json().await.map_err(|e| {
+        let sync_response_v1: SyncUtxosByBlockResponseV1 = response.json().await.map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to parse response: {e}"
             )))
         })?;
+
+        let sync_response = sync_response_v1.into();
 
         Ok(sync_response)
     }
