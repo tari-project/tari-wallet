@@ -17,7 +17,7 @@ use tari_common_types::types::FixedHash;
 use tari_node_components::blocks::Block;
 use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
-    rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponseV0,SyncUtxosByBlockResponseV1},
+    rpc::models::{BlockUtxoInfo, GetUtxosByBlockResponse, SyncUtxosByBlockResponseV0, SyncUtxosByBlockResponseV1},
     transaction_components::TransactionOutput,
 };
 use tari_utilities::hex::Hex;
@@ -329,7 +329,7 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {

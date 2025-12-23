@@ -9,7 +9,7 @@ use crate::{BlockHeaderInfo, BlockScanResult, ScanConfig, TipInfo, WalletResult}
 /// This trait provides a lightweight interface that can be implemented by
 /// different backend providers (gRPC, HTTP, etc.) without requiring heavy
 /// dependencies in the core library.
-#[async_trait(?Send)]
+#[async_trait]
 pub trait BlockchainScanner: Send + Sync {
     /// Scan for wallet outputs in the specified block range
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)>;
