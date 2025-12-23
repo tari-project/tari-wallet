@@ -374,7 +374,7 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
