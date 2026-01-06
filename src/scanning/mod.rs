@@ -147,7 +147,7 @@ pub struct BlockScanResult {
     /// Block hash
     pub block_hash: FixedHash,
     /// Wallet outputs extracted from transaction outputs (hash, output)
-    pub wallet_outputs: Vec<(FixedHash, WalletOutput)>,
+    pub wallet_outputs: Vec<(FixedHash, WalletOutput, usize)>,
     /// Input hashes
     pub inputs: Vec<FixedHash>,
     /// Timestamp when block was mined

@@ -41,7 +41,7 @@ pub struct HttpBlockchainScanner<KM> {
     base_url: String,
     /// Request timeout (native targets only)
     timeout: Duration,
-    key_manager: KM,
+    key_managers: Vec<KM>,
     current_in_progress: InProgressScan,
     number_processing_threads: usize,
 }
@@ -50,7 +50,7 @@ impl<KM> HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     /// Create a new HTTP scanner with the given base URL
-    pub async fn new(base_url: String, key_manager: KM, number_processing_threads: usize) -> WalletResult<Self> {
+    pub async fn new(base_url: String, key_managers: Vec<KM>, number_processing_threads: usize) -> WalletResult<Self> {
         let timeout = Duration::from_secs(30);
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -75,7 +75,7 @@ where KM: TransactionKeyManagerInterface
             client,
             base_url,
             timeout,
-            key_manager,
+            key_managers,
             current_in_progress: InProgressScan::new_empty(),
             number_processing_threads,
         })
@@ -85,7 +85,7 @@ where KM: TransactionKeyManagerInterface
     pub async fn with_timeout(
         base_url: String,
         timeout: Duration,
-        key_manager: KM,
+        key_managers: Vec<KM>,
         number_processing_threads: usize,
     ) -> WalletResult<Self> {
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
@@ -112,7 +112,7 @@ where KM: TransactionKeyManagerInterface
             client,
             base_url,
             timeout,
-            key_manager,
+            key_managers,
             current_in_progress: InProgressScan::new_empty(),
             number_processing_threads,
         })
@@ -222,17 +222,17 @@ where KM: TransactionKeyManagerInterface
         &self,
         output: &ScanningOutputStruct,
     ) -> WalletResult<Option<IncompleteScannedOutput>> {
-        let Some((commitment_mask, value, memo)) = self.key_manager.try_output_key_recovery(
-            &output.commitment,
-            &output.encrypted_data,
-            &output.sender_offset_public_key,
-        )?
-        else {
-            return Ok(None);
-        };
-
-        let output = IncompleteScannedOutput::new(output, value, commitment_mask, memo)?;
-        Ok(Some(output))
+        for (index, key_manager) in self.key_managers.iter().enumerate() {
+            if let Some((commitment_mask, value, memo)) = key_manager.try_output_key_recovery(
+                &output.commitment,
+                &output.encrypted_data,
+                &output.sender_offset_public_key,
+            )? {
+                let output = IncompleteScannedOutput::new(output, value, commitment_mask, memo, index)?;
+                return Ok(Some(output));
+            }
+        }
+        Ok(None)
     }
 
     /// Fetch block range using the `sync_utxos_by_block` endpoint
@@ -457,9 +457,12 @@ where KM: TransactionKeyManagerInterface
                             let tx_output = block_response.outputs.get(index).expect("should exist").clone();
                             let output_hash = output.output_hash;
                             // Attempt to convert to wallet output
-                            match output.to_wallet_output(tx_output, &self.key_manager) {
+                            match output.to_wallet_output(
+                                tx_output,
+                                self.key_managers.get(output.key_manager_index).expect("should exist"),
+                            ) {
                                 Ok(Some(wallet_output)) => {
-                                    wallet_outputs.push((output_hash, wallet_output));
+                                    wallet_outputs.push((output_hash, wallet_output, output.key_manager_index));
                                 },
                                 Ok(None) => {},
                                 Err(e) => {

@@ -70,6 +70,7 @@ pub struct IncompleteScannedOutput {
     pub sender_offset_public_key: CompressedPublicKey,
     pub encrypted_data: EncryptedData,
     pub memo: MemoField,
+    pub key_manager_index: usize,
 }
 
 impl IncompleteScannedOutput {
@@ -78,6 +79,7 @@ impl IncompleteScannedOutput {
         value: MicroMinotari,
         commitment_mask_key_id: TariKeyId,
         memo: MemoField,
+        index: usize,
     ) -> Result<Self, WalletError> {
         let output_hash = FixedHash::try_from(scanning_info.min_info.output_hash.clone())
             .map_err(|e| WalletError::DataError(e.to_string()))?;
@@ -88,6 +90,7 @@ impl IncompleteScannedOutput {
             sender_offset_public_key: scanning_info.sender_offset_public_key.clone(),
             encrypted_data: scanning_info.encrypted_data.clone(),
             memo,
+            key_manager_index: index,
         })
     }
 
