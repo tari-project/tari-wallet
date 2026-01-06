@@ -51,6 +51,12 @@ where KM: TransactionKeyManagerInterface
 {
     /// Create a new HTTP scanner with the given base URL
     pub async fn new(base_url: String, key_managers: Vec<KM>, number_processing_threads: usize) -> WalletResult<Self> {
+        if key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "At least one key manager must be specified".to_string(),
+            ));
+        }
+
         let timeout = Duration::from_secs(30);
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -88,6 +94,12 @@ where KM: TransactionKeyManagerInterface
         key_managers: Vec<KM>,
         number_processing_threads: usize,
     ) -> WalletResult<Self> {
+        if key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "At least one key manager must be specified".to_string(),
+            ));
+        }
+
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Failed to create HTTP client: {e}"

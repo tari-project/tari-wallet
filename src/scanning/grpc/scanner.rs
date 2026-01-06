@@ -45,6 +45,11 @@ where KM: TransactionKeyManagerInterface
 {
     /// Create a new GRPC scanner with the given base URL
     pub async fn new(base_url: String, key_managers: Vec<KM>, number_processing_threads: usize) -> WalletResult<Self> {
+        if key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "At least one key manager must be specified".to_string(),
+            ));
+        }
         let timeout = Duration::from_secs(30);
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
@@ -82,6 +87,12 @@ where KM: TransactionKeyManagerInterface
         key_managers: Vec<KM>,
         number_processing_threads: usize,
     ) -> WalletResult<Self> {
+        if key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "At least one key manager must be specified".to_string(),
+            ));
+        }
+
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -630,6 +641,12 @@ where KM: TransactionKeyManagerInterface
         let base_url = self
             .base_url
             .ok_or_else(|| WalletError::ConfigurationError("Base URL not specified".to_string()))?;
+
+        if self.key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "No Key managers not specified".to_string(),
+            ));
+        }
 
         match self.timeout {
             Some(timeout) => {
