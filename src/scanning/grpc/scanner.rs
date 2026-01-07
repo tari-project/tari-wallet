@@ -35,7 +35,7 @@ pub struct GrpcBlockchainScanner<KM> {
     /// Connection timeout
     timeout: Duration,
     /// key manager used for the keys
-    pub key_manager: KM,
+    pub key_managers: Vec<KM>,
     current_in_progress: InProgressScan,
     number_processing_threads: usize,
 }
@@ -44,7 +44,12 @@ impl<KM> GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     /// Create a new GRPC scanner with the given base URL
-    pub async fn new(base_url: String, key_manager: KM, number_processing_threads: usize) -> WalletResult<Self> {
+    pub async fn new(base_url: String, key_managers: Vec<KM>, number_processing_threads: usize) -> WalletResult<Self> {
+        if key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "At least one key manager must be specified".to_string(),
+            ));
+        }
         let timeout = Duration::from_secs(30);
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
@@ -69,7 +74,7 @@ where KM: TransactionKeyManagerInterface
         Ok(Self {
             client,
             timeout,
-            key_manager,
+            key_managers,
             current_in_progress: InProgressScan::new_empty(),
             number_processing_threads,
         })
@@ -79,9 +84,15 @@ where KM: TransactionKeyManagerInterface
     pub async fn with_timeout(
         base_url: String,
         timeout: Duration,
-        key_manager: KM,
+        key_managers: Vec<KM>,
         number_processing_threads: usize,
     ) -> WalletResult<Self> {
+        if key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "At least one key manager must be specified".to_string(),
+            ));
+        }
+
         let channel = Channel::from_shared(base_url.clone())
             .map_err(|e| {
                 WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
@@ -105,7 +116,7 @@ where KM: TransactionKeyManagerInterface
         Ok(Self {
             client,
             timeout,
-            key_manager,
+            key_managers,
             current_in_progress: InProgressScan::new_empty(),
             number_processing_threads,
         })
@@ -126,17 +137,21 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Scan for regular recoverable outputs using encrypted data decryption
-    pub fn scan_for_recoverable_output(&self, output: &TransactionOutput) -> WalletResult<Option<WalletOutput>> {
-        let Some((commitment_mask, value, memo)) = self.key_manager.try_output_key_recovery(
-            &output.commitment,
-            &output.encrypted_data,
-            &output.sender_offset_public_key,
-        )?
-        else {
-            return Ok(None);
-        };
-        (WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), &self.key_manager))
-            .map_or_else(|_| Ok(None), |wallet_output| Ok(Some(wallet_output)))
+    pub fn scan_for_recoverable_output(
+        &self,
+        output: &TransactionOutput,
+    ) -> WalletResult<Option<(WalletOutput, usize)>> {
+        for (index, key_manager) in self.key_managers.iter().enumerate() {
+            if let Some((commitment_mask, value, memo)) = key_manager.try_output_key_recovery(
+                &output.commitment,
+                &output.encrypted_data,
+                &output.sender_offset_public_key,
+            )? {
+                return WalletOutput::new_imported(value, commitment_mask, memo, output.clone(), key_manager)
+                    .map_or_else(|_| Ok(None), |wallet_output| Ok(Some((wallet_output, index))));
+            }
+        }
+        Ok(None)
     }
 
     /// Get all outputs from a specific block
@@ -272,7 +287,7 @@ where KM: TransactionKeyManagerInterface
     }
 
     /// Scan a single block for wallet outputs using the provided entropy
-    pub async fn scan_block(&mut self, block_height: u64) -> WalletResult<Vec<WalletOutput>> {
+    pub async fn scan_block(&mut self, block_height: u64) -> WalletResult<Vec<(WalletOutput, usize)>> {
         let mut wallet_outputs = Vec::new();
 
         // Get all outputs from the block
@@ -284,8 +299,8 @@ where KM: TransactionKeyManagerInterface
 
         // Process each output
         for output in &outputs {
-            if let Some(wallet_output) = self.scan_for_recoverable_output(output)? {
-                wallet_outputs.push(wallet_output);
+            if let Some(found_wallet_outputs) = self.scan_for_recoverable_output(output)? {
+                wallet_outputs.push(found_wallet_outputs);
             }
         }
 
@@ -450,11 +465,12 @@ where KM: TransactionKeyManagerInterface
                 pool.install(|| {
                     tari_block.body.outputs().par_iter().for_each(|output| {
                         match self.scan_for_recoverable_output(output) {
-                            Ok(Some(wallet_output)) => {
-                                wallet_outputs
-                                    .write()
-                                    .expect("wallet_outputs lock poisoned")
-                                    .push((output.hash(), wallet_output));
+                            Ok(Some((wallet_output, index))) => {
+                                wallet_outputs.write().expect("wallet_outputs lock poisoned").push((
+                                    output.hash(),
+                                    wallet_output,
+                                    index,
+                                ));
                             },
                             Ok(None) => {},
                             Err(e) => {
@@ -568,7 +584,7 @@ where KM: TransactionKeyManagerInterface
 pub struct GrpcScannerBuilder<KM> {
     base_url: Option<String>,
     timeout: Option<Duration>,
-    key_manager: Option<KM>,
+    key_managers: Vec<KM>,
     number_processing_threads: usize,
 }
 
@@ -588,7 +604,7 @@ where KM: TransactionKeyManagerInterface
         Self {
             base_url: None,
             timeout: None,
-            key_manager: None,
+            key_managers: Vec::new(),
             number_processing_threads: 8,
         }
     }
@@ -616,7 +632,7 @@ where KM: TransactionKeyManagerInterface
     /// Set the key manager for wallet key integration
     #[must_use]
     pub fn with_key_manager(mut self, key_manager: KM) -> Self {
-        self.key_manager = Some(key_manager);
+        self.key_managers.push(key_manager);
         self
     }
 
@@ -626,16 +642,23 @@ where KM: TransactionKeyManagerInterface
             .base_url
             .ok_or_else(|| WalletError::ConfigurationError("Base URL not specified".to_string()))?;
 
-        let key_manager = self
-            .key_manager
-            .ok_or_else(|| WalletError::ConfigurationError("Key manager not specified".to_string()))?;
+        if self.key_managers.is_empty() {
+            return Err(WalletError::ConfigurationError(
+                "No Key managers not specified".to_string(),
+            ));
+        }
 
         match self.timeout {
             Some(timeout) => {
-                GrpcBlockchainScanner::with_timeout(base_url, timeout, key_manager, self.number_processing_threads)
-                    .await
+                GrpcBlockchainScanner::with_timeout(
+                    base_url,
+                    timeout,
+                    self.key_managers,
+                    self.number_processing_threads,
+                )
+                .await
             },
-            None => GrpcBlockchainScanner::new(base_url, key_manager, self.number_processing_threads).await,
+            None => GrpcBlockchainScanner::new(base_url, self.key_managers, self.number_processing_threads).await,
         }
     }
 }
