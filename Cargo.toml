@@ -22,14 +22,14 @@ serde_json = "1.0"
 thiserror = "1.0"
 
 # === Tari Ecosystem Dependencies ===
-tari_common = { git = "https://github.com/tari-project/tari/", rev = "c79f5557b1d214cdca7b4e52f02ddb729600e7cd" }
-tari_common_types = { git = "https://github.com/tari-project/tari/", rev = "c79f5557b1d214cdca7b4e52f02ddb729600e7cd" }
+tari_common = { git = "https://github.com/tari-project/tari/", rev = "766f80ccc20596413ee208311750c11e02a2841d" }
+tari_common_types = { git = "https://github.com/tari-project/tari/", rev = "766f80ccc20596413ee208311750c11e02a2841d" }
 tari_crypto = { version = "0.22.1", features = ["borsh"] }
 tari_utilities = { version = "0.8", features = ["std"] }
-tari_script = { git = "https://github.com/tari-project/tari/", rev = "c79f5557b1d214cdca7b4e52f02ddb729600e7cd" }
-tari_transaction_components = { git = "https://github.com/tari-project/tari/", rev = "c79f5557b1d214cdca7b4e52f02ddb729600e7cd" }
-minotari_app_grpc = { git = "https://github.com/tari-project/tari/", rev = "c79f5557b1d214cdca7b4e52f02ddb729600e7cd", optional = true, default-features = false }
-tari_node_components = { git = "https://github.com/tari-project/tari/", rev = "c79f5557b1d214cdca7b4e52f02ddb729600e7cd" }
+tari_script = { git = "https://github.com/tari-project/tari/", rev = "766f80ccc20596413ee208311750c11e02a2841d" }
+tari_transaction_components = { git = "https://github.com/tari-project/tari/", rev = "766f80ccc20596413ee208311750c11e02a2841d" }
+minotari_app_grpc = { git = "https://github.com/tari-project/tari/", rev = "766f80ccc20596413ee208311750c11e02a2841d", optional = true, default-features = false }
+tari_node_components = { git = "https://github.com/tari-project/tari/", rev = "766f80ccc20596413ee208311750c11e02a2841d" }
 
 # === Encoding & Utilities ===
 primitive-types = { version = "0.12", features = ["serde"] } # U256, H256, etc.
