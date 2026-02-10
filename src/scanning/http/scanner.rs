@@ -33,6 +33,9 @@ use crate::{
 };
 
 const SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT: u64 = 50;
+const HTTP2_INITIAL_WINDOW_SIZE: u32 = 4 * 1024 * 1024;
+const HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
+const HTTP2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// HTTP client for connecting to Tari base node
 pub struct HttpBlockchainScanner<KM> {
@@ -81,11 +84,11 @@ where KM: TransactionKeyManagerInterface
         );
 
         let client = Client::builder()
-            .http2_initial_stream_window_size(4 * 1024 * 1024)
-            .http2_initial_connection_window_size(4 * 1024 * 1024)
+            .http2_initial_stream_window_size(HTTP2_INITIAL_WINDOW_SIZE)
+            .http2_initial_connection_window_size(HTTP2_INITIAL_WINDOW_SIZE)
             .tcp_nodelay(true)
-            .http2_keep_alive_interval(Duration::from_secs(10))
-            .http2_keep_alive_timeout(Duration::from_secs(5))
+            .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
+            .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
             .http2_keep_alive_while_idle(true)
             .timeout(timeout)
             .build()
