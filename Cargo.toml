@@ -36,9 +36,11 @@ primitive-types = { version = "0.12", features = ["serde"] } # U256, H256, etc.
 # === WebAssembly Support ===
 wasm-bindgen = "0.2"
 # === Parallel Processing ===
+num_cpus = "1.17.0"
 rayon = { version = "1.11"}
 
 # === Async & Concurrency ===
+tokio = { version = "1.0", features = ["macros", "rt", "sync", "rt-multi-thread"] }
 async-trait = "0.1"
 
 # === Logging & Tracing ===
