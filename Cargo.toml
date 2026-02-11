@@ -40,7 +40,7 @@ num_cpus = "1.17.0"
 rayon = { version = "1.11"}
 
 # === Async & Concurrency ===
-tokio = { version = "1.0", features = ["macros", "rt", "sync", "rt-multi-thread"] }
+tokio = { version = "1.47.1", features = ["full"] }
 async-trait = "0.1"
 
 # === Logging & Tracing ===
