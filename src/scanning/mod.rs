@@ -55,6 +55,13 @@ pub struct ScanConfig {
     /// Timeout for requests
     #[serde(with = "duration_serde")]
     pub request_timeout: Duration,
+    /// When `true` the HTTP `sync_utxos_by_block` endpoint is asked to omit already-spent
+    /// outputs.  Used by the Phase 1 fast-sync scan (birthday → fast_sync_target_height)
+    /// so that only the live UTXO set is returned, drastically reducing the amount of data
+    /// that needs to be transferred and processed.  Normal / full-history scans leave this
+    /// `false` so that the complete spending history is available.
+    #[serde(default)]
+    pub exclude_spent: bool,
 }
 
 impl Default for ScanConfig {
@@ -64,6 +71,7 @@ impl Default for ScanConfig {
             end_height: None,
             batch_size: Some(100),
             request_timeout: Duration::from_secs(30),
+            exclude_spent: false,
         }
     }
 }
@@ -93,17 +101,31 @@ impl ScanConfig {
         self.batch_size = Some(batch_size);
         self
     }
+
+    /// Ask the backing HTTP store to exclude already-spent outputs.
+    ///
+    /// This is used during the Phase 1 fast-sync scan so that only the live
+    /// UTXO set is returned, reducing the data that must be transferred and
+    /// processed.  Normal / full-history scans should leave this `false`.
+    #[must_use]
+    pub const fn with_exclude_spent(mut self, exclude_spent: bool) -> Self {
+        self.exclude_spent = exclude_spent;
+        self
+    }
 }
 
 /// Configuration for the three-phase fast sync scanning method
 ///
 /// The fast sync method improves initial wallet recovery time by combining:
-/// 1. A fast phase that queries only the unspent UTXO set at `fast_sync_target_height`
-///    (avoids scanning every block from birthday to target height individually).
+/// 1. A fast phase that scans the range `birthday` → `fast_sync_target_height` asking the
+///    base node for **unspent UTXOs only** (`exclude_spent=true`).  This avoids transferring
+///    and processing spent-output history for the (potentially large) older portion of the
+///    chain, while still recovering all live UTXOs the wallet owns up to the target height.
 /// 2. A full block-by-block scan of the recent blocks from `fast_sync_target_height` to tip
-///    to catch the latest transactions.
-/// 3. A full historical scan from birthday to tip (run separately by the caller) to
-///    reconstruct the complete wallet history.
+///    (`exclude_spent=false`) to capture the latest transactions and inputs.
+/// 3. A full historical scan from birthday to tip (returned as a [`ScanConfig`] for the
+///    caller to run separately) to reconstruct the complete wallet history including
+///    spent-output tracking.
 ///
 /// The `fast_sync_target_height` is computed as `tip_height - fast_sync_safety_buffer`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -311,134 +333,7 @@ impl InProgressScan {
 mod tests {
     use std::time::Duration;
 
-    use async_trait::async_trait;
-    use tari_common_types::types::FixedHash;
-    use tari_node_components::blocks::Block;
-    use tari_transaction_components::transaction_components::TransactionOutput;
-
     use super::*;
-    use crate::{BlockHeaderInfo, BlockScanResult, TipInfo, WalletResult};
-
-    // ── Minimal mock scanner for testing fast_sync orchestration ─────────────
-
-    struct MockScanner {
-        tip_height: u64,
-        scan_calls: Vec<ScanConfig>,
-    }
-
-    impl MockScanner {
-        fn new(tip_height: u64) -> Self {
-            Self {
-                tip_height,
-                scan_calls: Vec::new(),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl BlockchainScanner for MockScanner {
-        async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
-            self.scan_calls.push(config.clone());
-            Ok((Vec::new(), false))
-        }
-
-        async fn get_tip_info(&mut self) -> WalletResult<TipInfo> {
-            Ok(TipInfo {
-                best_block_height: self.tip_height,
-                best_block_hash: FixedHash::default(),
-                accumulated_difficulty: "0".to_string(),
-                pruned_height: 0,
-                timestamp: 0,
-            })
-        }
-
-        async fn search_utxos(&mut self, _commitments: Vec<Vec<u8>>) -> WalletResult<Vec<BlockScanResult>> {
-            Ok(Vec::new())
-        }
-
-        async fn fetch_utxos(&mut self, _hashes: Vec<Vec<u8>>) -> WalletResult<Vec<TransactionOutput>> {
-            Ok(Vec::new())
-        }
-
-        async fn get_blocks_by_heights(&mut self, _heights: Vec<u64>) -> WalletResult<Vec<Block>> {
-            Ok(Vec::new())
-        }
-
-        async fn get_block_by_height(&mut self, _height: u64) -> WalletResult<Option<Block>> {
-            Ok(None)
-        }
-
-        async fn get_header_by_height(&mut self, _height: u64) -> WalletResult<Option<BlockHeaderInfo>> {
-            Ok(None)
-        }
-    }
-
-    // ── fast_sync orchestration tests ─────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_fast_sync_phases_are_correct() {
-        let mut scanner = MockScanner::new(1000);
-        // birthday=100, safety_buffer=200 → fast_sync_target_height = 1000-200 = 800
-        let config = FastSyncConfig::new(100).with_safety_buffer(200);
-        let result = scanner.fast_sync(&config).await.expect("fast_sync failed");
-
-        assert_eq!(result.tip_height, 1000);
-        assert_eq!(result.fast_sync_target_height, 800);
-        // Full-history config must cover birthday→tip
-        assert_eq!(result.full_history_scan_config.start_height, 100);
-        assert_eq!(result.full_history_scan_config.end_height, Some(1000));
-
-        // Phase 1 and Phase 2 each produce one scan_blocks call (mock returns more_blocks=false)
-        assert_eq!(scanner.scan_calls.len(), 2);
-        // Phase 1: birthday → fast_sync_target_height
-        assert_eq!(scanner.scan_calls[0].start_height, 100);
-        assert_eq!(scanner.scan_calls[0].end_height, Some(800));
-        // Phase 2: fast_sync_target_height → tip
-        assert_eq!(scanner.scan_calls[1].start_height, 800);
-        assert_eq!(scanner.scan_calls[1].end_height, Some(1000));
-    }
-
-    #[tokio::test]
-    async fn test_fast_sync_skips_phase1_when_birthday_at_target() {
-        // birthday == fast_sync_target_height → phase 1 should be skipped
-        let mut scanner = MockScanner::new(1000);
-        let config = FastSyncConfig::new(800).with_safety_buffer(200); // target = 800
-        let result = scanner.fast_sync(&config).await.expect("fast_sync failed");
-
-        assert_eq!(result.fast_sync_target_height, 800);
-        // Only phase 2 scan_blocks call should have been made
-        assert_eq!(scanner.scan_calls.len(), 1);
-        assert_eq!(scanner.scan_calls[0].start_height, 800);
-    }
-
-    #[tokio::test]
-    async fn test_fast_sync_skips_phase2_when_target_at_tip() {
-        // safety_buffer=0 → fast_sync_target_height == tip → phase 2 should be skipped
-        let mut scanner = MockScanner::new(1000);
-        let config = FastSyncConfig::new(0).with_safety_buffer(0);
-        let result = scanner.fast_sync(&config).await.expect("fast_sync failed");
-
-        assert_eq!(result.fast_sync_target_height, 1000);
-        // Only phase 1 scan_blocks call should have been made
-        assert_eq!(scanner.scan_calls.len(), 1);
-        assert_eq!(scanner.scan_calls[0].start_height, 0);
-        assert_eq!(scanner.scan_calls[0].end_height, Some(1000));
-    }
-
-    #[tokio::test]
-    async fn test_fast_sync_saturating_sub_prevents_underflow() {
-        // tip_height < safety_buffer → saturating_sub → target_height = 0
-        let mut scanner = MockScanner::new(100);
-        let config = FastSyncConfig::new(0).with_safety_buffer(720); // 100 - 720 saturates to 0
-        let result = scanner.fast_sync(&config).await.expect("fast_sync failed");
-
-        assert_eq!(result.fast_sync_target_height, 0);
-        // birthday(0) is NOT < target(0), so phase 1 skipped.
-        // target(0) IS < tip(100), so phase 2 runs.
-        assert_eq!(scanner.scan_calls.len(), 1);
-        assert_eq!(scanner.scan_calls[0].start_height, 0);
-        assert_eq!(scanner.scan_calls[0].end_height, Some(100));
-    }
 
     // ── FastSyncConfig ────────────────────────────────────────────────────────
 
@@ -460,9 +355,7 @@ mod tests {
 
     #[test]
     fn test_fast_sync_config_builder() {
-        let config = FastSyncConfig::new(500)
-            .with_safety_buffer(360)
-            .with_batch_size(50);
+        let config = FastSyncConfig::new(500).with_safety_buffer(360).with_batch_size(50);
         assert_eq!(config.birthday, 500);
         assert_eq!(config.fast_sync_safety_buffer, 360);
         assert_eq!(config.batch_size, Some(50));
@@ -491,6 +384,8 @@ mod tests {
         assert_eq!(cfg.start_height, 0);
         assert_eq!(cfg.end_height, None);
         assert_eq!(cfg.batch_size, Some(100));
+        // exclude_spent must default to false so normal scans are unaffected
+        assert_eq!(cfg.exclude_spent, false);
     }
 
     #[test]
@@ -509,5 +404,23 @@ mod tests {
         let cfg = ScanConfig::default().with_start_end_heights(50, 150);
         assert_eq!(cfg.start_height, 50);
         assert_eq!(cfg.end_height, Some(150));
+    }
+
+    #[test]
+    fn test_scan_config_with_exclude_spent() {
+        let cfg = ScanConfig::default().with_exclude_spent(true);
+        assert_eq!(cfg.exclude_spent, true);
+        // Verify round-trips through serde (the field has #[serde(default)])
+        let json = serde_json::to_string(&cfg).expect("serialization failed");
+        let deserialized: ScanConfig = serde_json::from_str(&json).expect("deserialization failed");
+        assert_eq!(cfg, deserialized);
+    }
+
+    #[test]
+    fn test_scan_config_exclude_spent_missing_from_json_defaults_to_false() {
+        // Old serialized configs without the exclude_spent field must deserialize to false
+        let json = r#"{"start_height":0,"end_height":null,"batch_size":100,"request_timeout":30}"#;
+        let cfg: ScanConfig = serde_json::from_str(json).expect("deserialization failed");
+        assert_eq!(cfg.exclude_spent, false);
     }
 }

@@ -27,7 +27,7 @@ use tracing::{debug, warn};
 use crate::{
     errors::{WalletError, WalletResult},
     http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct},
-    scanning::{interface::BlockchainScanner, BlockScanResult, InProgressScan, ScanConfig, TipInfo},
+    scanning::{interface::BlockchainScanner, BlockScanResult, FastSyncConfig, FastSyncResult, InProgressScan, ScanConfig, TipInfo},
     BlockHeaderInfo,
     UtxoScanResult,
 };
@@ -128,6 +128,7 @@ where KM: TransactionKeyManagerInterface
         start_header_hash: &str,
         limit: u64,
         page: u64,
+        exclude_spent: bool,
     ) -> WalletResult<SyncUtxosByBlockResponseV0> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
         let version = 1;
@@ -139,6 +140,7 @@ where KM: TransactionKeyManagerInterface
                 ("limit", &limit.to_string()),
                 ("page", &page.to_string()),
                 ("version", &version.to_string()),
+                ("exclude_spent", &exclude_spent.to_string()),
             ])
             .send()
             .await
@@ -218,6 +220,7 @@ where KM: TransactionKeyManagerInterface
             end_height,
             batch_size: Some(50),
             request_timeout: self.timeout,
+            exclude_spent: false,
         })
     }
 
@@ -270,7 +273,13 @@ where KM: TransactionKeyManagerInterface
             .and_then(|c| c.batch_size)
             .unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
         let page = self.current_in_progress.page();
-        let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
+        let exclude_spent = self
+            .current_in_progress
+            .get_config()
+            .map_or(false, |c| c.exclude_spent);
+        let sync_response = self
+            .sync_utxos_by_block(&current_header_hash, limit, page, exclude_spent)
+            .await?;
         if sync_response.blocks.is_empty() {
             debug!("No more blocks available from base node");
             return Ok((Vec::new(), false));
@@ -330,6 +339,106 @@ where KM: TransactionKeyManagerInterface
 
     pub fn clear_in_progress_scan(&mut self) {
         self.current_in_progress.clear();
+    }
+
+    /// Start the three-phase fast sync in a background [`tokio::task`] and return
+    /// a [`JoinHandle`] immediately so the caller is not blocked.
+    ///
+    /// The caller receives a handle that can be `.await`-ed later (or dropped if
+    /// fire-and-forget behaviour is desired).
+    ///
+    /// ## Phases
+    ///
+    /// 1. **Fast phase** (`birthday` → `fast_sync_target_height`): asks the base
+    ///    node for *unspent* UTXOs only (HTTP query parameter `exclude_spent=true`),
+    ///    avoiding a full block-by-block replay of the potentially large range from
+    ///    birthday to target height.
+    ///
+    /// 2. **Full phase** (`fast_sync_target_height` → `tip`): performs a complete
+    ///    block-by-block scan of the recent blocks so that the latest transactions
+    ///    are not missed (`exclude_spent=false`).
+    ///
+    /// 3. **History config** (returned inside [`FastSyncResult`], not executed):
+    ///    a [`ScanConfig`] covering `birthday` → `tip` that the caller can use to
+    ///    run a full background scan to reconstruct complete wallet history.
+    ///
+    /// `fast_sync_target_height = tip_height - fast_sync_safety_buffer`
+    /// (default: [`crate::DEFAULT_FAST_SYNC_SAFETY_BUFFER`] = 720 blocks).
+    ///
+    /// ## Non-blocking
+    ///
+    /// This method consumes `self` and spawns the work on the Tokio thread pool,
+    /// returning the [`JoinHandle`] immediately.  The scanner cannot be used after
+    /// calling this method.
+    pub fn fast_sync(
+        mut self,
+        config: FastSyncConfig,
+    ) -> tokio::task::JoinHandle<WalletResult<FastSyncResult>> {
+        tokio::spawn(async move {
+            // ── Step 1: determine the current tip ──────────────────────────
+            let tip_info = self.get_tip_info().await?;
+            let tip_height = tip_info.best_block_height;
+
+            // ── Step 2: fast_sync_target_height = tip - safety_buffer ──────
+            let fast_sync_target_height = tip_height.saturating_sub(config.fast_sync_safety_buffer);
+
+            // ── Phase 1: birthday → fast_sync_target_height ────────────────
+            // Use exclude_spent=true so only the live UTXO set is returned.
+            let mut phase1_results = Vec::new();
+            if config.birthday < fast_sync_target_height {
+                let phase1_config = ScanConfig {
+                    start_height: config.birthday,
+                    end_height: Some(fast_sync_target_height),
+                    batch_size: config.batch_size,
+                    request_timeout: config.request_timeout,
+                    exclude_spent: true,
+                };
+                loop {
+                    let (results, more_blocks) = self.scan_blocks(&phase1_config).await?;
+                    phase1_results.extend(results);
+                    if !more_blocks {
+                        break;
+                    }
+                }
+            }
+
+            // ── Phase 2: fast_sync_target_height → tip ─────────────────────
+            // Full block scan of the recent blocks (exclude_spent=false).
+            let mut phase2_results = Vec::new();
+            if fast_sync_target_height < tip_height {
+                let phase2_config = ScanConfig {
+                    start_height: fast_sync_target_height,
+                    end_height: Some(tip_height),
+                    batch_size: config.batch_size,
+                    request_timeout: config.request_timeout,
+                    exclude_spent: false,
+                };
+                loop {
+                    let (results, more_blocks) = self.scan_blocks(&phase2_config).await?;
+                    phase2_results.extend(results);
+                    if !more_blocks {
+                        break;
+                    }
+                }
+            }
+
+            // ── Phase 3 config: full historical scan birthday → tip ─────────
+            let full_history_scan_config = ScanConfig {
+                start_height: config.birthday,
+                end_height: Some(tip_height),
+                batch_size: config.batch_size,
+                request_timeout: config.request_timeout,
+                exclude_spent: false,
+            };
+
+            Ok(FastSyncResult {
+                phase1_results,
+                phase2_results,
+                fast_sync_target_height,
+                tip_height,
+                full_history_scan_config,
+            })
+        })
     }
 }
 

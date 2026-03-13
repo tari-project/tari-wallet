@@ -133,6 +133,7 @@ where KM: TransactionKeyManagerInterface
             end_height,
             batch_size: Some(100),
             request_timeout: self.timeout,
+            exclude_spent: false,
         })
     }
 
@@ -376,6 +377,7 @@ where KM: TransactionKeyManagerInterface
                 end_height: None,
                 batch_size: config.batch_size,
                 request_timeout: config.request_timeout,
+                exclude_spent: false,
             };
             self.current_in_progress = InProgressScan::new(adjusted_config);
             return Ok(());
