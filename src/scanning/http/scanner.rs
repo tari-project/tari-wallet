@@ -25,11 +25,11 @@ use tokio::task::block_in_place;
 use tracing::{debug, warn};
 
 use crate::{
-    errors::{WalletError, WalletResult},
-    http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct},
-    scanning::{interface::BlockchainScanner, BlockScanResult, InProgressScan, ScanConfig, TipInfo},
     BlockHeaderInfo,
     UtxoScanResult,
+    errors::{WalletError, WalletResult},
+    http::models::{HttpBlockHeader, HttpTipInfoResponse, IncompleteScannedOutput, ScanningOutputStruct},
+    scanning::{BlockScanResult, InProgressScan, ScanConfig, TipInfo, interface::BlockchainScanner},
 };
 
 const SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT: u64 = 50;
@@ -80,7 +80,7 @@ where KM: TransactionKeyManagerInterface
             rayon::ThreadPoolBuilder::new()
                 .num_threads(actual_threads)
                 .build()
-                .map_err(|e| WalletError::ConfigurationError(format!("Failed to build thread pool: {}", e)))?,
+                .map_err(|e| WalletError::ConfigurationError(format!("Failed to build thread pool: {e}")))?,
         );
 
         let client = Client::builder()
@@ -104,9 +104,9 @@ where KM: TransactionKeyManagerInterface
         if response.is_err() {
             let body = match response {
                 Ok(resp) => resp.text().await.unwrap_or_default(),
-                Err(_) => "".to_string(),
+                Err(e) => e.to_string(),
             };
-            warn!("Connection test failed, response body: {}", body);
+            warn!("Connection test failed, response body: {body}");
             return Err(WalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to connect to {base_url}")),
             ));
@@ -128,6 +128,7 @@ where KM: TransactionKeyManagerInterface
         start_header_hash: &str,
         limit: u64,
         page: u64,
+        exclude_spent: bool,
     ) -> WalletResult<SyncUtxosByBlockResponseV0> {
         let url = format!("{}/sync_utxos_by_block", self.base_url);
         let version = 1;
@@ -139,6 +140,7 @@ where KM: TransactionKeyManagerInterface
                 ("limit", &limit.to_string()),
                 ("page", &page.to_string()),
                 ("version", &version.to_string()),
+                ("exclude_spent", &exclude_spent.to_string()),
             ])
             .send()
             .await
@@ -153,7 +155,7 @@ where KM: TransactionKeyManagerInterface
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {status}")),
             ));
         }
 
@@ -188,7 +190,7 @@ where KM: TransactionKeyManagerInterface
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {status}")),
             ));
         }
 
@@ -218,6 +220,7 @@ where KM: TransactionKeyManagerInterface
             end_height,
             batch_size: Some(50),
             request_timeout: self.timeout,
+            exclude_spent: false,
         })
     }
 
@@ -243,6 +246,7 @@ where KM: TransactionKeyManagerInterface
     #[allow(clippy::cognitive_complexity)]
     async fn fetch_block_range(&mut self) -> WalletResult<(Vec<BlockUtxoInfo>, bool)> {
         let start_height = self.current_in_progress.get_config().map_or(0, |c| c.start_height);
+        let exclude_spent = self.current_in_progress.get_config().is_some_and(|c| c.exclude_spent);
 
         // Get the starting header hash
         let mut more_blocks = true;
@@ -270,7 +274,9 @@ where KM: TransactionKeyManagerInterface
             .and_then(|c| c.batch_size)
             .unwrap_or(SYNC_UTXOS_BY_BLOCK_PAGE_LIMIT);
         let page = self.current_in_progress.page();
-        let sync_response = self.sync_utxos_by_block(&current_header_hash, limit, page).await?;
+        let sync_response = self
+            .sync_utxos_by_block(&current_header_hash, limit, page, exclude_spent)
+            .await?;
         if sync_response.blocks.is_empty() {
             debug!("No more blocks available from base node");
             return Ok((Vec::new(), false));
@@ -281,13 +287,13 @@ where KM: TransactionKeyManagerInterface
 
         // Add all blocks from this response
         for block in blocks_to_process {
-            if let Some(end_height) = self.current_in_progress.get_config().and_then(|c| c.end_height) {
-                if block.height > end_height {
-                    debug!("Reached end height {}, stopping fetch", end_height);
-                    self.current_in_progress.clear();
-                    more_blocks = false;
-                    has_next_page = false;
-                }
+            if let Some(end_height) = self.current_in_progress.get_config().and_then(|c| c.end_height) &&
+                block.height > end_height
+            {
+                debug!("Reached end height {}, stopping fetch", end_height);
+                self.current_in_progress.clear();
+                more_blocks = false;
+                has_next_page = false;
             }
             all_blocks.push(block);
         }
@@ -319,7 +325,7 @@ where KM: TransactionKeyManagerInterface
         Ok((all_blocks, more_blocks))
     }
 
-    pub async fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()> {
+    pub fn update_scan_config(&mut self, config: &ScanConfig) -> WalletResult<()> {
         debug!(
             "String new scan, scanning from: {} to  {:?}",
             config.start_height, config.end_height
@@ -333,17 +339,18 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl<KM> BlockchainScanner for HttpBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
-        if let Some(end_height) = config.end_height {
-            if config.start_height > end_height {
-                return Err(WalletError::OperationNotSupported(
-                    "start_height cannot be greater than end_height".to_string(),
-                ));
-            }
+        if let Some(end_height) = config.end_height &&
+            config.start_height > end_height
+        {
+            return Err(WalletError::OperationNotSupported(
+                "start_height cannot be greater than end_height".to_string(),
+            ));
         }
 
         match &self.current_in_progress.get_config() {
@@ -354,11 +361,11 @@ where KM: TransactionKeyManagerInterface
                         existing_scan.start_height, existing_scan.end_height
                     );
                 } else {
-                    self.update_scan_config(config).await?;
+                    self.update_scan_config(config)?;
                 }
             },
             _ => {
-                self.update_scan_config(config).await?;
+                self.update_scan_config(config)?;
             },
         }
         let timer = Instant::now();
@@ -441,18 +448,13 @@ where KM: TransactionKeyManagerInterface
 
                     if !block.wallet_outputs.is_empty() {
                         // Block should always be present as we fetched them above
-                        let block_response = match block_data.get(&block.block_hash) {
-                            Some(b) => b,
-                            None => {
-                                errors.write().expect("write lock should not be poisoned").push(
-                                    WalletError::ScanningError(
-                                        crate::errors::ScanningError::blockchain_connection_failed(
-                                            "Block data missing for output",
-                                        ),
-                                    ),
-                                );
-                                return;
-                            },
+                        let Some(block_response) = block_data.get(&block.block_hash) else {
+                            errors.write().expect("write lock should not be poisoned").push(
+                                WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(
+                                    "Block data missing for output",
+                                )),
+                            );
+                            return;
                         };
                         for output in &block.wallet_outputs {
                             if let Some(index) = block_response
@@ -519,7 +521,7 @@ where KM: TransactionKeyManagerInterface
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {status}")),
             ));
         }
 
@@ -598,7 +600,7 @@ where KM: TransactionKeyManagerInterface
             let body = response.text().await.unwrap_or_default();
             warn!("HTTP error response body: {}", body);
             return Err(WalletError::ScanningError(
-                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", status)),
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {status}")),
             ));
         }
 

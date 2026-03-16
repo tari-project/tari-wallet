@@ -1,8 +1,8 @@
 use tari_common_types::types::CompressedPublicKey;
 use tari_crypto::ristretto::RistrettoSecretKey;
 use tari_transaction_components::key_manager::{
-    wallet_types::{ViewWallet, WalletType},
     KeyManager,
+    wallet_types::{ViewWallet, WalletType},
 };
 
 #[derive(Debug, Clone, Default)]

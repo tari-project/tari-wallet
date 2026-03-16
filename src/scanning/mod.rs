@@ -51,6 +51,7 @@ pub struct ScanConfig {
     /// Timeout for requests
     #[serde(with = "duration_serde")]
     pub request_timeout: Duration,
+    pub exclude_spent: bool,
 }
 
 impl Default for ScanConfig {
@@ -60,6 +61,7 @@ impl Default for ScanConfig {
             end_height: None,
             batch_size: Some(100),
             request_timeout: Duration::from_secs(30),
+            exclude_spent: false,
         }
     }
 }

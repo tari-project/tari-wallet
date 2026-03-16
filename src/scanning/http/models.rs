@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use tari_common_types::types::{CompressedCommitment, CompressedPublicKey, FixedHash};
 use tari_crypto::compressed_key::CompressedKey;
 use tari_transaction_components::{
+    MicroMinotari,
     key_manager::{TariKeyId, TransactionKeyManagerInterface},
     rpc::models::MinimalUtxoSyncInfo,
     transaction_components::{EncryptedData, MemoField, TransactionOutput, WalletOutput},
-    MicroMinotari,
 };
 use tari_utilities::ByteArray;
 

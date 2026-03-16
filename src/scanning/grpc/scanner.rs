@@ -20,13 +20,13 @@ use tari_transaction_components::{
     key_manager::TransactionKeyManagerInterface,
     transaction_components::{TransactionInput, TransactionKernel, TransactionOutput, WalletOutput},
 };
-use tonic::{transport::Channel, Request};
+use tonic::{Request, transport::Channel};
 use tracing::debug;
 
 use crate::{
-    errors::{WalletError, WalletResult},
-    scanning::{interface::BlockchainScanner, BlockScanResult, InProgressScan, ScanConfig, TipInfo},
     BlockHeaderInfo,
+    errors::{WalletError, WalletResult},
+    scanning::{BlockScanResult, InProgressScan, ScanConfig, TipInfo, interface::BlockchainScanner},
 };
 /// GRPC client for connecting to Tari base node
 pub struct GrpcBlockchainScanner<KM> {
@@ -133,6 +133,7 @@ where KM: TransactionKeyManagerInterface
             end_height,
             batch_size: Some(100),
             request_timeout: self.timeout,
+            exclude_spent: false,
         })
     }
 
@@ -177,11 +178,10 @@ where KM: TransactionKeyManagerInterface
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Stream error: {e}"
             )))
-        })? {
-            if let Some(block) = grpc_block.block {
-                let tari_block: Block = block.try_into()?;
-                return Ok(tari_block.dissolve().2);
-            }
+        })? && let Some(block) = grpc_block.block
+        {
+            let tari_block: Block = block.try_into()?;
+            return Ok(tari_block.dissolve().2);
         }
 
         Ok(Vec::new())
@@ -210,11 +210,10 @@ where KM: TransactionKeyManagerInterface
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Stream error: {e}"
             )))
-        })? {
-            if let Some(block) = grpc_block.block {
-                let tari_block: Block = block.try_into()?;
-                return Ok(tari_block.dissolve().1);
-            }
+        })? && let Some(block) = grpc_block.block
+        {
+            let tari_block: Block = block.try_into()?;
+            return Ok(tari_block.dissolve().1);
         }
 
         Ok(Vec::new())
@@ -243,11 +242,10 @@ where KM: TransactionKeyManagerInterface
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Stream error: {e}"
             )))
-        })? {
-            if let Some(block) = grpc_block.block {
-                let tari_block: Block = block.try_into()?;
-                return Ok(tari_block.dissolve().3);
-            }
+        })? && let Some(block) = grpc_block.block
+        {
+            let tari_block: Block = block.try_into()?;
+            return Ok(tari_block.dissolve().3);
         }
 
         Ok(Vec::new())
@@ -276,11 +274,10 @@ where KM: TransactionKeyManagerInterface
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Stream error: {e}"
             )))
-        })? {
-            if let Some(block) = grpc_block.block {
-                let tari_block: Block = block.try_into()?;
-                return Ok(Some(tari_block));
-            }
+        })? && let Some(block) = grpc_block.block
+        {
+            let tari_block: Block = block.try_into()?;
+            return Ok(Some(tari_block));
         }
 
         Ok(None)
@@ -376,6 +373,7 @@ where KM: TransactionKeyManagerInterface
                 end_height: None,
                 batch_size: config.batch_size,
                 request_timeout: config.request_timeout,
+                exclude_spent: config.exclude_spent,
             };
             self.current_in_progress = InProgressScan::new(adjusted_config);
             return Ok(());
@@ -389,19 +387,19 @@ where KM: TransactionKeyManagerInterface
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl<KM> BlockchainScanner for GrpcBlockchainScanner<KM>
 where KM: TransactionKeyManagerInterface
 {
     async fn scan_blocks(&mut self, config: &ScanConfig) -> WalletResult<(Vec<BlockScanResult>, bool)> {
-        if let Some(end_height) = config.end_height {
-            if config.start_height > end_height {
-                return Err(WalletError::OperationNotSupported(
-                    "start_height cannot be greater than end_height".to_string(),
-                ));
-            }
+        if let Some(end_height) = config.end_height &&
+            config.start_height > end_height
+        {
+            return Err(WalletError::OperationNotSupported(
+                "start_height cannot be greater than end_height".to_string(),
+            ));
         }
-
         match &self.current_in_progress.get_config() {
             Some(existing_scan) => {
                 if *existing_scan == config {
@@ -417,7 +415,6 @@ where KM: TransactionKeyManagerInterface
                 self.update_scan_config(config).await?;
             },
         }
-
         // Get tip info to determine end height
         let tip_info = self.get_tip_info().await?;
         let end_height = std::cmp::min(
@@ -451,7 +448,7 @@ where KM: TransactionKeyManagerInterface
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.number_processing_threads)
             .build()
-            .map_err(|e| WalletError::ConfigurationError(format!("Failed to build thread pool: {}", e)))?;
+            .map_err(|e| WalletError::ConfigurationError(format!("Failed to build thread pool: {e}")))?;
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
             WalletError::ScanningError(crate::errors::ScanningError::blockchain_connection_failed(&format!(
                 "Stream error: {e}"
@@ -477,7 +474,7 @@ where KM: TransactionKeyManagerInterface
                                 errors.write().expect("wallet_outputs lock poisoned").push(e);
                             },
                         }
-                    })
+                    });
                 });
 
                 let inputs = tari_block
